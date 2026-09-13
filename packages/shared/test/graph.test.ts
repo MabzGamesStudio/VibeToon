@@ -11,7 +11,7 @@ import {
 } from '../src/graph/graph';
 import { createConnection, createNode } from '../src/project/factory';
 import { createStarterProject } from '../src/project/seed';
-import { formatDialogText, DEFAULT_DURATION_OPTIONS } from '../src/flows/dialog';
+import { formatDialogText } from '../src/flows/dialog';
 import type { DialogFlowData, Project } from '../src/types/project';
 
 function starter(): { project: Project; dialogId: string; boardId: string } {
@@ -160,5 +160,4 @@ test('a flow goes stale when its own data or an upstream artifact changes', () =
     [dialogId, boardId],
     'stale flows come back in dependency order',
   );
-  void DEFAULT_DURATION_OPTIONS;
 });
