@@ -1,0 +1,29 @@
+{
+  "name": "vibetoon",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Node-graph workflow for producing animated clips on a basic laptop",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/client"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "npm run dev -w @vibetoon/server",
+    "dev:client": "npm run dev -w @vibetoon/client",
+    "build": "npm run build -w @vibetoon/client",
+    "start": "npm run start -w @vibetoon/server",
+    "typecheck": "tsc -b packages/shared packages/server packages/client",
+    "test": "npm run test -w @vibetoon/shared && npm run test -w @vibetoon/server",
+    "docs:flows": "node --import tsx scripts/flow-docs.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

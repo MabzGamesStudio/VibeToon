@@ -1,0 +1,24 @@
+import { generateAssembly } from './assembly';
+import { generateBrief } from './brief';
+import { generateDialog } from './dialog';
+import { generateStoryboard } from './storyboard';
+import type { Generator } from './types';
+
+/**
+ * Flow kinds map to a generator. Everything without a bespoke one falls back to
+ * the brief generator, which is what makes a newly added flow kind useful the
+ * moment it appears in the catalogue.
+ */
+const GENERATORS: Record<string, Generator> = {
+  'story.dialog': generateDialog,
+  'animation.storyboard': generateStoryboard,
+  'animation.animatic': generateAssembly,
+  'production.edit': generateAssembly,
+  'production.render': generateAssembly,
+};
+
+export function generatorFor(kind: string): Generator {
+  return GENERATORS[kind] ?? generateBrief;
+}
+
+export * from './types';
