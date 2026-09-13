@@ -1,0 +1,246 @@
+@use 'tokens' as *;
+
+.vt-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.vt-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: $bg-1;
+  border-bottom: 1px solid $line;
+  flex: none;
+
+  .vt-brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+
+    small {
+      color: $text-faint;
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+  }
+
+  .vt-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: $text-dim;
+    min-width: 0;
+
+    button {
+      background: none;
+      border: 0;
+      padding: 2px 4px;
+      border-radius: $radius-sm;
+      color: $text-dim;
+
+      &:hover {
+        color: $text;
+        background: $bg-3;
+      }
+    }
+
+    .vt-crumb-current {
+      color: $text;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+}
+
+.vt-save-state {
+  font-size: 11px;
+  color: $text-faint;
+  min-width: 92px;
+  text-align: right;
+
+  &.is-dirty {
+    color: $warn;
+  }
+
+  &.is-error {
+    color: $err;
+  }
+}
+
+.vt-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* Project picker ----------------------------------------------------- */
+
+.vt-picker {
+  margin: 0 auto;
+  padding: 48px 20px;
+  width: 100%;
+  max-width: 760px;
+
+  header {
+    margin-bottom: 24px;
+
+    h1 {
+      font-size: 26px;
+      margin-bottom: 6px;
+    }
+
+    p {
+      color: $text-dim;
+      max-width: 62ch;
+    }
+  }
+
+  .vt-new {
+    @include card;
+    display: flex;
+    gap: 8px;
+    padding: 10px;
+    margin-bottom: 20px;
+    align-items: center;
+
+    input {
+      flex: 1;
+    }
+  }
+
+  .vt-project-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .vt-project {
+    @include card;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    text-align: left;
+    width: 100%;
+    background: $bg-1;
+
+    &:hover {
+      border-color: $line-strong;
+      background: $bg-2;
+    }
+
+    .vt-project-name {
+      font-weight: 600;
+    }
+
+    .vt-project-meta {
+      color: $text-faint;
+      font-size: 11px;
+    }
+  }
+}
+
+/* Toasts ------------------------------------------------------------- */
+
+.vt-toasts {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 60;
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.vt-toast {
+  @include card;
+  box-shadow: $shadow-2;
+  padding: 8px 10px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  background: $bg-2;
+  border-left: 3px solid $line-strong;
+  animation: vt-toast-in 0.14s ease-out;
+
+  &.is-success {
+    border-left-color: $ok;
+  }
+
+  &.is-warn {
+    border-left-color: $warn;
+  }
+
+  &.is-error {
+    border-left-color: $err;
+  }
+
+  button {
+    background: none;
+    border: 0;
+    color: $text-faint;
+    padding: 0 2px;
+
+    &:hover {
+      color: $text;
+    }
+  }
+}
+
+@keyframes vt-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* Modal -------------------------------------------------------------- */
+
+.vt-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 14, 0.65);
+  display: grid;
+  place-items: center;
+  z-index: 70;
+  padding: 24px;
+}
+
+.vt-modal {
+  @include card;
+  background: $bg-1;
+  box-shadow: $shadow-3;
+  width: min(720px, 100%);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid $line;
+  }
+
+  .vt-modal-body {
+    @include scroll;
+    overflow: auto;
+    padding: 14px;
+  }
+
+  footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 14px;
+    border-top: 1px solid $line;
+  }
+}

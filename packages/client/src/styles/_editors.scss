@@ -1,0 +1,495 @@
+@use 'tokens' as *;
+
+.vt-editor {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.vt-editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: $bg-1;
+  border-bottom: 1px solid $line;
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.vt-editor-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.vt-editor-main {
+  @include scroll;
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.vt-editor-side {
+  @include scroll;
+  width: 292px;
+  flex: none;
+  overflow: auto;
+  padding: 12px;
+  background: $bg-1;
+  border-right: 1px solid $line;
+}
+
+/* Dialog editor ------------------------------------------------------ */
+
+.vt-scene {
+  @include card;
+  margin-bottom: 12px;
+  background: $bg-1;
+
+  > header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid $line;
+
+    .vt-scene-no {
+      font-family: $mono;
+      color: $text-faint;
+      font-size: 11px;
+      flex: none;
+    }
+
+    input.vt-slug {
+      font-weight: 600;
+      text-transform: uppercase;
+      background: transparent;
+      border-color: transparent;
+
+      &:hover {
+        border-color: $line;
+      }
+    }
+
+    select {
+      width: 150px;
+      flex: none;
+    }
+  }
+
+  .vt-scene-summary {
+    padding: 8px 10px 0;
+  }
+
+  .vt-beats {
+    padding: 8px 10px 10px;
+    display: grid;
+    gap: 6px;
+  }
+
+  .vt-scene-foot {
+    display: flex;
+    gap: 6px;
+    padding: 0 10px 10px;
+    flex-wrap: wrap;
+  }
+}
+
+.vt-beat {
+  display: grid;
+  grid-template-columns: 74px 130px 1fr auto;
+  gap: 8px;
+  align-items: start;
+  padding: 7px;
+  border: 1px solid $line;
+  border-radius: $radius-sm;
+  background: $bg-2;
+
+  &.is-action {
+    grid-template-columns: 74px 1fr auto;
+  }
+
+  &.is-sound {
+    grid-template-columns: 74px 1fr auto;
+    background: rgba(90, 176, 232, 0.06);
+  }
+
+  &.is-direction {
+    grid-template-columns: 74px 1fr auto;
+    background: rgba(240, 178, 63, 0.06);
+  }
+
+  textarea {
+    min-height: 34px;
+    field-sizing: content;
+  }
+
+  .vt-beat-type {
+    font-size: 11px;
+  }
+
+  .vt-beat-extras {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+
+    input {
+      flex: 1;
+    }
+
+    .vt-beat-duration {
+      width: 84px;
+      flex: none;
+    }
+  }
+
+  .vt-beat-tools {
+    display: flex;
+    gap: 2px;
+    flex: none;
+  }
+}
+
+.vt-character {
+  @include card;
+  background: $bg-2;
+  padding: 8px;
+  margin-bottom: 6px;
+
+  .vt-character-head {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 5px;
+  }
+
+  .vt-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    flex: none;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  textarea {
+    min-height: 30px;
+    margin-top: 4px;
+  }
+}
+
+/* Storyboard editor -------------------------------------------------- */
+
+.vt-sync-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: rgba(110, 168, 254, 0.1);
+  border-bottom: 1px solid rgba(110, 168, 254, 0.35);
+  font-size: 12px;
+  flex: none;
+
+  &.is-clean {
+    background: rgba(86, 194, 113, 0.08);
+    border-bottom-color: rgba(86, 194, 113, 0.3);
+  }
+}
+
+.vt-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.vt-panel {
+  @include card;
+  background: $bg-1;
+  display: flex;
+  flex-direction: column;
+
+  &.is-pinned {
+    border-color: rgba(240, 178, 63, 0.55);
+  }
+
+  > header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid $line;
+
+    .vt-panel-no {
+      font-family: $mono;
+      font-size: 11px;
+      color: $text-faint;
+    }
+
+    select,
+    input {
+      width: auto;
+    }
+
+    .vt-panel-shot {
+      width: 86px;
+    }
+
+    .vt-panel-dur {
+      width: 62px;
+    }
+  }
+
+  .vt-panel-fields {
+    padding: 8px;
+    display: grid;
+    gap: 6px;
+
+    textarea {
+      min-height: 32px;
+      field-sizing: content;
+    }
+  }
+
+  > footer {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    border-top: 1px solid $line;
+  }
+}
+
+.vt-sketch {
+  position: relative;
+  background: #f4f1ea;
+  border-bottom: 1px solid $line;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .vt-sketch-empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: #9a927f;
+    font-size: 11px;
+    pointer-events: none;
+  }
+}
+
+.vt-sketch-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid $line;
+  background: $bg-2;
+  flex-wrap: wrap;
+
+  .vt-brush {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1px solid $line;
+    background: $bg-3;
+    display: grid;
+    place-items: center;
+    padding: 0;
+
+    &.is-active {
+      border-color: $accent;
+      background: $accent-soft;
+    }
+
+    i {
+      display: block;
+      border-radius: 50%;
+      background: $text;
+    }
+  }
+
+  .vt-ink {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    padding: 0;
+
+    &.is-active {
+      box-shadow: 0 0 0 2px $accent;
+    }
+  }
+}
+
+/* Playblast ---------------------------------------------------------- */
+
+.vt-playblast {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 7, 10, 0.94);
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 10px;
+
+  .vt-playblast-stage {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+
+    // Absolute + auto margins keeps the frame centred and inside the flex row;
+    // a plain max-height on an in-flow canvas resolves against its own
+    // intrinsic size and overflows the controls off screen.
+    canvas {
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      width: auto;
+      height: auto;
+      max-width: 100%;
+      max-height: 100%;
+      background: #f4f1ea;
+      border-radius: $radius;
+      box-shadow: $shadow-3;
+    }
+  }
+
+  .vt-playblast-caption {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 10px;
+    text-align: center;
+    font-size: 14px;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+    padding: 0 24px;
+    pointer-events: none;
+    white-space: pre-wrap;
+  }
+
+  .vt-playblast-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    input[type='range'] {
+      flex: 1;
+      padding: 0;
+    }
+
+    .vt-time {
+      font-family: $mono;
+      font-size: 11px;
+      color: $text-dim;
+      min-width: 96px;
+    }
+  }
+}
+
+/* Brief editor ------------------------------------------------------- */
+
+.vt-brief {
+  max-width: 780px;
+
+  .vt-brief-field {
+    margin-bottom: 12px;
+
+    textarea {
+      min-height: 76px;
+    }
+
+    &.is-line textarea,
+    &.is-line input {
+      min-height: 0;
+    }
+  }
+}
+
+.vt-upstream {
+  @include card;
+  background: $bg-2;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+
+  .vt-upstream-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  pre {
+    @include scroll;
+    max-height: 180px;
+    overflow: auto;
+    background: $bg-0;
+    border-radius: $radius-sm;
+    padding: 6px 8px;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-top: 6px;
+  }
+}
+
+.vt-sync-changes {
+  display: grid;
+  gap: 4px;
+
+  .vt-change {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    font-size: 12px;
+    padding: 4px 6px;
+    border-radius: $radius-sm;
+    background: $bg-2;
+
+    .vt-change-type {
+      font-family: $mono;
+      font-size: 10px;
+      text-transform: uppercase;
+      min-width: 66px;
+      color: $text-faint;
+    }
+
+    &.is-add .vt-change-type {
+      color: $ok;
+    }
+
+    &.is-update .vt-change-type {
+      color: $accent;
+    }
+
+    &.is-remove .vt-change-type {
+      color: $err;
+    }
+
+    &.is-orphan .vt-change-type,
+    &.is-pinned .vt-change-type {
+      color: $warn;
+    }
+
+    .vt-change-scene {
+      color: $text-faint;
+      font-size: 11px;
+    }
+  }
+}

@@ -5,10 +5,13 @@ import { writeFile } from 'node:fs/promises';
 let ffmpegChecked = false;
 let ffmpegAvailable = false;
 
+/** Path to ffmpeg. Set VIBETOON_FFMPEG when it is not on PATH. */
+export const FFMPEG_BIN = process.env.VIBETOON_FFMPEG ?? 'ffmpeg';
+
 /** ffmpeg is optional: everything still works without it, minus the mp4 itself. */
 export function hasFfmpeg(): boolean {
   if (!ffmpegChecked) {
-    const probe = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' });
+    const probe = spawnSync(FFMPEG_BIN, ['-version'], { stdio: 'ignore' });
     ffmpegAvailable = probe.status === 0;
     ffmpegChecked = true;
   }
@@ -69,7 +72,7 @@ export function ffmpegArgs(request: RenderRequest): string[] {
 }
 
 export function ffmpegCommand(request: RenderRequest): string {
-  return `ffmpeg ${ffmpegArgs(request)
+  return `${FFMPEG_BIN} ${ffmpegArgs(request)
     .map((arg) => (/[\s'"]/.test(arg) ? JSON.stringify(arg) : arg))
     .join(' ')}`;
 }
@@ -88,7 +91,7 @@ export async function renderVideo(request: RenderRequest): Promise<RenderOutcome
   }
 
   return new Promise((resolve) => {
-    const child = spawn('ffmpeg', ffmpegArgs(request), { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(FFMPEG_BIN, ffmpegArgs(request), { stdio: ['ignore', 'pipe', 'pipe'] });
     let buffer = '';
     const capture = (chunk: Buffer) => {
       buffer += chunk.toString();

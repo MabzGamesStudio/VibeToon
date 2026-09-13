@@ -1,0 +1,281 @@
+@use 'tokens' as *;
+
+.vt-inspector {
+  width: 340px;
+  flex: none;
+  background: $bg-1;
+  border-left: 1px solid $line;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+
+  > header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border-bottom: 1px solid $line;
+
+    h2 {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .vt-inspector-body {
+    @include scroll;
+    overflow: auto;
+    padding: 10px;
+    flex: 1;
+  }
+}
+
+.vt-section {
+  border-top: 1px solid $line;
+  padding-top: 10px;
+  margin-top: 12px;
+
+  &:first-child {
+    border-top: 0;
+    padding-top: 0;
+    margin-top: 0;
+  }
+
+  > h3 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: $text-faint;
+    margin-bottom: 7px;
+  }
+}
+
+.vt-kv {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 3px 8px;
+  font-size: 12px;
+
+  dt {
+    color: $text-faint;
+  }
+
+  dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+.vt-port-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px dashed rgba(71, 80, 98, 0.4);
+  font-size: 12px;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  .vt-port-name {
+    font-weight: 600;
+  }
+
+  .vt-port-kinds {
+    font-family: $mono;
+    font-size: 10px;
+    color: $text-faint;
+  }
+
+  .vt-port-file {
+    font-family: $mono;
+    font-size: 10px;
+    color: $text-dim;
+  }
+}
+
+.vt-rules-editor {
+  textarea {
+    min-height: 132px;
+    font-family: $mono;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+.vt-rules-summary {
+  margin-top: 6px;
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+
+  .vt-rule-line {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+
+    code {
+      background: $bg-3;
+      border-radius: 3px;
+      padding: 0 4px;
+      color: $accent;
+    }
+
+    &.is-unknown code {
+      color: $warn;
+    }
+  }
+}
+
+.vt-directive-help {
+  margin-top: 8px;
+  border-top: 1px dashed $line;
+  padding-top: 8px;
+
+  .vt-directive {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: 0;
+    padding: 3px 4px;
+    border-radius: $radius-sm;
+    font-size: 11px;
+    color: $text-dim;
+
+    &:hover {
+      background: $bg-3;
+      color: $text;
+    }
+
+    code {
+      color: $accent;
+    }
+  }
+}
+
+.vt-mode-picker {
+  display: grid;
+  gap: 4px;
+
+  .vt-mode {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 6px 8px;
+    border: 1px solid $line;
+    border-radius: $radius-sm;
+    background: $bg-2;
+    text-align: left;
+
+    &:hover {
+      border-color: $line-strong;
+    }
+
+    &.is-active {
+      border-color: $accent;
+      background: $accent-soft;
+    }
+
+    strong {
+      display: block;
+      font-size: 12px;
+    }
+
+    span {
+      color: $text-faint;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+  }
+}
+
+/* Artifacts ---------------------------------------------------------- */
+
+.vt-artifacts {
+  display: grid;
+  gap: 6px;
+}
+
+.vt-artifact {
+  @include card;
+  background: $bg-2;
+  padding: 7px 8px;
+
+  .vt-artifact-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+
+    .vt-artifact-name {
+      font-family: $mono;
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .vt-artifact-meta {
+    color: $text-faint;
+    font-size: 10px;
+    margin-top: 2px;
+  }
+}
+
+.vt-artifact-preview {
+  margin-top: 6px;
+  border-top: 1px solid $line;
+  padding-top: 6px;
+
+  pre {
+    @include scroll;
+    max-height: 260px;
+    overflow: auto;
+    background: $bg-0;
+    border-radius: $radius-sm;
+    padding: 7px 8px;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  img,
+  video {
+    max-width: 100%;
+    border-radius: $radius-sm;
+    background: #000;
+    display: block;
+  }
+
+  audio {
+    width: 100%;
+  }
+}
+
+.vt-run-log {
+  display: grid;
+  gap: 3px;
+  font-size: 11px;
+  font-family: $mono;
+
+  .vt-log-line {
+    color: $text-dim;
+
+    &.is-warn {
+      color: $warn;
+    }
+
+    &.is-error {
+      color: $err;
+    }
+  }
+}

@@ -558,6 +558,11 @@ export function boardDuration(
   return last ? last.endSec : 0;
 }
 
+/** File name a panel's rasterised image is written under, inside `panels/`. */
+export function panelImageName(index: number): string {
+  return `panels/panel-${String(index + 1).padStart(3, '0')}.png`;
+}
+
 function csvCell(value: string | number): string {
   const text = String(value ?? '');
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -674,7 +679,10 @@ export function storyboardPayload(
       sketch: timedPanel.panel.sketch
         ? { strokes: timedPanel.panel.sketch.strokes.length, width: timedPanel.panel.sketch.width, height: timedPanel.panel.sketch.height }
         : null,
-      image: timedPanel.panel.sketch ? `panels/panel-${String(timedPanel.index + 1).padStart(3, '0')}.png` : null,
+      // Every panel gets an image slot so a board with undrawn panels still
+      // assembles into a complete animatic; undrawn ones rasterise as a
+      // labelled placeholder rather than a gap in the cut.
+      image: panelImageName(timedPanel.index),
     })),
   };
 }

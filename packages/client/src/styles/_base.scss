@@ -1,0 +1,267 @@
+@use 'sass:color';
+@use 'tokens' as *;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: $bg-0;
+  color: $text;
+  font: 13px/1.5 $font;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: 15px;
+}
+
+h2 {
+  font-size: 14px;
+}
+
+h3 {
+  font-size: 12.5px;
+}
+
+p {
+  margin: 0 0 8px;
+}
+
+a {
+  color: $accent;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+code,
+pre,
+textarea.vt-mono {
+  font-family: $mono;
+  font-size: 12px;
+}
+
+pre {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: $text;
+  background: $bg-3;
+  border: 1px solid $line;
+  border-radius: $radius-sm;
+  padding: 5px 7px;
+  width: 100%;
+
+  &:focus-visible {
+    @include focus-ring;
+    border-color: $accent;
+  }
+
+  &::placeholder {
+    color: $text-faint;
+  }
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+
+select {
+  cursor: pointer;
+}
+
+label {
+  display: block;
+}
+
+.vt-scroll {
+  @include scroll;
+  overflow: auto;
+}
+
+/* Buttons ------------------------------------------------------------ */
+
+.vt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: $bg-3;
+  border: 1px solid $line;
+  border-radius: $radius-sm;
+  padding: 5px 10px;
+  color: $text;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease;
+
+  &:hover:not(:disabled) {
+    background: $bg-4;
+    border-color: $line-strong;
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  &.is-primary {
+    background: $accent;
+    border-color: transparent;
+    color: #07121f;
+    font-weight: 600;
+
+    &:hover:not(:disabled) {
+      background: color.adjust($accent, $lightness: 6%);
+    }
+  }
+
+  &.is-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: $text-dim;
+
+    &:hover:not(:disabled) {
+      background: $bg-3;
+      color: $text;
+    }
+  }
+
+  &.is-danger:hover:not(:disabled) {
+    border-color: $err;
+    color: $err;
+  }
+
+  &.is-small {
+    padding: 3px 7px;
+    font-size: 12px;
+  }
+
+  &.is-active {
+    background: $accent-soft;
+    border-color: $accent;
+    color: $text;
+  }
+}
+
+.vt-icon-btn {
+  @extend .vt-btn;
+  padding: 3px 6px;
+  min-width: 26px;
+  justify-content: center;
+}
+
+/* Small shared bits -------------------------------------------------- */
+
+.vt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  background: $bg-3;
+  color: $text-dim;
+  border: 1px solid transparent;
+
+  &.is-ready {
+    color: $ok;
+    border-color: rgba(86, 194, 113, 0.4);
+    background: rgba(86, 194, 113, 0.1);
+  }
+
+  &.is-stale {
+    color: $warn;
+    border-color: rgba(232, 176, 75, 0.4);
+    background: rgba(232, 176, 75, 0.1);
+  }
+
+  &.is-error {
+    color: $err;
+    border-color: rgba(232, 112, 90, 0.45);
+    background: rgba(232, 112, 90, 0.12);
+  }
+
+  &.is-empty {
+    color: $text-faint;
+  }
+}
+
+.vt-field {
+  margin-bottom: 10px;
+
+  > .vt-label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    color: $text-dim;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+  }
+
+  > .vt-hint {
+    color: $text-faint;
+    font-size: 11px;
+    margin-top: 3px;
+  }
+}
+
+.vt-muted {
+  color: $text-dim;
+}
+
+.vt-faint {
+  color: $text-faint;
+}
+
+.vt-empty {
+  color: $text-faint;
+  font-style: italic;
+  padding: 12px 0;
+}
+
+.vt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vt-spacer {
+  flex: 1;
+}
