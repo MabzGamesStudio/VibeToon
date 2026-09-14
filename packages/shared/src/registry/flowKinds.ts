@@ -86,6 +86,28 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
   },
 
   /* ---------------------------------------------------------------- *
+   * Text
+   * ---------------------------------------------------------------- */
+  {
+    kind: 'text.random',
+    category: 'text',
+    label: 'Random Text',
+    summary: 'Writes or rewrites text from a word database of weighted contexts.',
+    inputs: [
+      input('text', 'Text', ['text', 'markdown'], 'Text to rewrite. Without it the flow writes new text.'),
+      input('lexicon', 'Word database', ['json'], 'A lexicon to merge into this one.'),
+    ],
+    outputs: [
+      output('text', 'Text', ['text'], 'text.txt', 'The text this run produced.'),
+      output('lexicon', 'Word database', ['json'], 'lexicon.json', 'The words, contexts and weights, for other flows to share.'),
+      output('report', 'Report', ['markdown'], 'report.md', 'What the run did: lengths, what changed, what it could not read.'),
+    ],
+    editor: 'text',
+    maturity: 'editor',
+    defaultIncomingRules: ['alter: 0.3', 'length: +0%', 'temperature: 0.45', 'context window: 3'].join('\n'),
+  },
+
+  /* ---------------------------------------------------------------- *
    * Story
    * ---------------------------------------------------------------- */
   {

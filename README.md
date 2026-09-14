@@ -61,6 +61,13 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   add, update or drop *before* it touches the board; sketches, panel notes and
   pinned panels are never overwritten. Generates `storyboard.json`,
   `shotlist.csv`, `boards.md` and a rasterised `panels/` folder.
+- **Random text.** A word database — each entry with a word type, how common it
+  is, and weighted links to other words — that the flow walks to write new text
+  or rewrite text arriving over a wire. Length is set by word count, character
+  count, or a percentage change, with a temperature that decides how exactly to
+  land on it; another temperature decides how much of the incoming text is
+  replaced. Every run is seeded, so it is reproducible.
+  See [docs/RANDOM-TEXT.md](docs/RANDOM-TEXT.md).
 - **Playblast.** Play the board in the browser at its own timing, with dialog as
   captions. No tooling required.
 - **Video output.** The animatic, edit and render flows assemble the boards into
@@ -76,8 +83,11 @@ Set `VIBETOON_DATA` to keep them somewhere else.
 
 - It does not draw, act, compose or animate for you. Generation here means
   turning what you wrote into the files the next flow reads, and assembling what
-  exists. There is no model wired in; every generator is deterministic and local.
-- Bespoke editors exist for two flow kinds so far (dialog, storyboard). The rest
+  exists. There is no model wired in; every generator is deterministic and local
+  — including the random text flow, which walks a word database you can edit
+  rather than predicting anything.
+- Bespoke editors exist for three flow kinds so far (dialog, storyboard, random
+  text). The rest
   are real and usable through the brief editor, but they are text and uploads,
   not purpose-built tools.
 - Rendering video needs ffmpeg installed separately.
@@ -85,7 +95,8 @@ Set `VIBETOON_DATA` to keep them somewhere else.
 ## Layout
 
 ```
-packages/shared   domain model, flow catalogue, rules language, board derivation
+packages/shared   domain model, flow catalogue, rules language, board derivation,
+                  the word database and text generator
 packages/server   file-backed projects, generation, video assembly (Express)
 packages/client   React + SCSS: graph canvas, flow editors, playblast
 docs/             architecture, the flow catalogue, the rules language

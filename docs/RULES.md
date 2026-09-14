@@ -45,6 +45,13 @@ keep: the pause before the last line
 | `max duration`    | `6`                         | storyboard, animatic | Ceiling for a derived panel duration. |
 | `words per second`| `2.6`                       | storyboard, animatic | Speaking rate used to time a line with no explicit duration. |
 | `scenes`          | `1-3` / `2,4` / `all`       | any               | Restrict to a range or list of scene numbers. |
+| `length`          | `+20%`                      | random text       | Target length: `keep`, `120 words`, `900 characters`, `+20%`, `-15% characters`. |
+| `alter`           | `0.35`                      | random text       | Share of the incoming words a run may replace. Setting it switches the flow to altering. |
+| `temperature`     | `0.45`                      | random text       | Randomness of each word pick, 0 to 1. |
+| `context window`  | `4`                         | random text       | How many previous words pull on the next one. |
+| `length temperature` | `0.25`                   | random text       | How far off the target length a run may land. |
+| `seed`            | `rain`                      | random text       | Seed for the run; the same seed writes the same text. |
+| `mode`            | `alter`                     | random text       | `generate` writes new text, `alter` rewrites what arrives. |
 | `weight`          | `0.7`                       | any               | How hard this input should push the result, 0 to 1. |
 | `keep`            | `names, props`              | any               | Guidance, passed through verbatim. |
 | `never`           | `invent new characters`     | any               | Guidance, passed through verbatim. |
@@ -78,3 +85,18 @@ whoever animates it will read it.
 
 Nothing is applied behind your back: in the default `suggest` mode the storyboard
 shows exactly what a re-derivation would add, update or drop, and you accept it.
+
+## A second example: rewriting what arrives
+
+A wire from **Scene Dialog** into **Random Text** carrying
+
+```
+alter: 0.35
+length: +50%
+seed: rain
+```
+
+takes the generated `dialog.txt`, replaces about a third of its words with ones
+the word database thinks belong there, and grows the result by half — keeping the
+script's line breaks, its scene headings and every word the database has never
+heard of. [docs/RANDOM-TEXT.md](RANDOM-TEXT.md) explains what the other knobs do.

@@ -35,6 +35,17 @@ What the clip is about underneath, and how it should feel.
 - **Out:** Tone `tone.md`
 - **Fields:** Themes, Tone, References, Avoid
 
+## Text
+
+### Random Text
+
+`text.random` · **bespoke editor**
+
+Writes or rewrites text from a word database of weighted contexts.
+
+- **In:** Text, Word database
+- **Out:** Text `text.txt`, Word database `lexicon.json`, Report `report.md`
+
 ## Story
 
 ### Outline / Beat Sheet
@@ -398,4 +409,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-34 flow kinds.
+35 flow kinds.

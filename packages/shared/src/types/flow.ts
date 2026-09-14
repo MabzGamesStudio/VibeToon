@@ -3,6 +3,7 @@ import type { ArtifactKind } from './artifacts';
 /** Top-level grouping used by the palette and the graph's colour coding. */
 export type FlowCategory =
   | 'brainstorm'
+  | 'text'
   | 'story'
   | 'world'
   | 'animation'
@@ -13,6 +14,7 @@ export type FlowCategory =
 
 export const FLOW_CATEGORIES: readonly FlowCategory[] = [
   'brainstorm',
+  'text',
   'story',
   'world',
   'animation',
@@ -24,6 +26,7 @@ export const FLOW_CATEGORIES: readonly FlowCategory[] = [
 
 export const FLOW_CATEGORY_LABEL: Record<FlowCategory, string> = {
   brainstorm: 'Brainstorm',
+  text: 'Text',
   story: 'Story',
   world: 'World',
   animation: 'Animation',
@@ -34,7 +37,7 @@ export const FLOW_CATEGORY_LABEL: Record<FlowCategory, string> = {
 };
 
 /** Which focused editor a flow opens when you double-click its node. */
-export type EditorId = 'dialog' | 'storyboard' | 'brief';
+export type EditorId = 'dialog' | 'storyboard' | 'text' | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */
 export type FlowMaturity = 'editor' | 'brief';
@@ -81,4 +84,6 @@ export interface FlowKindDef {
   fields?: BriefFieldSpec[];
   /** Seed text for the rules box when this flow is the source of a new connection. */
   defaultOutgoingRules?: string;
+  /** Seed text used instead when the source kind suggests nothing of its own. */
+  defaultIncomingRules?: string;
 }

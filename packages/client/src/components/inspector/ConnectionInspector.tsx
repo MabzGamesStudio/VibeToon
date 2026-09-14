@@ -33,9 +33,13 @@ export function ConnectionInspector({
   const relevant = useMemo(() => {
     const kind = targetNode?.kind;
     const directives = registry?.ruleDirectives ?? RULE_DIRECTIVES;
-    return directives.filter(
-      (directive) => directive.appliesTo.includes('*') || (kind && directive.appliesTo.includes(kind)),
-    );
+    return directives
+      .filter((directive) => directive.appliesTo.includes('*') || (kind && directive.appliesTo.includes(kind)))
+      // What this particular flow understands comes before the general ones.
+      .sort((a, b) => {
+        const specific = (directive: typeof a) => (kind && directive.appliesTo.includes(kind) ? 0 : 1);
+        return specific(a) - specific(b);
+      });
   }, [registry, targetNode?.kind]);
 
   const settings = connection.settings;

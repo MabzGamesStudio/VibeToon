@@ -4,6 +4,7 @@ import { BriefEditor } from './BriefEditor';
 import { DialogEditor } from './DialogEditor';
 import { EditorShell } from './EditorShell';
 import { StoryboardEditor } from './StoryboardEditor';
+import { TextEditor } from './TextEditor';
 
 /** Picks the editor a flow's data asks for. */
 export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
@@ -19,6 +20,8 @@ export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
       );
     case 'storyboard':
       return <StoryboardEditor project={project} node={node} />;
+    case 'text':
+      return <TextEditor project={project} node={node} />;
     default:
       return <BriefEditor project={project} node={node} />;
   }

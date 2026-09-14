@@ -2,6 +2,7 @@ import { generateAssembly } from './assembly';
 import { generateBrief } from './brief';
 import { generateDialog } from './dialog';
 import { generateStoryboard } from './storyboard';
+import { generateText } from './text';
 import type { Generator } from './types';
 
 /**
@@ -12,6 +13,7 @@ import type { Generator } from './types';
 const GENERATORS: Record<string, Generator> = {
   'story.dialog': generateDialog,
   'animation.storyboard': generateStoryboard,
+  'text.random': generateText,
   'animation.animatic': generateAssembly,
   'production.edit': generateAssembly,
   'production.render': generateAssembly,

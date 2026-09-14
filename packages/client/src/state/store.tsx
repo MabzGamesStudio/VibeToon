@@ -11,7 +11,7 @@ import {
 import {
   createConnection,
   createNode,
-  defaultRulesForSource,
+  defaultRulesForConnection,
   validateConnection,
   type Connection,
   type FlowData,
@@ -290,8 +290,10 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         return false;
       }
       const sourceNode = current.nodes.find((node) => node.id === from.nodeId);
+      const targetNode = current.nodes.find((node) => node.id === to.nodeId);
       const connection = createConnection(from, to, {
-        rules: sourceNode ? defaultRulesForSource(sourceNode.kind) : '',
+        rules:
+          sourceNode && targetNode ? defaultRulesForConnection(sourceNode.kind, targetNode.kind) : '',
       });
       commit({ ...current, connections: [...current.connections, connection] });
       setSelection({ type: 'connection', id: connection.id });

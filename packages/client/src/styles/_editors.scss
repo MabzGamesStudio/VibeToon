@@ -493,3 +493,172 @@
     }
   }
 }
+
+/* Random text editor -------------------------------------------------- */
+
+.vt-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.vt-text-output {
+  @include card;
+  background: $bg-0;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 78ch;
+}
+
+.vt-tok {
+  border-radius: 3px;
+
+  &.is-replaced {
+    background: rgba(110, 168, 254, 0.22);
+    box-shadow: 0 0 0 1px rgba(110, 168, 254, 0.35);
+  }
+
+  &.is-added {
+    background: rgba(86, 194, 113, 0.2);
+    box-shadow: 0 0 0 1px rgba(86, 194, 113, 0.32);
+  }
+}
+
+/* Word database ------------------------------------------------------- */
+
+.vt-lexicon {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.vt-lexicon-list {
+  width: 320px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid $line;
+  background: $bg-1;
+
+  .vt-lexicon-tools {
+    display: flex;
+    gap: 6px;
+    padding: 8px;
+
+    select {
+      width: 116px;
+      flex: none;
+    }
+  }
+}
+
+.vt-lexeme-rows {
+  flex: 1;
+  min-height: 0;
+  padding: 0 6px 8px;
+}
+
+.vt-lexeme-row {
+  display: grid;
+  grid-template-columns: 1fr 42px 64px 22px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: $radius-sm;
+  padding: 4px 6px;
+  font-size: 12px;
+
+  &:hover {
+    background: $bg-2;
+  }
+
+  &.is-selected {
+    background: $accent-soft;
+    border-color: $accent;
+  }
+
+  .vt-lexeme-spelling {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .vt-lexeme-type,
+  .vt-lexeme-links {
+    color: $text-faint;
+    font-size: 10px;
+    font-family: $mono;
+  }
+
+  .vt-lexeme-links {
+    text-align: right;
+  }
+}
+
+.vt-freq-bar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: $bg-3;
+  overflow: hidden;
+
+  i {
+    display: block;
+    height: 100%;
+    background: $accent;
+  }
+}
+
+.vt-lexeme-detail {
+  flex: 1;
+  min-width: 0;
+  padding: 12px;
+  max-width: 640px;
+}
+
+.vt-context-row {
+  display: grid;
+  grid-template-columns: 1fr 120px 38px 24px;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+
+  .vt-context-name {
+    background: none;
+    border: 0;
+    padding: 0;
+    text-align: left;
+    color: $text;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &:hover {
+      color: $accent;
+      text-decoration: underline;
+    }
+  }
+
+  .vt-context-weight {
+    font-family: $mono;
+    font-size: 11px;
+    color: $text-dim;
+    text-align: right;
+  }
+}
+
+.vt-context-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}

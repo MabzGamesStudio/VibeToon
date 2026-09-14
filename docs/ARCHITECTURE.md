@@ -64,6 +64,7 @@ set of attachments) and hands it to a generator chosen by flow kind:
 | `dialog`      | `story.dialog`                                      | `dialog.txt`, `scenes.json`, `soundcues.txt` |
 | `storyboard`  | `animation.storyboard`                              | `storyboard.json`, `shotlist.csv`, `boards.md`, `panels/` |
 | `assembly`    | `animation.animatic`, `production.edit/render`      | `animatic.json` / `edl.json`, `render-plan.md`, mp4 when ffmpeg exists |
+| `text`        | `text.random`                                       | `text.txt`, `lexicon.json`, `report.md` |
 | `brief`       | everything else                                     | markdown / text / json / csv from the flow's fields |
 
 Results are merged over the flow's existing outputs by port, so a file you
@@ -91,6 +92,16 @@ The one derivation implemented end to end, and the template for the rest:
      artwork it is kept and flagged as orphaned.
 5. The plan is shown as a diff before anything is written (`suggest` mode) or
    applied during generation (`apply` mode).
+
+## Random text
+
+`text.random` is the other derivation implemented end to end, and it is worth
+reading as a second worked example of the same idea: a flow with editable state
+(a word database), a deterministic generator, and connection rules that retune it
+from the outside. The engine lives in `shared/src/text/` — tokeniser, scoring,
+sampler, and a starter database — so the editor previews a run with exactly the
+code the server will write the artifact with. [RANDOM-TEXT.md](RANDOM-TEXT.md)
+covers the scoring.
 
 ## Video
 

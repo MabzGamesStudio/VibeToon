@@ -1,4 +1,5 @@
 import type { ArtifactRef } from './artifacts';
+import type { TextFlowData } from './text';
 
 export interface Vec2 {
   x: number;
@@ -162,7 +163,7 @@ export interface BriefFlowData {
   fields: Record<string, string>;
 }
 
-export type FlowData = DialogFlowData | StoryboardFlowData | BriefFlowData;
+export type FlowData = DialogFlowData | StoryboardFlowData | BriefFlowData | TextFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph
