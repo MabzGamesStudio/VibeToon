@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { isTextualArtifact, type ArtifactRef } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { formatBytes, formatWhen } from '../common/format';
@@ -32,6 +32,22 @@ export function ArtifactView({ projectId, artifact, defaultOpen = false }: Artif
     };
   }, [artifact.hash, artifact.kind, artifact.path, open, projectId]);
 
+  /**
+   * A video recorded in the browser has no duration in its header — the format
+   * is written for streaming — so the scrubber is dead until the player has
+   * seeked past the last frame. Doing that once on load fixes it.
+   */
+  const resolveDuration = useCallback((event: React.SyntheticEvent<HTMLVideoElement>) => {
+    const video = event.currentTarget;
+    if (Number.isFinite(video.duration)) return;
+    const onSeeked = () => {
+      video.removeEventListener('seeked', onSeeked);
+      video.currentTime = 0;
+    };
+    video.addEventListener('seeked', onSeeked);
+    video.currentTime = 1e6;
+  }, []);
+
   return (
     <div className="vt-artifact">
       <div className="vt-artifact-head">
@@ -60,7 +76,7 @@ export function ArtifactView({ projectId, artifact, defaultOpen = false }: Artif
         <div className="vt-artifact-preview">
           {error ? <div className="vt-pill is-error">{error}</div> : null}
           {artifact.kind === 'image' ? <img src={url} alt={artifact.fileName} /> : null}
-          {artifact.kind === 'video' ? <video src={url} controls /> : null}
+          {artifact.kind === 'video' ? <video src={url} controls onLoadedMetadata={resolveDuration} /> : null}
           {artifact.kind === 'audio' ? <audio src={url} controls /> : null}
           {artifact.kind === 'imageSet' ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))', gap: 6 }}>

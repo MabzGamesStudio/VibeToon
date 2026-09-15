@@ -50,12 +50,17 @@ for (const category of FLOW_CATEGORIES) {
     if (def.fields?.length) {
       lines.push(`- **Fields:** ${def.fields.map((field) => field.label).join(', ')}`);
     }
-    if (def.defaultOutgoingRules) {
-      lines.push('- **Default rules on a new outgoing connection:**');
-      lines.push('');
-      lines.push('  ```');
-      for (const rule of def.defaultOutgoingRules.split('\n')) lines.push(`  ${rule}`);
-      lines.push('  ```');
+    for (const [side, rules] of [
+      ['leaving', def.defaultOutgoingRules],
+      ['landing on', def.defaultIncomingRules],
+    ] as const) {
+      for (const [portId, text] of Object.entries(rules ?? {})) {
+        lines.push(`- **Rules a new wire ${side} \`${portId}\` starts with:**`);
+        lines.push('');
+        lines.push('  ```');
+        for (const rule of text.split('\n')) lines.push(`  ${rule}`);
+        lines.push('  ```');
+      }
     }
     lines.push('');
   }

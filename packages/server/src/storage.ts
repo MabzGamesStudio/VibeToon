@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   hashString,
   isTextualArtifact,
+  migrateProject,
   type ArtifactKind,
   type ArtifactRef,
   type Project,
@@ -84,7 +85,9 @@ export async function loadProject(projectId: string): Promise<Project> {
   if (project.schema !== 1) {
     throw new HttpError(500, `Project ${projectId} uses schema ${project.schema}, this build reads 1.`);
   }
-  return project;
+  // A flow kind can gain an editor after a project was saved; bring the stored
+  // data up to what this build expects before anything else reads it.
+  return migrateProject(project);
 }
 
 async function writeProjectFile(project: Project): Promise<void> {

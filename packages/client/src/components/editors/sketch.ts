@@ -6,13 +6,22 @@ export const SKETCH_HEIGHT = 360;
 
 export const PAPER = '#f4f1ea';
 
-export function emptySketch(): Sketch {
-  return {
-    width: SKETCH_WIDTH,
-    height: SKETCH_HEIGHT,
-    strokes: [],
-    updatedAt: new Date().toISOString(),
-  };
+export function emptySketch(width = SKETCH_WIDTH, height = SKETCH_HEIGHT): Sketch {
+  return { width, height, strokes: [], updatedAt: new Date().toISOString() };
+}
+
+/**
+ * Rasterise a drawing on its own — no placeholder, no frame. Used by the design
+ * flows, where an empty plate should produce no file rather than a card saying
+ * it is empty.
+ */
+export function rasterizeSketch(sketch: Sketch, targetHeight: number): string | null {
+  if (sketch.strokes.length === 0) return null;
+  const canvas = document.createElement('canvas');
+  canvas.height = Math.max(64, Math.round(targetHeight));
+  canvas.width = Math.max(64, Math.round((targetHeight * sketch.width) / sketch.height));
+  drawSketch(canvas, sketch);
+  return canvas.toDataURL('image/png');
 }
 
 export interface DrawOptions {

@@ -640,11 +640,55 @@ export function formatBoardsMarkdown(
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
+/** One panel as it appears in `storyboard.json`. */
+export interface StoryboardPayloadPanel {
+  id: string;
+  index: number;
+  scene: string;
+  shot: ShotSize;
+  camera: string;
+  action: string;
+  dialog: string;
+  sound: string;
+  notes: string;
+  startSec: number;
+  endSec: number;
+  startFrame: number;
+  frames: number;
+  durationSec: number;
+  sourceBeatIds: string[];
+  sketch: { strokes: number; width: number; height: number } | null;
+  /** Path of the rasterised panel, relative to the board's artifact folder. */
+  image: string;
+}
+
+/**
+ * The `storyboard.json` artifact: the shape every downstream flow reads a board
+ * in, so the animatic and the edit do not have to know anything about panels,
+ * sketches or scenes.
+ */
+export interface StoryboardPayload {
+  fps: number;
+  width: number;
+  height: number;
+  durationSec: number;
+  panelCount: number;
+  sketchedCount: number;
+  scenes: Array<{
+    id: string;
+    title: string;
+    setName: string;
+    sourceSceneId: string | null;
+    panelIds: string[];
+  }>;
+  panels: StoryboardPayloadPanel[];
+}
+
 /** The `storyboard.json` artifact, and the shape the animatic/edit flows read. */
 export function storyboardPayload(
   scenes: StoryboardScene[],
   settings: Pick<ProjectSettings, 'fps' | 'width' | 'height' | 'defaultShotSeconds'>,
-): Record<string, unknown> {
+): StoryboardPayload {
   const timed = timePanels(scenes, settings);
   return {
     fps: settings.fps,

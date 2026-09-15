@@ -1,7 +1,10 @@
+import { generateAnimatic } from './animatic';
 import { generateAssembly } from './assembly';
 import { generateBrief } from './brief';
+import { generateDesign } from './design';
 import { generateDialog } from './dialog';
 import { generateStoryboard } from './storyboard';
+import { generateText } from './text';
 import type { Generator } from './types';
 
 /**
@@ -12,7 +15,11 @@ import type { Generator } from './types';
 const GENERATORS: Record<string, Generator> = {
   'story.dialog': generateDialog,
   'animation.storyboard': generateStoryboard,
-  'animation.animatic': generateAssembly,
+  'text.random': generateText,
+  'animation.character.design': generateDesign,
+  'animation.set.design': generateDesign,
+  'animation.prop.design': generateDesign,
+  'animation.animatic': generateAnimatic,
   'production.edit': generateAssembly,
   'production.render': generateAssembly,
 };

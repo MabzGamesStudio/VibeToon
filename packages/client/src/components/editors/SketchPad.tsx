@@ -15,6 +15,11 @@ export interface SketchPadProps {
   label?: string;
   /** Called when the pad is drawn on, so the board can mark it active. */
   onActivate?(): void;
+  /**
+   * Stroke space for a new drawing, which also sets the pad's shape. Panels are
+   * 16:9; a character sheet wants something taller.
+   */
+  box?: { width: number; height: number };
 }
 
 /**
@@ -29,6 +34,7 @@ export function SketchPad({
   showTools = true,
   label,
   onActivate,
+  box,
 }: SketchPadProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const liveStroke = useRef<Stroke | null>(null);
@@ -80,7 +86,7 @@ export function SketchPad({
     const canvas = canvasRef.current;
     if (!canvas) return;
     event.preventDefault();
-    const base = sketch ?? emptySketch();
+    const base = sketch ?? emptySketch(box?.width, box?.height);
     const point = toSketchSpace(canvas, event, base);
     liveStroke.current = {
       points: [Math.round(point.x * 10) / 10, Math.round(point.y * 10) / 10],
@@ -188,7 +194,10 @@ export function SketchPad({
           </button>
         </div>
       ) : null}
-      <div className="vt-sketch">
+      <div
+        className="vt-sketch"
+        style={box ? { aspectRatio: `${box.width} / ${box.height}` } : undefined}
+      >
         <canvas ref={canvasRef} onPointerDown={onPointerDown} />
         {!sketch || sketch.strokes.length === 0 ? (
           <div className="vt-sketch-empty">{label ?? 'draw here'}</div>

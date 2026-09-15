@@ -18,7 +18,7 @@ Loose sparks, premises and what-ifs before anything is committed.
 - **In:** Context
 - **Out:** Ideas `ideas.md`, Logline `logline.txt`
 - **Fields:** Premise, Sparks, Constraints, Audience
-- **Default rules on a new outgoing connection:**
+- **Rules a new wire leaving `ideas` starts with:**
 
   ```
   keep: premise, logline
@@ -35,6 +35,25 @@ What the clip is about underneath, and how it should feel.
 - **Out:** Tone `tone.md`
 - **Fields:** Themes, Tone, References, Avoid
 
+## Text
+
+### Random Text
+
+`text.random` · **bespoke editor**
+
+Writes or rewrites text from a word database of weighted contexts.
+
+- **In:** Text, Word database
+- **Out:** Text `text.txt`, Word database `lexicon.json`, Report `report.md`
+- **Rules a new wire landing on `text` starts with:**
+
+  ```
+  alter: 0.3
+  length: +0%
+  temperature: 0.45
+  context window: 3
+  ```
+
 ## Story
 
 ### Outline / Beat Sheet
@@ -46,7 +65,7 @@ The clip as ordered beats, before any dialog is written.
 - **In:** Premise, World
 - **Out:** Outline `outline.md`, Beats `beats.json`
 - **Fields:** Shape, Beats, Turn, Ending
-- **Default rules on a new outgoing connection:**
+- **Rules a new wire leaving `outline` starts with:**
 
   ```
   one scene per beat
@@ -62,7 +81,17 @@ Scenes of character dialog with action, sound cues and sets.
 
 - **In:** Outline, Characters, World
 - **Out:** Dialog `dialog.txt`, Scenes `scenes.json`, Sound cues `soundcues.txt`
-- **Default rules on a new outgoing connection:**
+- **Rules a new wire leaving `dialog` starts with:**
+
+  ```
+  panel per: beat
+  merge: consecutive action beats
+  shot for line: MCU
+  shot for action: WS
+  carry: sound -> notes
+  min duration: 1.2
+  ```
+- **Rules a new wire leaving `scenes` starts with:**
 
   ```
   panel per: beat
@@ -82,7 +111,7 @@ One character: personality, history, want, voice.
 - **In:** Brief, World
 - **Out:** Profile `character.md`, Voice `voice.txt`
 - **Fields:** Name, Role, Want, Need, History, Personality, Voice, Relationships
-- **Default rules on a new outgoing connection:**
+- **Rules a new wire leaving `profile` starts with:**
 
   ```
   voice: keep vocabulary and rhythm
@@ -141,7 +170,7 @@ Scenes broken into panels: shot, action, dialog and a sketch.
 
 - **In:** Dialog *(required)*, Style, Sets, Characters
 - **Out:** Storyboard `storyboard.json`, Shot list `shotlist.csv`, Panel images `panels`, Board doc `boards.md`
-- **Default rules on a new outgoing connection:**
+- **Rules a new wire leaving `storyboard` starts with:**
 
   ```
   hold each panel for its duration
@@ -160,7 +189,7 @@ Line, shading, palette, frame rate and how motion should read.
 
 ### Character Design
 
-`animation.character.design` · brief editor
+`animation.character.design` · **bespoke editor**
 
 Model sheet and turnaround for one character.
 
@@ -170,7 +199,7 @@ Model sheet and turnaround for one character.
 
 ### Set Design
 
-`animation.set.design` · brief editor
+`animation.set.design` · **bespoke editor**
 
 The buildable version of a location, with staging.
 
@@ -180,7 +209,7 @@ The buildable version of a location, with staging.
 
 ### Prop Design
 
-`animation.prop.design` · brief editor
+`animation.prop.design` · **bespoke editor**
 
 A prop that has to act: how it looks and how it moves.
 
@@ -210,13 +239,17 @@ The character as a puppet: parts, pivots, swaps, mouth set.
 
 ### Animatic
 
-`animation.animatic` · brief editor
+`animation.animatic` · **bespoke editor**
 
 Boards cut to time against voice and music — the first watchable pass.
 
 - **In:** Storyboard *(required)*, Panel images, Voice, Music
-- **Out:** Animatic `animatic.json`, Preview `animatic.mp4`
-- **Fields:** Pacing, Holds, Target length
+- **Out:** Animatic `animatic.json`, Preview `animatic.webm`
+- **Rules a new wire landing on `storyboard` starts with:**
+
+  ```
+  target length: 60s
+  ```
 
 ### Animation Pass
 
@@ -398,4 +431,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-34 flow kinds.
+35 flow kinds.

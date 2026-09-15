@@ -10,7 +10,6 @@ import {
 import { useStudio } from '../../state/store';
 import {
   boundsOf,
-  clampZoom,
   edgeMidpoint,
   edgePath,
   fitView,
@@ -501,5 +500,3 @@ function canvasCentre(element: HTMLElement | null): Vec2 {
   const rect = element?.getBoundingClientRect();
   return { x: (rect?.width ?? 0) / 2, y: (rect?.height ?? 0) / 2 };
 }
-
-export { clampZoom };

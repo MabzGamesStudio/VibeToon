@@ -61,31 +61,53 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   add, update or drop *before* it touches the board; sketches, panel notes and
   pinned panels are never overwritten. Generates `storyboard.json`,
   `shotlist.csv`, `boards.md` and a rasterised `panels/` folder.
-- **Playblast.** Play the board in the browser at its own timing, with dialog as
-  captions. No tooling required.
-- **Video output.** The animatic, edit and render flows assemble the boards into
-  a timeline (`animatic.json` / `edl.json`) and, when ffmpeg is installed, an
-  mp4. Without ffmpeg they still write the timeline, the clip list and the exact
-  command to run later. Set `VIBETOON_FFMPEG` if it is not on your `PATH`.
+- **Random text.** A word database — each entry with a word type, how common it
+  is, and weighted links to other words — that the flow walks to write new text
+  or rewrite text arriving over a wire. Length is set by word count, character
+  count, or a percentage change, with a temperature that decides how exactly to
+  land on it; another temperature decides how much of the incoming text is
+  replaced. Every run is seeded, so it is reproducible.
+  See [docs/RANDOM-TEXT.md](docs/RANDOM-TEXT.md).
+- **Design sheets.** Character, set and prop design flows are drawing surfaces:
+  a sheet of plates (front, three-quarter, expressions) drawn with the same
+  vector tools as the board, alongside the written spec. Generating writes the
+  first plate as the flow's key image — `character.png` — and every plate as its
+  model sheet, so the picture and the words that describe it stay together.
+- **Animatic.** The board laid out in time: hold a shot longer, cut one out, aim
+  at a runtime and fit the whole cut to it — none of which touches the board. It
+  plays in the browser, and **Export video** records the same cut to a real video
+  file and puts it on the flow's Preview port, so a laptop with no video tooling
+  still produces a watchable file at the end of the pipeline.
+- **Video output.** The animatic, edit and render flows write the cut as a
+  timeline (`animatic.json` / `edl.json`) that every downstream flow reads, plus
+  an mp4 when ffmpeg is installed — and the exact command when it is not. Set
+  `VIBETOON_FFMPEG` if ffmpeg is not on your `PATH`.
 - **Every other flow kind** uses the brief editor: fields defined by the flow
   itself, generated into a markdown brief with everything arriving over its
   connections recorded underneath. Image and audio ports take a file you upload,
-  so a design you drew elsewhere becomes a real artifact the graph can track.
+  so work you made elsewhere becomes a real artifact the graph can track.
 
 ## What it does not do
 
 - It does not draw, act, compose or animate for you. Generation here means
   turning what you wrote into the files the next flow reads, and assembling what
-  exists. There is no model wired in; every generator is deterministic and local.
-- Bespoke editors exist for two flow kinds so far (dialog, storyboard). The rest
+  exists. There is no model wired in; every generator is deterministic and local
+  — including the random text flow, which walks a word database you can edit
+  rather than predicting anything.
+- Bespoke editors exist for seven flow kinds so far (dialog, storyboard, random
+  text, animatic, and the three design sheets). The rest
   are real and usable through the brief editor, but they are text and uploads,
   not purpose-built tools.
-- Rendering video needs ffmpeg installed separately.
+- Rendering an mp4 on the server needs ffmpeg installed separately. The
+  in-browser export writes WebM, recorded in real time — a 30 second animatic
+  takes 30 seconds — and the file it produces carries no duration in its header,
+  which some players only work out once they have read it.
 
 ## Layout
 
 ```
-packages/shared   domain model, flow catalogue, rules language, board derivation
+packages/shared   domain model, flow catalogue, rules language, board derivation,
+                  the word database and text generator
 packages/server   file-backed projects, generation, video assembly (Express)
 packages/client   React + SCSS: graph canvas, flow editors, playblast
 docs/             architecture, the flow catalogue, the rules language

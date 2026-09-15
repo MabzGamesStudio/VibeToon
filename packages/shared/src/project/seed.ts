@@ -1,8 +1,7 @@
 import { CHARACTER_COLORS } from '../flows/dialog';
 import { newId } from '../ids';
-import { requireFlowKind } from '../registry/flowKinds';
 import type { DialogFlowData, Project } from '../types/project';
-import { createConnection, createNode, createProject } from './factory';
+import { createConnection, createNode, createProject, defaultRulesForConnection } from './factory';
 
 /**
  * The starter graph: one dialog flow feeding one storyboard flow, with a short
@@ -22,7 +21,13 @@ export function createStarterProject(name = 'Untitled clip'): Project {
   const connection = createConnection(
     { nodeId: dialogNode.id, portId: 'dialog' },
     { nodeId: storyboardNode.id, portId: 'dialog' },
-    { rules: requireFlowKind('story.dialog').defaultOutgoingRules, mode: 'suggest' },
+    {
+      rules: defaultRulesForConnection(
+        { kind: 'story.dialog', portId: 'dialog' },
+        { kind: 'animation.storyboard', portId: 'dialog' },
+      ),
+      mode: 'suggest',
+    },
   );
 
   project.nodes = [dialogNode, storyboardNode];

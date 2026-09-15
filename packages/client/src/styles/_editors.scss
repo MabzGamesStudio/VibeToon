@@ -493,3 +493,338 @@
     }
   }
 }
+
+/* Random text editor -------------------------------------------------- */
+
+.vt-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.vt-text-output {
+  @include card;
+  background: $bg-0;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 78ch;
+}
+
+.vt-tok {
+  border-radius: 3px;
+
+  &.is-replaced {
+    background: rgba(110, 168, 254, 0.22);
+    box-shadow: 0 0 0 1px rgba(110, 168, 254, 0.35);
+  }
+
+  &.is-added {
+    background: rgba(86, 194, 113, 0.2);
+    box-shadow: 0 0 0 1px rgba(86, 194, 113, 0.32);
+  }
+}
+
+/* Word database ------------------------------------------------------- */
+
+.vt-lexicon {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.vt-lexicon-list {
+  width: 320px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid $line;
+  background: $bg-1;
+
+  .vt-lexicon-tools {
+    display: flex;
+    gap: 6px;
+    padding: 8px;
+
+    select {
+      width: 116px;
+      flex: none;
+    }
+  }
+}
+
+.vt-lexeme-rows {
+  flex: 1;
+  min-height: 0;
+  padding: 0 6px 8px;
+}
+
+.vt-lexeme-row {
+  display: grid;
+  grid-template-columns: 1fr 42px 64px 22px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: $radius-sm;
+  padding: 4px 6px;
+  font-size: 12px;
+
+  &:hover {
+    background: $bg-2;
+  }
+
+  &.is-selected {
+    background: $accent-soft;
+    border-color: $accent;
+  }
+
+  .vt-lexeme-spelling {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .vt-lexeme-type,
+  .vt-lexeme-links {
+    color: $text-faint;
+    font-size: 10px;
+    font-family: $mono;
+  }
+
+  .vt-lexeme-links {
+    text-align: right;
+  }
+}
+
+.vt-freq-bar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: $bg-3;
+  overflow: hidden;
+
+  i {
+    display: block;
+    height: 100%;
+    background: $accent;
+  }
+}
+
+.vt-lexeme-detail {
+  flex: 1;
+  min-width: 0;
+  padding: 12px;
+  max-width: 640px;
+}
+
+.vt-context-row {
+  display: grid;
+  grid-template-columns: 1fr 120px 38px 24px;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+
+  .vt-context-name {
+    background: none;
+    border: 0;
+    padding: 0;
+    text-align: left;
+    color: $text;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &:hover {
+      color: $accent;
+      text-decoration: underline;
+    }
+  }
+
+  .vt-context-weight {
+    font-family: $mono;
+    font-size: 11px;
+    color: $text-dim;
+    text-align: right;
+  }
+}
+
+.vt-context-candidates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+/* Animatic ------------------------------------------------------------ */
+
+.vt-cut-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  flex-wrap: wrap;
+  @include card;
+  background: $bg-1;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+
+  .vt-cut-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 96px;
+
+    strong {
+      font-size: 17px;
+      letter-spacing: -0.02em;
+    }
+
+    .vt-field {
+      margin: 0;
+      width: 132px;
+    }
+  }
+
+  .vt-on-target {
+    color: $ok;
+  }
+
+  .vt-off-target {
+    color: $warn;
+  }
+}
+
+.vt-shots {
+  display: grid;
+  gap: 6px;
+}
+
+.vt-shot {
+  display: grid;
+  grid-template-columns: 24px 96px 1fr 120px;
+  gap: 10px;
+  align-items: center;
+  @include card;
+  background: $bg-1;
+  padding: 7px 9px;
+
+  &.is-adjusted {
+    border-left: 2px solid $accent;
+  }
+
+  .vt-shot-index {
+    font-family: $mono;
+    font-size: 11px;
+    color: $text-faint;
+    text-align: right;
+  }
+
+  .vt-shot-thumb {
+    aspect-ratio: 16 / 9;
+    background: #f4f1ea;
+    border-radius: $radius-sm;
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+  }
+
+  .vt-shot-body {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+  }
+
+  .vt-shot-line {
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .vt-shot-note {
+    background: transparent;
+    border-color: transparent;
+    padding: 2px 4px;
+    font-size: 11px;
+
+    &:hover {
+      border-color: $line;
+    }
+  }
+
+  .vt-shot-timing {
+    display: grid;
+    gap: 3px;
+    justify-items: end;
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    input[type='number'] {
+      width: 68px;
+    }
+  }
+}
+
+/* Design plates -------------------------------------------------------- */
+
+.vt-plates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.vt-plate {
+  @include card;
+  background: $bg-1;
+
+  &.is-key {
+    border-color: rgba(110, 168, 254, 0.5);
+  }
+
+  > header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid $line;
+
+    input {
+      font-weight: 600;
+      background: transparent;
+      border-color: transparent;
+
+      &:hover {
+        border-color: $line;
+      }
+    }
+  }
+
+  .vt-plate-note {
+    border: 0;
+    border-top: 1px solid $line;
+    border-radius: 0 0 $radius $radius;
+    background: transparent;
+    font-size: 11px;
+    padding: 5px 8px;
+  }
+}

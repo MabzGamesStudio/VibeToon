@@ -64,7 +64,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       field('constraints', 'Constraints', 'list', 'Runtime, cast size, budget, what must be avoidable.'),
       field('audience', 'Audience', 'line', 'Who it is for and where it will be watched.'),
     ],
-    defaultOutgoingRules: 'keep: premise, logline\nignore: rejected sparks',
+    defaultOutgoingRules: { ideas: 'keep: premise, logline\nignore: rejected sparks' },
   },
   {
     kind: 'brainstorm.tone',
@@ -83,6 +83,30 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       field('references', 'References', 'list', 'Clips, films, records, paintings.'),
       field('avoid', 'Avoid', 'list', 'Tones and cliches to stay away from.'),
     ],
+  },
+
+  /* ---------------------------------------------------------------- *
+   * Text
+   * ---------------------------------------------------------------- */
+  {
+    kind: 'text.random',
+    category: 'text',
+    label: 'Random Text',
+    summary: 'Writes or rewrites text from a word database of weighted contexts.',
+    inputs: [
+      input('text', 'Text', ['text', 'markdown'], 'Text to rewrite. Without it the flow writes new text.'),
+      input('lexicon', 'Word database', ['json'], 'A lexicon to merge into this one.'),
+    ],
+    outputs: [
+      output('text', 'Text', ['text'], 'text.txt', 'The text this run produced.'),
+      output('lexicon', 'Word database', ['json'], 'lexicon.json', 'The words, contexts and weights, for other flows to share.'),
+      output('report', 'Report', ['markdown'], 'report.md', 'What the run did: lengths, what changed, what it could not read.'),
+    ],
+    editor: 'text',
+    maturity: 'editor',
+    defaultIncomingRules: {
+      text: ['alter: 0.3', 'length: +0%', 'temperature: 0.45', 'context window: 3'].join('\n'),
+    },
   },
 
   /* ---------------------------------------------------------------- *
@@ -109,7 +133,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       field('turn', 'Turn', 'text', 'The moment the clip pivots.'),
       field('ending', 'Ending', 'text', 'Where it lands and on what image.'),
     ],
-    defaultOutgoingRules: 'one scene per beat\nkeep beat order\ncarry: turn, ending',
+    defaultOutgoingRules: { outline: 'one scene per beat\nkeep beat order\ncarry: turn, ending' },
   },
   {
     kind: 'story.dialog',
@@ -128,14 +152,18 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     ],
     editor: 'dialog',
     maturity: 'editor',
-    defaultOutgoingRules: [
-      'panel per: beat',
-      'merge: consecutive action beats',
-      'shot for line: MCU',
-      'shot for action: WS',
-      'carry: sound -> notes',
-      'min duration: 1.2',
-    ].join('\n'),
+    defaultOutgoingRules: (() => {
+      const board = [
+        'panel per: beat',
+        'merge: consecutive action beats',
+        'shot for line: MCU',
+        'shot for action: WS',
+        'carry: sound -> notes',
+        'min duration: 1.2',
+      ].join('\n');
+      // Both the readable script and the structured scenes break down the same way.
+      return { dialog: board, scenes: board };
+    })(),
   },
   {
     kind: 'story.character',
@@ -162,7 +190,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       field('voice', 'Voice', 'text', 'Vocabulary, rhythm, accent, delivery.'),
       field('relationships', 'Relationships', 'list', 'One per line: `other character — the dynamic`.'),
     ],
-    defaultOutgoingRules: 'voice: keep vocabulary and rhythm\nnever: contradict history',
+    defaultOutgoingRules: { profile: 'voice: keep vocabulary and rhythm\nnever: contradict history' },
   },
   {
     kind: 'story.timeline',
@@ -272,7 +300,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     ],
     editor: 'storyboard',
     maturity: 'editor',
-    defaultOutgoingRules: 'hold each panel for its duration\ncarry: dialog, sound',
+    defaultOutgoingRules: { storyboard: 'hold each panel for its duration\ncarry: dialog, sound' },
   },
   {
     kind: 'animation.style',
@@ -307,8 +335,8 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       output('modelSheet', 'Model sheet', ['imageSet'], 'modelsheet', 'Turnaround and expressions.'),
       output('spec', 'Design spec', ['markdown'], 'design.md', 'What the design must hold to.'),
     ],
-    editor: 'brief',
-    maturity: 'brief',
+    editor: 'design',
+    maturity: 'editor',
     fields: [
       field('silhouette', 'Silhouette', 'text', 'Readable at thumbnail size — how?'),
       field('palette', 'Palette', 'list', 'One per line: `part — colour`.'),
@@ -330,8 +358,8 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       output('design', 'Design', ['image'], 'set.png', 'The key set image.'),
       output('spec', 'Set spec', ['markdown'], 'set.md', 'Layout, exits, dressing, camera positions.'),
     ],
-    editor: 'brief',
-    maturity: 'brief',
+    editor: 'design',
+    maturity: 'editor',
     fields: [
       field('layout', 'Layout', 'text', 'Plan of the space and its exits.'),
       field('dressing', 'Dressing', 'list', 'What is in the room.'),
@@ -352,8 +380,8 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       output('design', 'Design', ['image'], 'prop.png', 'The prop design.'),
       output('spec', 'Prop spec', ['markdown'], 'prop.md', 'Scale, materials, moving parts.'),
     ],
-    editor: 'brief',
-    maturity: 'brief',
+    editor: 'design',
+    maturity: 'editor',
     fields: [
       field('what', 'What it is', 'text', 'Function and scale next to a character.'),
       field('moves', 'How it moves', 'text', 'Hinges, weight, sound it makes.'),
@@ -415,15 +443,11 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     ],
     outputs: [
       output('animatic', 'Animatic', ['timeline'], 'animatic.json', 'Cut list with in/out times.'),
-      output('preview', 'Preview', ['video'], 'animatic.mp4', 'Rendered animatic, when a renderer is available.'),
+      output('preview', 'Preview', ['video'], 'animatic.webm', 'The cut as a video file.'),
     ],
-    editor: 'brief',
-    maturity: 'brief',
-    fields: [
-      field('pacing', 'Pacing', 'text', 'Where it should breathe and where it should cut hard.'),
-      field('holds', 'Holds', 'list', 'Panels to hold longer, with why.'),
-      field('target', 'Target length', 'line', 'e.g. `90s`.'),
-    ],
+    editor: 'animatic',
+    maturity: 'editor',
+    defaultIncomingRules: { storyboard: 'target length: 60s' },
   },
   {
     kind: 'animation.scene',
