@@ -16,6 +16,7 @@ export * from './flows/dialog';
 export * from './flows/storyboard';
 export * from './flows/brief';
 export * from './flows/text';
+export * from './flows/lexicon';
 export * from './flows/animatic';
 export * from './flows/design';
 
@@ -23,7 +24,9 @@ export * from './text/tokenize';
 export * from './text/lexicon';
 export * from './text/grammar';
 export * from './text/generate';
-export * from './text/starterLexicon';
+export * from './text/corpus';
+export * from './text/sampleCorpus';
+export * from './text/corpusSources';
 
 export * from './project/factory';
 export * from './project/migrate';

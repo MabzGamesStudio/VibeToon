@@ -5,11 +5,11 @@ import { defaultRulesForConnection } from '../src/project/factory';
 import { parseRules } from '../src/rules/parseRules';
 import { createRng, runRandomText } from '../src/text/generate';
 import { buildLexiconIndex, lexiconStats, mergeLexicons } from '../src/text/lexicon';
-import { createStarterLexicon, starterLexiconGaps } from '../src/text/starterLexicon';
+import { starterLexicon } from '../src/flows/lexicon';
 import { countWordTokens, renderTokens, tokenize } from '../src/text/tokenize';
 import { DEFAULT_RANDOM_TEXT_OPTIONS, type Lexicon, type RandomTextOptions } from '../src/types/text';
 
-const LEXICON = createStarterLexicon();
+const LEXICON = starterLexicon();
 
 function options(overrides: Partial<RandomTextOptions> = {}): RandomTextOptions {
   return {
@@ -42,17 +42,21 @@ test('sentences are capitalised when rendered', () => {
 
 /* ---------------- the starter database ---------------- */
 
-test('the starter database is internally consistent', () => {
-  assert.deepEqual(starterLexiconGaps(), [], 'every context points at a word in the table');
+test('the starter database is counted out of the sample corpus and holds together', () => {
   const stats = lexiconStats(LEXICON);
   assert.deepEqual(stats.duplicateIds, [], 'ids are unique');
-  assert.deepEqual(stats.danglingRefs, []);
-  assert.ok(stats.total > 150, `${stats.total} words is enough to write with`);
-  assert.ok(stats.contextEdges > 400);
+  assert.deepEqual(stats.danglingRefs, [], 'every context points at a word that is present');
+  assert.ok(stats.total > 120, `${stats.total} words is enough to write with`);
+  assert.ok(stats.contextEdges > 200, `${stats.contextEdges} links`);
+
   const index = buildLexiconIndex(LEXICON);
-  for (const mark of ['.', ',', '?', "'"]) {
-    assert.ok(index.bySpelling.has(mark), `punctuation token ${mark} is reachable`);
-  }
+  assert.ok(index.bySpelling.has('.'), 'punctuation is counted as a token of its own');
+  assert.ok(
+    LEXICON.lexemes.every((lexeme) => (lexeme.stats?.count ?? 0) > 0),
+    'every entry carries the count it came from',
+  );
+  const commonest = [...LEXICON.lexemes].sort((a, b) => b.frequency - a.frequency)[0]!;
+  assert.equal(commonest.spelling, 'the', 'and frequency follows the corpus');
 });
 
 /* ---------------- determinism ---------------- */

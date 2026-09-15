@@ -61,9 +61,15 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   add, update or drop *before* it touches the board; sketches, panel notes and
   pinned panels are never overwritten. Generates `storyboard.json`,
   `shotlist.csv`, `boards.md` and a rasterised `panels/` folder.
-- **Random text.** A word database — each entry with a word type, how common it
-  is, and weighted links to other words — that the flow walks to write new text
-  or rewrite text arriving over a wire. Length is set by word count, character
+- **Word database.** Counted out of a corpus rather than written by hand: point
+  it at a public-domain book or paste your own text, and it tallies every word
+  and every pair of adjacent words, asks a dictionary for types and definitions,
+  and derives frequencies and weighted contexts. Each corpus stays its own
+  dataset of raw counts, so combining and *un*-combining them is exact — build a
+  database from two books, untick one, and what is left is precisely the other.
+  See [docs/WORD-DATABASE.md](docs/WORD-DATABASE.md).
+- **Random text.** Walks that database to write new text or rewrite text arriving
+  over a wire. Length is set by word count, character
   count, or a percentage change, with a temperature that decides how exactly to
   land on it; another temperature decides how much of the incoming text is
   replaced. Every run is seeded, so it is reproducible.
@@ -94,10 +100,13 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   exists. There is no model wired in; every generator is deterministic and local
   — including the random text flow, which walks a word database you can edit
   rather than predicting anything.
-- Bespoke editors exist for seven flow kinds so far (dialog, storyboard, random
-  text, animatic, and the three design sheets). The rest
+- Bespoke editors exist for eight flow kinds so far (dialog, storyboard, word
+  database, random text, animatic, and the three design sheets). The rest
   are real and usable through the brief editor, but they are text and uploads,
   not purpose-built tools.
+- Building a word database from a book needs the network: one download for the
+  text, and one dictionary request per word (cached afterwards). Without it the
+  bundled sample corpus still works, and word types fall back to a guess.
 - Rendering an mp4 on the server needs ffmpeg installed separately. The
   in-browser export writes WebM, recorded in real time — a 30 second animatic
   takes 30 seconds — and the file it produces carries no duration in its header,

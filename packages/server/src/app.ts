@@ -16,6 +16,8 @@ import {
   type StoryboardFlowData,
   type SyncResponse,
 } from '@vibetoon/shared';
+import { fetchCorpus } from './text/corpusFetch';
+import { lookupWords } from './text/dictionary';
 import { hasFfmpeg } from './render/video';
 import { assertSafeId, REPO_ROOT, resolveInProject } from './paths';
 import { buildSyncPlan, syncSources } from './services/sync';
@@ -88,6 +90,31 @@ export function createApp(): express.Express {
     };
     res.json(payload);
   });
+
+  /**
+   * Fetch a corpus by URL. The browser cannot do this itself — the sites that
+   * host public-domain books do not allow cross-origin reads — so the server
+   * does it and hands back plain text for the editor to count.
+   */
+  app.post(
+    '/api/text/corpus',
+    asyncRoute(async (req, res) => {
+      const body = (req.body ?? {}) as { url?: string };
+      if (!body.url) throw new HttpError(400, 'No address to fetch.');
+      res.json(await fetchCorpus(body.url));
+    }),
+  );
+
+  /** Look up word types and definitions, cached on disk between runs. */
+  app.post(
+    '/api/text/dictionary',
+    asyncRoute(async (req, res) => {
+      const body = (req.body ?? {}) as { words?: string[] };
+      const words = Array.isArray(body.words) ? body.words.slice(0, 2000) : [];
+      if (words.length === 0) throw new HttpError(400, 'No words to look up.');
+      res.json(await lookupWords(words));
+    }),
+  );
 
   app.get(
     '/api/projects',

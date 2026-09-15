@@ -1,5 +1,6 @@
 import type {
   ArtifactRef,
+  WordMeaning,
   GenerateResponse,
   Project,
   ProjectSummary,
@@ -80,6 +81,22 @@ export const api = {
     ),
   clearArtifacts: (id: string, flowId: string) =>
     request<Project>('DELETE', `/api/projects/${id}/flows/${flowId}/artifacts`),
+
+  fetchCorpus: (url: string) =>
+    request<{ name: string; text: string; bytes: number; truncated: boolean; url: string }>(
+      'POST',
+      '/api/text/corpus',
+      { url },
+    ),
+  lookupWords: (words: string[]) =>
+    request<{
+      meanings: Record<string, WordMeaning>;
+      found: string[];
+      missing: string[];
+      failed: string[];
+      unreachable?: string;
+      cached: number;
+    }>('POST', '/api/text/dictionary', { words }),
 
   artifactUrl: (projectId: string, artifactPath: string) =>
     `/api/projects/${projectId}/files/${artifactPath}`,

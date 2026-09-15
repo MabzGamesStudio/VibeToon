@@ -7,7 +7,9 @@ produce the same text.
 
 ## The word database
 
-One entry — a *lexeme* — per word or token:
+One entry — a *lexeme* — per word or token. A database is **counted out of a
+corpus** by the Word Database flow; see [WORD-DATABASE.md](WORD-DATABASE.md) for
+how the counting and weighting work.
 
 | Field | What it is |
 | --- | --- |
@@ -18,18 +20,17 @@ One entry — a *lexeme* — per word or token:
 | `description` | What it means, for whoever edits the database later. |
 | `contexts` | Weighted links to other entries. |
 
-Contexts are the steering. `apple` links to `tree` at 1.0 and `red` at 0.9, and
-to `leaf` at 0.4 — so after *apple*, a tree is far likelier than a leaf, and both
-are likelier than a word with no link at all. Links count in reverse too, scaled
-by the flow's **context symmetry**: because `apple → tree` exists, *apple* is
-also more likely after *tree*.
+Contexts are the steering: a link says how much more often one word follows
+another than that word turns up at all. After *apple*, a word that only ever
+follows apples is far likelier than one that follows everything. Links count in
+reverse too, scaled by the flow's **context symmetry**.
 
-A new flow starts with a database of 220 entries — the function words that hold a
-sentence together, punctuation, and a set of content words about a workshop at
-night, wired to each other. Edit it in the flow's **Word database** tab, or wire
-another flow's `lexicon.json` into the Word database input to merge it in.
-Entries are matched on spelling plus word type; contexts are unioned at the
-stronger weight, so merging never quietly drops what you had.
+A new Random Text flow starts with a database counted from the bundled sample
+corpus — about a thousand tokens, which is enough to write with and small enough
+to repeat itself. For anything real, add a **Word Database** flow, give it a book,
+and wire it into the Random Text flow's Word database input. Entries are matched
+on spelling plus word type and contexts are unioned at the stronger weight, so
+merging never quietly drops what you had.
 
 ## Picking the next word
 
@@ -100,8 +101,9 @@ SCENE 1 — INT. WORKSHOP - NIGHT        SCENE 1 — INT. WORKSHOP - NIGHT
     It did it yesterday. Twice.            It asks it yesterday. Twice.
 ```
 
-The database holds the words you put in it, so inflections (`waits` against
-`wait`) count as unknown until you add them as their own entries.
+The database holds whatever was counted, so a word the corpus never used is
+unknown — including inflections (`waits` when the corpus only ever said `wait`).
+Counting a larger corpus is what fixes that.
 
 ## Rules on the wire
 

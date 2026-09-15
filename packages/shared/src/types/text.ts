@@ -61,10 +61,16 @@ export interface Lexeme {
   /** The word itself, or the token: `apple`, `.`, `'`, `42`. */
   spelling: string;
   type: WordType;
-  /** 0..1 — how common the word is in English. Drives how often it turns up. */
+  /** 0..1 — how common the word is. Drives how often it turns up. */
   frequency: number;
   description: string;
   contexts: LexemeContext[];
+  /** Set when the entry was counted out of a corpus rather than written by hand. */
+  stats?: {
+    /** Times the token appears in the corpus behind this lexicon. */
+    count: number;
+    perMillion: number;
+  };
 }
 
 export interface Lexicon {

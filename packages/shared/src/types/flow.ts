@@ -37,7 +37,14 @@ export const FLOW_CATEGORY_LABEL: Record<FlowCategory, string> = {
 };
 
 /** Which focused editor a flow opens when you double-click its node. */
-export type EditorId = 'dialog' | 'storyboard' | 'text' | 'animatic' | 'design' | 'brief';
+export type EditorId =
+  | 'dialog'
+  | 'storyboard'
+  | 'text'
+  | 'lexicon'
+  | 'animatic'
+  | 'design'
+  | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */
 export type FlowMaturity = 'editor' | 'brief';

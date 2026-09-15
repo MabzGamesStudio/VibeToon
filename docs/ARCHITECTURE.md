@@ -65,6 +65,7 @@ set of attachments) and hands it to a generator chosen by flow kind:
 | `storyboard`  | `animation.storyboard`                              | `storyboard.json`, `shotlist.csv`, `boards.md`, `panels/` |
 | `animatic`    | `animation.animatic`                                | `animatic.json`, `animatic-plan.md`, mp4 when ffmpeg exists |
 | `assembly`    | `production.edit`, `production.render`              | `edl.json`, `render-plan.md`, mp4 when ffmpeg exists |
+| `lexicon`     | `text.lexicon`                                      | `lexicon.json`, `report.md` |
 | `text`        | `text.random`                                       | `text.txt`, `lexicon.json`, `report.md` |
 | `design`      | `animation.character/set/prop.design`               | the spec, plus the plates as a key image and a model sheet |
 | `brief`       | everything else                                     | markdown / text / json / csv from the flow's fields |
@@ -130,6 +131,27 @@ Two routes produce an actual file, and they meet at the same port:
 Because generation merges outputs by port, a recording made in the browser
 survives regenerating the flow: the generator only writes `preview` when it
 actually rendered one.
+
+## Counting a corpus
+
+`text.lexicon` keeps a list of datasets, each one the raw counts taken from a
+single corpus, plus the ids of the ones currently included. The master is
+`combineDatasets(included)` and the lexicon is `deriveLexicon(master, meanings)`
+— both pure functions, both recomputed on demand. Nothing is ever merged
+destructively, which is why unticking a corpus subtracts it exactly rather than
+approximately, and why the weighting settings can be changed without re-reading
+any text.
+
+Only counts are stored, never the source text: a book is a megabyte of prose and
+a few hundred kilobytes of counts, and the counts are what every later step
+needs. The consequence is that the *counting* settings apply when a corpus is
+added — a dataset cannot be re-pruned upwards later without counting the text
+again.
+
+The two network calls live on the server because the browser cannot make them:
+book sites do not allow cross-origin reads, and the dictionary cache belongs on
+disk. Both degrade rather than fail — a blocked dictionary leaves every word with
+a guessed type and says so.
 
 ## Drawings
 
