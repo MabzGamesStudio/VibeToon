@@ -1,56 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ProjectSettings, TimedPanel } from '@vibetoon/shared';
+import type { ProjectSettings } from '@vibetoon/shared';
 import { formatSeconds } from '../common/format';
-import { drawSketch } from './sketch';
+import { clipAt, totalDuration, type PlayClip } from './playClips';
 
 export interface PlayblastProps {
-  panels: TimedPanel[];
+  clips: PlayClip[];
   settings: Pick<ProjectSettings, 'width' | 'height'>;
+  title?: string;
   onClose(): void;
 }
 
 /**
- * Plays the board in the browser, holding each panel for its own duration. This
- * is the watchable output on a machine with no video tooling installed; the
- * server writes the same cut as a timeline and, where ffmpeg exists, an mp4.
+ * Plays a cut in the browser, holding each shot for its own length. This is the
+ * watchable output on a machine with no video tooling installed; the animatic
+ * editor records the same clips to a file.
  */
-export function Playblast({ panels, settings, onClose }: PlayblastProps): JSX.Element {
+export function Playblast({ clips, settings, title = 'Playblast', onClose }: PlayblastProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(true);
   const [loop, setLoop] = useState(true);
 
-  const total = panels.length > 0 ? panels[panels.length - 1]!.endSec : 0;
-  const currentIndex = Math.max(
-    0,
-    panels.findIndex((panel) => time < panel.endSec),
-  );
-  const current = panels[currentIndex] ?? panels[panels.length - 1];
+  const total = totalDuration(clips);
+  const current = clipAt(clips, Math.min(time, Math.max(0, total - 0.0001)));
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !current) return;
-    drawSketch(canvas, current.panel.sketch);
-    if (!current.panel.sketch || current.panel.sketch.strokes.length === 0) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = 'rgba(0,0,0,0.4)';
-        ctx.textAlign = 'center';
-        ctx.font = '28px system-ui, sans-serif';
-        ctx.fillText(
-          `Panel ${current.index + 1} — ${current.panel.shot}`,
-          canvas.width / 2,
-          canvas.height / 2,
-        );
-        ctx.font = '18px system-ui, sans-serif';
-        ctx.fillText(
-          (current.panel.action || current.panel.dialog || '').replace(/\s+/g, ' ').slice(0, 80),
-          canvas.width / 2,
-          canvas.height / 2 + 30,
-        );
-      }
-    }
-  }, [current]);
+    current.clip.render(canvas);
+  }, [current?.clip]);
 
   const tick = useCallback(
     (elapsed: number) => {
@@ -85,23 +63,19 @@ export function Playblast({ panels, settings, onClose }: PlayblastProps): JSX.El
       if (event.key === 'Escape') onClose();
       if (event.key === ' ') {
         event.preventDefault();
-        setPlaying((current) => !current);
+        setPlaying((value) => !value);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const caption = [current?.panel.dialog, current?.panel.sound ? `(${current.panel.sound})` : '']
-    .filter(Boolean)
-    .join('\n');
-
   return (
     <div className="vt-playblast">
       <div className="vt-row">
-        <strong>Playblast</strong>
+        <strong>{title}</strong>
         <span className="vt-faint">
-          {panels.length} panel{panels.length === 1 ? '' : 's'} · {formatSeconds(total)}
+          {clips.length} shot{clips.length === 1 ? '' : 's'} · {formatSeconds(total)}
         </span>
         <span className="vt-spacer" />
         <label className="vt-row" style={{ gap: 5 }}>
@@ -120,11 +94,11 @@ export function Playblast({ panels, settings, onClose }: PlayblastProps): JSX.El
 
       <div className="vt-playblast-stage">
         <canvas ref={canvasRef} width={settings.width} height={settings.height} />
-        {caption ? <div className="vt-playblast-caption">{caption}</div> : null}
+        {current?.clip.caption ? <div className="vt-playblast-caption">{current.clip.caption}</div> : null}
       </div>
 
       <div className="vt-playblast-bar">
-        <button type="button" className="vt-btn" onClick={() => setPlaying((current) => !current)}>
+        <button type="button" className="vt-btn" onClick={() => setPlaying((value) => !value)}>
           {playing ? 'Pause' : 'Play'}
         </button>
         <span className="vt-time">
@@ -142,9 +116,7 @@ export function Playblast({ panels, settings, onClose }: PlayblastProps): JSX.El
           }}
           aria-label="Scrub"
         />
-        <span className="vt-faint">
-          panel {(current?.index ?? 0) + 1} · {current?.panel.shot}
-        </span>
+        <span className="vt-faint">{current ? current.clip.label : ''}</span>
       </div>
     </div>
   );

@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../node_modules/.cache/scripts-types",
+    "rootDir": "..",
+    "types": ["node"],
+    "emitDeclarationOnly": true
+  },
+  "include": ["*.ts"],
+  "references": [{ "path": "../packages/shared" }]
+}

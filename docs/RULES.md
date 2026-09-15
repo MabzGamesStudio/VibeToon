@@ -41,8 +41,9 @@ keep: the pause before the last line
 | `shot for sound`  | `INSERT`                    | storyboard        | Shot size for panels made from a sound cue. |
 | `carry`           | `sound -> notes`            | any               | Copy a source field into a destination field. Repeatable; `a, b` carries fields as-is. Destinations: `notes`, `sound`, `action`, `camera`, `dialog`. |
 | `ignore`          | `direction, parenthetical`  | any               | Drop a beat type or field: `line`, `action`, `sound`, `direction`, `parenthetical`, `camera`. |
-| `min duration`    | `1.2`                       | storyboard, animatic | Floor for a derived panel duration, in seconds. |
-| `max duration`    | `6`                         | storyboard, animatic | Ceiling for a derived panel duration. |
+| `min duration`    | `1.2`                       | storyboard, animatic | Floor for a shot's length, in seconds. |
+| `max duration`    | `6`                         | storyboard, animatic | Ceiling for a shot's length. |
+| `target length`   | `60s`                       | animatic          | Runtime the cut should aim for: `90s`, `1m30`, `1:30`. |
 | `words per second`| `2.6`                       | storyboard, animatic | Speaking rate used to time a line with no explicit duration. |
 | `scenes`          | `1-3` / `2,4` / `all`       | any               | Restrict to a range or list of scene numbers. |
 | `length`          | `+20%`                      | random text       | Target length: `keep`, `120 words`, `900 characters`, `+20%`, `-15% characters`. |

@@ -293,7 +293,12 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
       const targetNode = current.nodes.find((node) => node.id === to.nodeId);
       const connection = createConnection(from, to, {
         rules:
-          sourceNode && targetNode ? defaultRulesForConnection(sourceNode.kind, targetNode.kind) : '',
+          sourceNode && targetNode
+            ? defaultRulesForConnection(
+                { kind: sourceNode.kind, portId: from.portId },
+                { kind: targetNode.kind, portId: to.portId },
+              )
+            : '',
       });
       commit({ ...current, connections: [...current.connections, connection] });
       setSelection({ type: 'connection', id: connection.id });

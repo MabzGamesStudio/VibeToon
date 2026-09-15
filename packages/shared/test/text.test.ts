@@ -396,11 +396,16 @@ test('merging a lexicon keeps local words and unions their contexts', () => {
 
 test('a new wire is seeded with rules that mean something to the flow it lands on', () => {
   // Dialog → Storyboard: the dialog flow's own suggestion is the right one.
-  assert.match(defaultRulesForConnection('story.dialog', 'animation.storyboard'), /panel per: beat/);
+  assert.match(
+    defaultRulesForConnection({ kind: 'story.dialog', portId: 'dialog' }, { kind: 'animation.storyboard', portId: 'dialog' }),
+    /panel per: beat/,
+  );
   // Dialog → Random Text: panel rules would be noise, so the target's win.
-  const toText = defaultRulesForConnection('story.dialog', 'text.random');
+  const toText = defaultRulesForConnection({ kind: 'story.dialog', portId: 'dialog' }, { kind: 'text.random', portId: 'text' });
   assert.match(toText, /alter: /);
   assert.doesNotMatch(toText, /panel per/);
+  // A wire onto a different port of the same flow gets nothing of the sort.
+  assert.doesNotMatch(defaultRulesForConnection({ kind: 'text.random', portId: 'lexicon' }, { kind: 'text.random', portId: 'lexicon' }), /alter:/);
   // Nothing suggested either way is an empty box, not a wrong one.
-  assert.equal(defaultRulesForConnection('brainstorm.tone', 'world.design'), '');
+  assert.equal(defaultRulesForConnection({ kind: 'brainstorm.tone', portId: 'tone' }, { kind: 'world.design', portId: 'tone' }), '');
 });

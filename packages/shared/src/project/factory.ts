@@ -1,6 +1,7 @@
 import { emptyBriefData } from '../flows/brief';
 import { emptyDialogData } from '../flows/dialog';
 import { emptyStoryboardData } from '../flows/storyboard';
+import { emptyAnimaticData } from '../flows/animatic';
 import { emptyTextData } from '../flows/text';
 import { newId } from '../ids';
 import { getFlowKind, requireFlowKind } from '../registry/flowKinds';
@@ -33,6 +34,8 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyStoryboardData();
     case 'text':
       return emptyTextData();
+    case 'animatic':
+      return emptyAnimaticData();
     default:
       return emptyBriefData(def);
   }
@@ -75,16 +78,21 @@ function rulesTarget(rules: string, targetKind: string): boolean {
 }
 
 /**
- * Seed rules for a new connection. A flow that suggests rules for the wires
- * coming into it keeps them, unless the source has advice aimed specifically at
- * this kind of target: `panel per: beat` is good advice for a storyboard and
- * noise on the way into anything else.
+ * Seed rules for a new connection. A flow that suggests rules for wires landing
+ * on a particular input keeps them, unless the source has advice aimed
+ * specifically at this kind of target: `panel per: beat` is good advice for a
+ * storyboard and noise on the way into anything else.
  */
-export function defaultRulesForConnection(sourceKind: string, targetKind: string): string {
-  const outgoing = getFlowKind(sourceKind)?.defaultOutgoingRules;
-  const incoming = getFlowKind(targetKind)?.defaultIncomingRules;
+export interface ConnectionEnd {
+  kind: string;
+  portId: string;
+}
+
+export function defaultRulesForConnection(from: ConnectionEnd, to: ConnectionEnd): string {
+  const outgoing = getFlowKind(from.kind)?.defaultOutgoingRules?.[from.portId];
+  const incoming = getFlowKind(to.kind)?.defaultIncomingRules?.[to.portId];
   if (!incoming) return outgoing ?? '';
-  if (outgoing && rulesTarget(outgoing, targetKind)) return outgoing;
+  if (outgoing && rulesTarget(outgoing, to.kind)) return outgoing;
   return incoming;
 }
 

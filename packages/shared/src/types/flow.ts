@@ -37,7 +37,7 @@ export const FLOW_CATEGORY_LABEL: Record<FlowCategory, string> = {
 };
 
 /** Which focused editor a flow opens when you double-click its node. */
-export type EditorId = 'dialog' | 'storyboard' | 'text' | 'brief';
+export type EditorId = 'dialog' | 'storyboard' | 'text' | 'animatic' | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */
 export type FlowMaturity = 'editor' | 'brief';
@@ -82,8 +82,14 @@ export interface FlowKindDef {
   maturity: FlowMaturity;
   /** Fields for the brief editor; ignored by flows with a bespoke editor. */
   fields?: BriefFieldSpec[];
-  /** Seed text for the rules box when this flow is the source of a new connection. */
-  defaultOutgoingRules?: string;
-  /** Seed text used instead when the source kind suggests nothing of its own. */
-  defaultIncomingRules?: string;
+  /**
+   * Seed text for a wire leaving one of this flow's outputs, keyed by port id —
+   * rules are about what a particular port carries, not about the flow.
+   */
+  defaultOutgoingRules?: Record<string, string>;
+  /**
+   * Seed text for a wire landing on one of this flow's inputs, keyed by port id.
+   * Used when the source has nothing to say about this kind of target.
+   */
+  defaultIncomingRules?: Record<string, string>;
 }

@@ -4,6 +4,7 @@ export * from './types/artifacts';
 export * from './types/flow';
 export * from './types/project';
 export * from './types/text';
+export * from './types/animatic';
 export * from './types/api';
 
 export * from './registry/flowKinds';
@@ -14,6 +15,7 @@ export * from './flows/dialog';
 export * from './flows/storyboard';
 export * from './flows/brief';
 export * from './flows/text';
+export * from './flows/animatic';
 
 export * from './text/tokenize';
 export * from './text/lexicon';

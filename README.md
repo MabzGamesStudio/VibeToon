@@ -68,12 +68,15 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   land on it; another temperature decides how much of the incoming text is
   replaced. Every run is seeded, so it is reproducible.
   See [docs/RANDOM-TEXT.md](docs/RANDOM-TEXT.md).
-- **Playblast.** Play the board in the browser at its own timing, with dialog as
-  captions. No tooling required.
-- **Video output.** The animatic, edit and render flows assemble the boards into
-  a timeline (`animatic.json` / `edl.json`) and, when ffmpeg is installed, an
-  mp4. Without ffmpeg they still write the timeline, the clip list and the exact
-  command to run later. Set `VIBETOON_FFMPEG` if it is not on your `PATH`.
+- **Animatic.** The board laid out in time: hold a shot longer, cut one out, aim
+  at a runtime and fit the whole cut to it — none of which touches the board. It
+  plays in the browser, and **Export video** records the same cut to a real video
+  file and puts it on the flow's Preview port, so a laptop with no video tooling
+  still produces a watchable file at the end of the pipeline.
+- **Video output.** The animatic, edit and render flows write the cut as a
+  timeline (`animatic.json` / `edl.json`) that every downstream flow reads, plus
+  an mp4 when ffmpeg is installed — and the exact command when it is not. Set
+  `VIBETOON_FFMPEG` if ffmpeg is not on your `PATH`.
 - **Every other flow kind** uses the brief editor: fields defined by the flow
   itself, generated into a markdown brief with everything arriving over its
   connections recorded underneath. Image and audio ports take a file you upload,
@@ -86,11 +89,14 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   exists. There is no model wired in; every generator is deterministic and local
   — including the random text flow, which walks a word database you can edit
   rather than predicting anything.
-- Bespoke editors exist for three flow kinds so far (dialog, storyboard, random
-  text). The rest
+- Bespoke editors exist for four flow kinds so far (dialog, storyboard, random
+  text, animatic). The rest
   are real and usable through the brief editor, but they are text and uploads,
   not purpose-built tools.
-- Rendering video needs ffmpeg installed separately.
+- Rendering an mp4 on the server needs ffmpeg installed separately. The
+  in-browser export writes WebM, recorded in real time — a 30 second animatic
+  takes 30 seconds — and the file it produces carries no duration in its header,
+  which some players only work out once they have read it.
 
 ## Layout
 

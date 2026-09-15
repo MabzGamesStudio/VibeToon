@@ -63,7 +63,8 @@ set of attachments) and hands it to a generator chosen by flow kind:
 | ------------- | -------------------------------------------------- | ------ |
 | `dialog`      | `story.dialog`                                      | `dialog.txt`, `scenes.json`, `soundcues.txt` |
 | `storyboard`  | `animation.storyboard`                              | `storyboard.json`, `shotlist.csv`, `boards.md`, `panels/` |
-| `assembly`    | `animation.animatic`, `production.edit/render`      | `animatic.json` / `edl.json`, `render-plan.md`, mp4 when ffmpeg exists |
+| `animatic`    | `animation.animatic`                                | `animatic.json`, `animatic-plan.md`, mp4 when ffmpeg exists |
+| `assembly`    | `production.edit`, `production.render`              | `edl.json`, `render-plan.md`, mp4 when ffmpeg exists |
 | `text`        | `text.random`                                       | `text.txt`, `lexicon.json`, `report.md` |
 | `brief`       | everything else                                     | markdown / text / json / csv from the flow's fields |
 
@@ -107,10 +108,27 @@ covers the scoring.
 
 The board's panels are rasterised in the browser from the same stroke data
 (`rasterizePanel`) and posted with the generate request, which writes `panels/`.
-The assembly generator reads the storyboard JSON plus that folder, writes a
-timeline, and — if ffmpeg is on the machine — runs a concat-demuxer render into
-an mp4. Without ffmpeg it writes `concat.txt` and the exact command instead, and
-the browser playblast covers watching the cut.
+
+The animatic reads `storyboard.json` plus that folder and lays it out in time.
+Its own state is only what it changes — a hold, a shot cut out, a target runtime
+— so `resolveAnimaticCut` is a pure function of (board, overrides, rules) and
+retiming never edits a drawing. The cut list it writes is what the edit and
+render flows read.
+
+Two routes produce an actual file, and they meet at the same port:
+
+- **Server:** a concat-demuxer ffmpeg render of the panel images at their clip
+  durations. Without ffmpeg the exact command is written to `animatic-plan.md`
+  next to `concat.txt`, so the same render can be run later by hand.
+- **Browser:** `recordClips` paints the same `PlayClip`s the player uses onto a
+  canvas, captures it with `canvas.captureStream` + `MediaRecorder`, and uploads
+  the result onto the Preview port. Capture is real time, and the canvas is
+  repainted every frame — a canvas stream only emits when the canvas is dirty, so
+  a long held shot would otherwise record as a gap.
+
+Because generation merges outputs by port, a recording made in the browser
+survives regenerating the flow: the generator only writes `preview` when it
+actually rendered one.
 
 ## Storage
 

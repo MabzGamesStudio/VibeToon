@@ -1,3 +1,4 @@
+import { generateAnimatic } from './animatic';
 import { generateAssembly } from './assembly';
 import { generateBrief } from './brief';
 import { generateDialog } from './dialog';
@@ -14,7 +15,7 @@ const GENERATORS: Record<string, Generator> = {
   'story.dialog': generateDialog,
   'animation.storyboard': generateStoryboard,
   'text.random': generateText,
-  'animation.animatic': generateAssembly,
+  'animation.animatic': generateAnimatic,
   'production.edit': generateAssembly,
   'production.render': generateAssembly,
 };

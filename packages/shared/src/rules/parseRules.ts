@@ -105,6 +105,12 @@ export const RULE_DIRECTIVES: readonly RuleDirectiveSpec[] = [
     appliesTo: ['*'],
   },
   {
+    key: 'target length',
+    example: '60s',
+    description: 'Runtime the cut should aim for: `90s`, `1m30`, `1:30`.',
+    appliesTo: ['animation.animatic'],
+  },
+  {
     key: 'length',
     example: '+20%',
     description: 'Target length: `keep`, `120 words`, `900 characters`, `+20%` or `-15% characters`.',

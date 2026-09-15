@@ -19,6 +19,7 @@ import { useStudio } from '../../state/store';
 import { formatSeconds } from '../common/format';
 import { EditorShell } from './EditorShell';
 import { Playblast } from './Playblast';
+import { clipsFromPanels } from './playClips';
 import { SketchPad } from './SketchPad';
 import { SyncDialog } from './SyncDialog';
 import { rasterizePanel } from './sketch';
@@ -441,7 +442,12 @@ export function StoryboardEditor({ project, node }: { project: Project; node: Fl
       ) : null}
 
       {playing ? (
-        <Playblast panels={timed} settings={project.settings} onClose={() => setPlaying(false)} />
+        <Playblast
+          clips={clipsFromPanels(timed)}
+          settings={project.settings}
+          title="Board playblast"
+          onClose={() => setPlaying(false)}
+        />
       ) : null}
     </>
   );

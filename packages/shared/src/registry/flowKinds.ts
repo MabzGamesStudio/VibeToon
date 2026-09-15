@@ -64,7 +64,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       field('constraints', 'Constraints', 'list', 'Runtime, cast size, budget, what must be avoidable.'),
       field('audience', 'Audience', 'line', 'Who it is for and where it will be watched.'),
     ],
-    defaultOutgoingRules: 'keep: premise, logline\nignore: rejected sparks',
+    defaultOutgoingRules: { ideas: 'keep: premise, logline\nignore: rejected sparks' },
   },
   {
     kind: 'brainstorm.tone',
@@ -104,7 +104,9 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     ],
     editor: 'text',
     maturity: 'editor',
-    defaultIncomingRules: ['alter: 0.3', 'length: +0%', 'temperature: 0.45', 'context window: 3'].join('\n'),
+    defaultIncomingRules: {
+      text: ['alter: 0.3', 'length: +0%', 'temperature: 0.45', 'context window: 3'].join('\n'),
+    },
   },
 
   /* ---------------------------------------------------------------- *
@@ -131,7 +133,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       field('turn', 'Turn', 'text', 'The moment the clip pivots.'),
       field('ending', 'Ending', 'text', 'Where it lands and on what image.'),
     ],
-    defaultOutgoingRules: 'one scene per beat\nkeep beat order\ncarry: turn, ending',
+    defaultOutgoingRules: { outline: 'one scene per beat\nkeep beat order\ncarry: turn, ending' },
   },
   {
     kind: 'story.dialog',
@@ -150,14 +152,18 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     ],
     editor: 'dialog',
     maturity: 'editor',
-    defaultOutgoingRules: [
-      'panel per: beat',
-      'merge: consecutive action beats',
-      'shot for line: MCU',
-      'shot for action: WS',
-      'carry: sound -> notes',
-      'min duration: 1.2',
-    ].join('\n'),
+    defaultOutgoingRules: (() => {
+      const board = [
+        'panel per: beat',
+        'merge: consecutive action beats',
+        'shot for line: MCU',
+        'shot for action: WS',
+        'carry: sound -> notes',
+        'min duration: 1.2',
+      ].join('\n');
+      // Both the readable script and the structured scenes break down the same way.
+      return { dialog: board, scenes: board };
+    })(),
   },
   {
     kind: 'story.character',
@@ -184,7 +190,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       field('voice', 'Voice', 'text', 'Vocabulary, rhythm, accent, delivery.'),
       field('relationships', 'Relationships', 'list', 'One per line: `other character — the dynamic`.'),
     ],
-    defaultOutgoingRules: 'voice: keep vocabulary and rhythm\nnever: contradict history',
+    defaultOutgoingRules: { profile: 'voice: keep vocabulary and rhythm\nnever: contradict history' },
   },
   {
     kind: 'story.timeline',
@@ -294,7 +300,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     ],
     editor: 'storyboard',
     maturity: 'editor',
-    defaultOutgoingRules: 'hold each panel for its duration\ncarry: dialog, sound',
+    defaultOutgoingRules: { storyboard: 'hold each panel for its duration\ncarry: dialog, sound' },
   },
   {
     kind: 'animation.style',
@@ -437,15 +443,11 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     ],
     outputs: [
       output('animatic', 'Animatic', ['timeline'], 'animatic.json', 'Cut list with in/out times.'),
-      output('preview', 'Preview', ['video'], 'animatic.mp4', 'Rendered animatic, when a renderer is available.'),
+      output('preview', 'Preview', ['video'], 'animatic.webm', 'The cut as a video file.'),
     ],
-    editor: 'brief',
-    maturity: 'brief',
-    fields: [
-      field('pacing', 'Pacing', 'text', 'Where it should breathe and where it should cut hard.'),
-      field('holds', 'Holds', 'list', 'Panels to hold longer, with why.'),
-      field('target', 'Target length', 'line', 'e.g. `90s`.'),
-    ],
+    editor: 'animatic',
+    maturity: 'editor',
+    defaultIncomingRules: { storyboard: 'target length: 60s' },
   },
   {
     kind: 'animation.scene',
