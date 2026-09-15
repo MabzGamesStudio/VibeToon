@@ -68,6 +68,11 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   land on it; another temperature decides how much of the incoming text is
   replaced. Every run is seeded, so it is reproducible.
   See [docs/RANDOM-TEXT.md](docs/RANDOM-TEXT.md).
+- **Design sheets.** Character, set and prop design flows are drawing surfaces:
+  a sheet of plates (front, three-quarter, expressions) drawn with the same
+  vector tools as the board, alongside the written spec. Generating writes the
+  first plate as the flow's key image — `character.png` — and every plate as its
+  model sheet, so the picture and the words that describe it stay together.
 - **Animatic.** The board laid out in time: hold a shot longer, cut one out, aim
   at a runtime and fit the whole cut to it — none of which touches the board. It
   plays in the browser, and **Export video** records the same cut to a real video
@@ -80,7 +85,7 @@ Set `VIBETOON_DATA` to keep them somewhere else.
 - **Every other flow kind** uses the brief editor: fields defined by the flow
   itself, generated into a markdown brief with everything arriving over its
   connections recorded underneath. Image and audio ports take a file you upload,
-  so a design you drew elsewhere becomes a real artifact the graph can track.
+  so work you made elsewhere becomes a real artifact the graph can track.
 
 ## What it does not do
 
@@ -89,8 +94,8 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   exists. There is no model wired in; every generator is deterministic and local
   — including the random text flow, which walks a word database you can edit
   rather than predicting anything.
-- Bespoke editors exist for four flow kinds so far (dialog, storyboard, random
-  text, animatic). The rest
+- Bespoke editors exist for seven flow kinds so far (dialog, storyboard, random
+  text, animatic, and the three design sheets). The rest
   are real and usable through the brief editor, but they are text and uploads,
   not purpose-built tools.
 - Rendering an mp4 on the server needs ffmpeg installed separately. The

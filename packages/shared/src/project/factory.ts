@@ -2,6 +2,7 @@ import { emptyBriefData } from '../flows/brief';
 import { emptyDialogData } from '../flows/dialog';
 import { emptyStoryboardData } from '../flows/storyboard';
 import { emptyAnimaticData } from '../flows/animatic';
+import { emptyDesignData } from '../flows/design';
 import { emptyTextData } from '../flows/text';
 import { newId } from '../ids';
 import { getFlowKind, requireFlowKind } from '../registry/flowKinds';
@@ -36,6 +37,8 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyTextData();
     case 'animatic':
       return emptyAnimaticData();
+    case 'design':
+      return emptyDesignData(def);
     default:
       return emptyBriefData(def);
   }

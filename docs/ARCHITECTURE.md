@@ -66,6 +66,7 @@ set of attachments) and hands it to a generator chosen by flow kind:
 | `animatic`    | `animation.animatic`                                | `animatic.json`, `animatic-plan.md`, mp4 when ffmpeg exists |
 | `assembly`    | `production.edit`, `production.render`              | `edl.json`, `render-plan.md`, mp4 when ffmpeg exists |
 | `text`        | `text.random`                                       | `text.txt`, `lexicon.json`, `report.md` |
+| `design`      | `animation.character/set/prop.design`               | the spec, plus the plates as a key image and a model sheet |
 | `brief`       | everything else                                     | markdown / text / json / csv from the flow's fields |
 
 Results are merged over the flow's existing outputs by port, so a file you
@@ -129,6 +130,15 @@ Two routes produce an actual file, and they meet at the same port:
 Because generation merges outputs by port, a recording made in the browser
 survives regenerating the flow: the generator only writes `preview` when it
 actually rendered one.
+
+## Drawings
+
+Three surfaces draw, and they all store vector strokes in the project rather than
+pixels: storyboard panels, design plates, and anything added later. `SketchPad`
+owns the input, `drawSketch` renders at any size, and the editor rasterises to
+PNG only when a run needs files — panels at the project's frame size, design
+plates at 1080 tall in the plate's own shape. Nothing in the project file is a
+bitmap, so a board or a model sheet stays small, diffable and re-renderable.
 
 ## Storage
 

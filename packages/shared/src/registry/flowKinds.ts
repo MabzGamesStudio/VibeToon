@@ -335,8 +335,8 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       output('modelSheet', 'Model sheet', ['imageSet'], 'modelsheet', 'Turnaround and expressions.'),
       output('spec', 'Design spec', ['markdown'], 'design.md', 'What the design must hold to.'),
     ],
-    editor: 'brief',
-    maturity: 'brief',
+    editor: 'design',
+    maturity: 'editor',
     fields: [
       field('silhouette', 'Silhouette', 'text', 'Readable at thumbnail size — how?'),
       field('palette', 'Palette', 'list', 'One per line: `part — colour`.'),
@@ -358,8 +358,8 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       output('design', 'Design', ['image'], 'set.png', 'The key set image.'),
       output('spec', 'Set spec', ['markdown'], 'set.md', 'Layout, exits, dressing, camera positions.'),
     ],
-    editor: 'brief',
-    maturity: 'brief',
+    editor: 'design',
+    maturity: 'editor',
     fields: [
       field('layout', 'Layout', 'text', 'Plan of the space and its exits.'),
       field('dressing', 'Dressing', 'list', 'What is in the room.'),
@@ -380,8 +380,8 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       output('design', 'Design', ['image'], 'prop.png', 'The prop design.'),
       output('spec', 'Prop spec', ['markdown'], 'prop.md', 'Scale, materials, moving parts.'),
     ],
-    editor: 'brief',
-    maturity: 'brief',
+    editor: 'design',
+    maturity: 'editor',
     fields: [
       field('what', 'What it is', 'text', 'Function and scale next to a character.'),
       field('moves', 'How it moves', 'text', 'Hinges, weight, sound it makes.'),

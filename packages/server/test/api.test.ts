@@ -131,40 +131,77 @@ test('panel images sent with a generate run land in panels/', async () => {
 });
 
 test('an uploaded file on an output port survives a regenerate', async () => {
-  const designNode = {
-    id: 'flow_design01',
-    kind: 'animation.character.design',
-    name: 'Mabz design',
+  // A brief flow with an audio output: nothing in the app can write that file,
+  // so it is the case where uploading is the only way to fill the port.
+  const musicNode = {
+    id: 'flow_music01',
+    kind: 'music.arrangement',
+    name: 'Arrangement',
     position: { x: 0, y: 600 },
     notes: '',
-    data: { editor: 'brief' as const, fields: { silhouette: 'tall, round shoulders' } },
+    data: { editor: 'brief' as const, fields: { instruments: 'celesta — the machine\nbass clarinet — the room' } },
     outputs: [],
   };
   project = await api<Project>('PUT', `/api/projects/${project.id}`, {
     ...project,
-    nodes: [...project.nodes, designNode],
+    nodes: [...project.nodes, musicNode],
   });
 
   const uploaded = await api<{ project: Project; artifact: { fileName: string; bytes: number } }>(
     'POST',
-    `/api/projects/${project.id}/flows/${designNode.id}/outputs/design`,
-    { fileName: 'character.png', data: PNG_1x1 },
+    `/api/projects/${project.id}/flows/${musicNode.id}/outputs/render`,
+    { fileName: 'music.wav', data: PNG_1x1 },
   );
   project = uploaded.project;
-  assert.equal(uploaded.artifact.fileName, 'character.png');
+  assert.equal(uploaded.artifact.fileName, 'music.wav');
 
   const regenerated = await api<GenerateResponse>(
     'POST',
-    `/api/projects/${project.id}/flows/${designNode.id}/generate`,
+    `/api/projects/${project.id}/flows/${musicNode.id}/generate`,
   );
   project = regenerated.project;
   const ports = regenerated.runs[0]!.outputs.map((o) => o.port).sort();
-  assert.ok(ports.includes('design'), 'the uploaded image is still on the port');
-  assert.ok(ports.includes('spec'), 'the brief was written alongside it');
+  assert.ok(ports.includes('render'), 'the uploaded audio is still on the port');
+  assert.ok(ports.includes('arrangement'), 'the brief was written alongside it');
   assert.ok(
     regenerated.runs[0]!.log.some((line) => /make yourself/.test(line)),
     'the run says which outputs still need a real file',
   );
+});
+
+test('a flow saved before its editor existed is brought forward', async () => {
+  // Design flows used to be written briefs; the stored shape still loads.
+  const legacy = {
+    id: 'flow_legacy01',
+    kind: 'animation.character.design',
+    name: 'Old design',
+    position: { x: 400, y: 600 },
+    notes: '',
+    data: { editor: 'brief' as const, fields: { silhouette: 'tall, round shoulders' } },
+    outputs: [],
+  };
+  await api<Project>('PUT', `/api/projects/${project.id}`, {
+    ...project,
+    nodes: [...project.nodes, legacy],
+  });
+
+  const reloaded = await api<Project>('GET', `/api/projects/${project.id}`);
+  project = reloaded;
+  const migrated = reloaded.nodes.find((node) => node.id === legacy.id)!.data as {
+    editor: string;
+    fields: Record<string, string>;
+    plates: unknown[];
+  };
+  assert.equal(migrated.editor, 'design', 'it opens in the editor the kind declares now');
+  assert.equal(migrated.fields.silhouette, 'tall, round shoulders', 'what was written is kept');
+  assert.ok(migrated.plates.length > 0, 'and it arrives with plates to draw on');
+
+  const run = await api<GenerateResponse>(
+    'POST',
+    `/api/projects/${project.id}/flows/${legacy.id}/generate`,
+  );
+  project = run.project;
+  assert.equal(run.runs[0]!.ok, true);
 });
 
 test('saving with a stale revision is refused', async () => {

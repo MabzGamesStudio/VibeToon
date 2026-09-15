@@ -2,6 +2,7 @@ import type { FlowNode } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
 import { AnimaticEditor } from './AnimaticEditor';
 import { BriefEditor } from './BriefEditor';
+import { DesignEditor } from './DesignEditor';
 import { DialogEditor } from './DialogEditor';
 import { EditorShell } from './EditorShell';
 import { StoryboardEditor } from './StoryboardEditor';
@@ -25,6 +26,8 @@ export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
       return <TextEditor project={project} node={node} />;
     case 'animatic':
       return <AnimaticEditor project={project} node={node} />;
+    case 'design':
+      return <DesignEditor project={project} node={node} />;
     default:
       return <BriefEditor project={project} node={node} />;
   }

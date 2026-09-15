@@ -189,7 +189,7 @@ Line, shading, palette, frame rate and how motion should read.
 
 ### Character Design
 
-`animation.character.design` · brief editor
+`animation.character.design` · **bespoke editor**
 
 Model sheet and turnaround for one character.
 
@@ -199,7 +199,7 @@ Model sheet and turnaround for one character.
 
 ### Set Design
 
-`animation.set.design` · brief editor
+`animation.set.design` · **bespoke editor**
 
 The buildable version of a location, with staging.
 
@@ -209,7 +209,7 @@ The buildable version of a location, with staging.
 
 ### Prop Design
 
-`animation.prop.design` · brief editor
+`animation.prop.design` · **bespoke editor**
 
 A prop that has to act: how it looks and how it moves.
 

@@ -783,3 +783,48 @@
     }
   }
 }
+
+/* Design plates -------------------------------------------------------- */
+
+.vt-plates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.vt-plate {
+  @include card;
+  background: $bg-1;
+
+  &.is-key {
+    border-color: rgba(110, 168, 254, 0.5);
+  }
+
+  > header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid $line;
+
+    input {
+      font-weight: 600;
+      background: transparent;
+      border-color: transparent;
+
+      &:hover {
+        border-color: $line;
+      }
+    }
+  }
+
+  .vt-plate-note {
+    border: 0;
+    border-top: 1px solid $line;
+    border-radius: 0 0 $radius $radius;
+    background: transparent;
+    font-size: 11px;
+    padding: 5px 8px;
+  }
+}

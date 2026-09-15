@@ -1,5 +1,6 @@
 import type { ArtifactRef } from './artifacts';
 import type { AnimaticFlowData } from './animatic';
+import type { DesignFlowData } from './design';
 import type { TextFlowData } from './text';
 
 export interface Vec2 {
@@ -169,7 +170,8 @@ export type FlowData =
   | StoryboardFlowData
   | BriefFlowData
   | TextFlowData
-  | AnimaticFlowData;
+  | AnimaticFlowData
+  | DesignFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph

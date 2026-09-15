@@ -12,6 +12,8 @@ import {
 } from '../src/flows/animatic';
 import { newPanel, storyboardPayload } from '../src/flows/storyboard';
 import { defaultRulesForConnection } from '../src/project/factory';
+import { migrateFlowData } from '../src/project/migrate';
+import type { AnimaticFlowData } from '../src/types/animatic';
 import type { StoryboardScene } from '../src/types/project';
 
 const SETTINGS = { fps: 24, width: 1920, height: 1080, defaultShotSeconds: 2, styleNote: '' };
@@ -166,4 +168,22 @@ test('a wire onto the animatic is seeded per port', () => {
   // is just pictures, so it starts empty.
   assert.match(defaultRulesForConnection({ kind: 'animation.storyboard', portId: 'storyboard' }, { kind: 'animation.animatic', portId: 'storyboard' }), /target length/);
   assert.equal(defaultRulesForConnection({ kind: 'animation.storyboard', portId: 'panels' }, { kind: 'animation.animatic', portId: 'panels' }), '');
+});
+
+test('an animatic written as a brief keeps its pacing and target', () => {
+  const migrated = migrateFlowData('animation.animatic', {
+    editor: 'brief',
+    fields: { pacing: 'let it breathe', holds: 'panel 3 — the gear', target: '1m30' },
+  });
+  assert.equal(migrated.editor, 'animatic');
+  const data = migrated as AnimaticFlowData;
+  assert.equal(data.targetSeconds, 90);
+  assert.match(data.pacing, /let it breathe/);
+  assert.match(data.pacing, /the gear/);
+  assert.deepEqual(data.overrides, {});
+});
+
+test('data that already matches the editor is left exactly as it is', () => {
+  const data = withOverride(emptyAnimaticData(), 'p1', { durationSec: 3 });
+  assert.equal(migrateFlowData('animation.animatic', data), data);
 });
