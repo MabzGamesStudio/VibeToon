@@ -108,7 +108,7 @@ export interface GrammarSummary {
   tokensRead: number;
   /** Tokens that are words rather than marks — what coverage is measured against. */
   wordsRead: number;
-  /** Share of words the word database could type, 0..1. */
+  /** Share of words the word database has an entry for, 0..1. */
   coverage: number;
 }
 

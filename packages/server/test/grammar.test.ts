@@ -194,7 +194,7 @@ test('the wired corpus becomes a dataset of its own, replaced on each run', asyn
 test('the report says what was read and what was found', async () => {
   const report = await artifact(GRAMMAR_ID, 'report.md');
   assert.match(report, /Sentence shapes/);
-  assert.match(report, /Words typed by the database/);
+  assert.match(report, /Words found in the database/);
   assert.match(report, /Source text/, 'the corpus it read is named');
 });
 

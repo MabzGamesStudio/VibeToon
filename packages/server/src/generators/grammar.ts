@@ -70,7 +70,7 @@ export async function generateGrammar(ctx: GenerationContext): Promise<Generatio
   if (included.length === 0) ctx.warn('No corpus is included, so the grammar database is empty.');
   if (summary.coverage < 0.9 && summary.wordsRead > 0) {
     ctx.warn(
-      `The word database could only type ${Math.round(summary.coverage * 100)}% of the words read — the rest were guessed.`,
+      `The word database has an entry for only ${Math.round(summary.coverage * 100)}% of the words read — the rest were typed by guess.`,
     );
   }
 
@@ -80,7 +80,7 @@ export async function generateGrammar(ctx: GenerationContext): Promise<Generatio
     `- Sentence shapes: **${summary.sentencePatterns}** from ${summary.sentencesRead} sentence(s) read`,
     `- Fragment shapes: ${summary.fragmentPatterns}`,
     `- Phrase shapes: ${summary.phrasePatterns}`,
-    `- Words typed by the database: ${Math.round(summary.coverage * 100)}% of ${summary.wordsRead}`,
+    `- Words found in the database: ${Math.round(summary.coverage * 100)}% of ${summary.wordsRead}`,
     `- Corpora included: ${included.length} of ${data.datasets.length}`,
     '',
     '## What went into it',

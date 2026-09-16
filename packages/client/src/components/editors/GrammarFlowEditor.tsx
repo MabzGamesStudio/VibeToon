@@ -163,7 +163,7 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
             <dd>{summary.phrasePatterns.toLocaleString()}</dd>
             <dt>Sentences read</dt>
             <dd>{summary.sentencesRead.toLocaleString()}</dd>
-            <dt>Words typed</dt>
+            <dt>Words found</dt>
             <dd>
               {Math.round(summary.coverage * 100)}% of {summary.wordsRead.toLocaleString()}
             </dd>
@@ -173,8 +173,10 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
             </dd>
           </dl>
           <div className="vt-hint">
-            A word the database has not defined is typed by guess, so running the dictionary on the word
-            database first makes these shapes considerably more accurate.
+            How much of the corpus the word database has an entry for. A word it has never seen is typed by
+            guess — and so is a word whose entry was never looked up, since its type is a guess too. Run the
+            dictionary on the word database first: a wrong word type is the one thing that makes these shapes
+            wrong, and nothing downstream can recover from it.
           </div>
         </div>
 
