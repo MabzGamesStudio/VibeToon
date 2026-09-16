@@ -11,13 +11,23 @@ import {
   nodeById,
   requireFlowKind,
   type ArtifactKind,
+  type DictionaryProviders,
   type Project,
   type RegistryResponse,
   type StoryboardFlowData,
   type SyncResponse,
 } from '@vibetoon/shared';
 import { fetchCorpus } from './text/corpusFetch';
-import { DEFAULT_LOOKUP_OPTIONS, lookupWords } from './text/dictionary';
+import {
+  DEFAULT_LOOKUP_OPTIONS,
+  activeProvider,
+  hasDictionaryKey,
+  lookupWords,
+  DICTIONARY_URL_OVERRIDE,
+} from './text/dictionary';
+import { DICTIONARY_PROVIDERS, providerById } from './text/dictionaryProviders';
+import { patchSettings } from './settings';
+import { clearLogs, readLogFile, readLogs } from './logs';
 import { hasFfmpeg } from './render/video';
 import { assertSafeId, REPO_ROOT, resolveInProject } from './paths';
 import { buildSyncPlan, syncSources } from './services/sync';
@@ -67,6 +77,25 @@ function asyncRoute(
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req, res, next) => {
     handler(req, res).catch(next);
+  };
+}
+
+/** The provider list as the browser needs it: no keys, and why the active one won. */
+function describeProviders(): DictionaryProviders {
+  const active = activeProvider();
+  return {
+    providers: DICTIONARY_PROVIDERS.map((provider) => ({
+      id: provider.id,
+      label: provider.label,
+      note: provider.note,
+      needsKey: provider.needsKey,
+      ...(provider.keyUrl ? { keyUrl: provider.keyUrl } : {}),
+      available: !provider.needsKey || hasDictionaryKey(),
+    })),
+    activeId: active.provider.id,
+    reason: active.reason,
+    hasKey: hasDictionaryKey(),
+    pinnedByEnvironment: DICTIONARY_URL_OVERRIDE.length > 0,
   };
 }
 
@@ -123,6 +152,71 @@ export function createApp(): express.Express {
         ? Math.max(1, Math.min(500, Math.floor(body.limit as number)))
         : DEFAULT_LOOKUP_OPTIONS.limit;
       res.json(await lookupWords(words, { limit }));
+    }),
+  );
+
+  /** Which dictionary services exist, and which one is being asked. */
+  app.get(
+    '/api/text/dictionary/providers',
+    asyncRoute(async (_req, res) => {
+      res.json(describeProviders());
+    }),
+  );
+
+  /** Point the studio at a different dictionary, and remember the choice. */
+  app.post(
+    '/api/text/dictionary/provider',
+    asyncRoute(async (req, res) => {
+      const body = (req.body ?? {}) as { id?: string };
+      const provider = body.id ? providerById(body.id) : undefined;
+      if (!provider) throw new HttpError(400, `No such dictionary: ${body.id ?? '(none)'}`);
+      if (provider.needsKey && !hasDictionaryKey()) {
+        throw new HttpError(
+          400,
+          `${provider.label} needs a key. Set VIBETOON_DICTIONARY_KEY and restart the server.`,
+        );
+      }
+      await patchSettings({ dictionaryProvider: provider.id });
+      res.json(describeProviders());
+    }),
+  );
+
+  /**
+   * What the studio has asked of the outside world: every dictionary lookup and
+   * corpus download, with the status, the timing and the reason it failed. Held
+   * in memory for the viewer and appended to a file so a server restart does not
+   * throw away what you were reading.
+   */
+  app.get(
+    '/api/logs',
+    asyncRoute(async (req, res) => {
+      const since = Number(req.query.since);
+      const limit = Number(req.query.limit);
+      const service = typeof req.query.service === 'string' ? req.query.service : undefined;
+      res.json(
+        readLogs({
+          ...(Number.isFinite(since) ? { since } : {}),
+          ...(Number.isFinite(limit) ? { limit } : {}),
+          ...(service ? { service } : {}),
+        }),
+      );
+    }),
+  );
+
+  /** What the file holds, including whatever a restart lost from memory. */
+  app.get(
+    '/api/logs/file',
+    asyncRoute(async (req, res) => {
+      const limit = Number(req.query.limit);
+      res.json({ entries: await readLogFile(Number.isFinite(limit) ? limit : 300) });
+    }),
+  );
+
+  app.delete(
+    '/api/logs',
+    asyncRoute(async (_req, res) => {
+      clearLogs();
+      res.json({ ok: true });
     }),
   );
 

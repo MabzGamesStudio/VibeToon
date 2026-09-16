@@ -6,14 +6,77 @@ import {
   meaningForToken,
   wordTypeFromPartOfSpeech,
   type DictionaryResult,
+  type LogOutcome,
 } from '@vibetoon/shared';
+import { recordApiCall } from '../logs';
 import { DATA_ROOT } from '../paths';
+import { getSettings } from '../settings';
+import { CUSTOM_PROVIDER, providerById, type DictionaryProvider } from './dictionaryProviders';
 
-/** Override to point at another dictionary service, or at a stub in tests. */
-export const DICTIONARY_URL =
-  process.env.VIBETOON_DICTIONARY_URL ?? 'https://api.dictionaryapi.dev/api/v2/entries/en/{word}';
+/**
+ * Point at another service, or at a stub in tests. Setting this wins over every
+ * other choice, and the answer is read for whichever common shape it turns out
+ * to be in.
+ */
+export const DICTIONARY_URL_OVERRIDE = process.env.VIBETOON_DICTIONARY_URL ?? '';
 
+/** The key for a service that needs one. Never stored, never sent to the browser. */
+const DICTIONARY_KEY = process.env.VIBETOON_DICTIONARY_KEY ?? '';
+
+const DEFAULT_PROVIDER = 'free-dictionary';
 const CACHE_DIR = path.join(DATA_ROOT, 'cache', 'dictionary');
+
+/**
+ * Which service is being asked, and why that one.
+ *
+ * An explicit address wins, then whatever was picked in the studio, then the
+ * environment, then the keyless default. A provider that needs a key it has not
+ * been given is skipped rather than used to fire a few hundred requests that can
+ * only come back 401.
+ */
+export function activeProvider(): { provider: DictionaryProvider; url: string; reason: string } {
+  if (DICTIONARY_URL_OVERRIDE) {
+    return {
+      provider: CUSTOM_PROVIDER,
+      url: DICTIONARY_URL_OVERRIDE,
+      reason: 'VIBETOON_DICTIONARY_URL is set',
+    };
+  }
+
+  const chosen = getSettings().dictionaryProvider;
+  const fromEnv = process.env.VIBETOON_DICTIONARY ?? '';
+  for (const [id, reason] of [
+    [chosen ?? '', 'chosen in the studio'],
+    [fromEnv, 'VIBETOON_DICTIONARY is set'],
+    [DEFAULT_PROVIDER, 'the default'],
+  ] as const) {
+    const provider = id ? providerById(id) : undefined;
+    if (provider && (!provider.needsKey || DICTIONARY_KEY)) {
+      return { provider, url: provider.url, reason };
+    }
+    if (provider && provider.needsKey && !DICTIONARY_KEY) {
+      return {
+        provider: providerById(DEFAULT_PROVIDER)!,
+        url: providerById(DEFAULT_PROVIDER)!.url,
+        reason: `${provider.label} needs VIBETOON_DICTIONARY_KEY, so the default is being used instead`,
+      };
+    }
+  }
+  const fallback = providerById(DEFAULT_PROVIDER)!;
+  return { provider: fallback, url: fallback.url, reason: 'the default' };
+}
+
+/** The address for one word, with the key filled in when the service takes one. */
+export function dictionaryUrlFor(word: string): string {
+  return activeProvider()
+    .url.replace('{word}', encodeURIComponent(word))
+    .replace('{key}', encodeURIComponent(DICTIONARY_KEY));
+}
+
+/** Whether a key is present, without saying what it is. */
+export function hasDictionaryKey(): boolean {
+  return DICTIONARY_KEY.length > 0;
+}
 
 export interface LookupOptions {
   /** Attempt at most this many words. The rest come back as `remaining`. */
@@ -57,15 +120,6 @@ interface CachedLookup {
   definition?: string;
 }
 
-interface DictionaryMeaning {
-  partOfSpeech?: string;
-  definitions?: Array<{ definition?: string }>;
-}
-
-interface DictionaryEntry {
-  meanings?: DictionaryMeaning[];
-}
-
 function cachePath(word: string): string {
   // One file per word, named safely: `don't` must not become a path.
   const safe = Buffer.from(word, 'utf8').toString('hex');
@@ -85,21 +139,9 @@ async function writeCache(entry: CachedLookup): Promise<void> {
   await writeFile(cachePath(entry.word), `${JSON.stringify(entry)}\n`, 'utf8');
 }
 
-/** Pull the first part of speech and definition out of a dictionary response. */
+/** Pull the first part of speech and definition out of whatever the service sent. */
 export function readDictionaryResponse(payload: unknown): { partOfSpeech?: string; definition?: string } {
-  const entries = Array.isArray(payload) ? (payload as DictionaryEntry[]) : [];
-  for (const entry of entries) {
-    for (const meaning of entry.meanings ?? []) {
-      const definition = meaning.definitions?.find((candidate) => candidate.definition)?.definition;
-      if (meaning.partOfSpeech || definition) {
-        return {
-          ...(meaning.partOfSpeech ? { partOfSpeech: meaning.partOfSpeech } : {}),
-          ...(definition ? { definition } : {}),
-        };
-      }
-    }
-  }
-  return {};
+  return activeProvider().provider.read(payload);
 }
 
 function meaningFrom(cached: CachedLookup): DictionaryResult['meanings'][string] {
@@ -131,37 +173,81 @@ type Attempt =
   | { kind: 'retry'; reason: string; waitMs?: number; rateLimited: boolean }
   | { kind: 'fatal'; reason: string };
 
-async function attempt(word: string, options: LookupOptions): Promise<Attempt> {
+/** What one attempt is recorded as, so the log reads the way the code decided. */
+function outcomeOf(result: Attempt): { outcome: LogOutcome; detail?: string } {
+  switch (result.kind) {
+    case 'entry':
+      return { outcome: 'ok' };
+    case 'missing':
+      return { outcome: 'missing', detail: 'no entry for this word' };
+    case 'fatal':
+      return { outcome: 'failed', detail: result.reason };
+    default:
+      return {
+        outcome: result.rateLimited ? 'rate-limited' : result.reason.includes('timed out') ? 'timeout' : 'retry',
+        detail: result.reason,
+      };
+  }
+}
+
+async function attempt(word: string, options: LookupOptions, tries: number): Promise<Attempt> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs);
+  const url = dictionaryUrlFor(word);
+  const started = Date.now();
+  let status: number | undefined;
+
+  const record = (result: Attempt): Attempt => {
+    const { outcome, detail } = outcomeOf(result);
+    recordApiCall({
+      service: 'dictionary',
+      url,
+      subject: word,
+      durationMs: Date.now() - started,
+      attempt: tries + 1,
+      outcome,
+      ...(status !== undefined ? { status } : {}),
+      ...(detail !== undefined ? { detail } : {}),
+    });
+    return result;
+  };
+
   try {
-    const response = await options.fetchImpl(DICTIONARY_URL.replace('{word}', encodeURIComponent(word)), {
+    const response = await options.fetchImpl(url, {
       signal: controller.signal,
       headers: { accept: 'application/json' },
     });
+    status = response.status;
 
-    if (response.status === 404) return { kind: 'missing' };
+    if (response.status === 404) return record({ kind: 'missing' });
     if (response.status === 429) {
-      return {
+      return record({
         kind: 'retry',
         reason: 'the dictionary service asked us to slow down (429)',
         ...(retryAfterMs(response.headers.get('retry-after')) !== undefined
           ? { waitMs: retryAfterMs(response.headers.get('retry-after')) }
           : {}),
         rateLimited: true,
-      };
+      });
     }
     // A server-side error or a gateway hiccup is worth another go; anything
     // else (a 401, a 403) will answer the same way however often we ask.
     if (response.status >= 500 || response.status === 408) {
-      return { kind: 'retry', reason: `the dictionary service answered ${response.status}`, rateLimited: false };
+      return record({
+        kind: 'retry',
+        reason: `the dictionary service answered ${response.status}`,
+        rateLimited: false,
+      });
     }
     if (!response.ok) {
-      return { kind: 'fatal', reason: `The dictionary service answered ${response.status}.` };
+      return record({ kind: 'fatal', reason: `The dictionary service answered ${response.status}.` });
     }
 
     const parsed = readDictionaryResponse(await response.json());
-    return {
+    // Some services answer 200 with an empty list, or with spelling suggestions,
+    // for a word they do not have. Nothing useful came back either way.
+    if (!parsed.partOfSpeech && !parsed.definition) return record({ kind: 'missing' });
+    return record({
       kind: 'entry',
       entry: {
         word,
@@ -170,12 +256,12 @@ async function attempt(word: string, options: LookupOptions): Promise<Attempt> {
         ...(parsed.partOfSpeech ? { partOfSpeech: parsed.partOfSpeech } : {}),
         ...(parsed.definition ? { definition: parsed.definition } : {}),
       },
-    };
+    });
   } catch (error) {
     const message = (error as Error).name === 'AbortError'
       ? `the request timed out after ${options.timeoutMs}ms`
       : (error as Error).message;
-    return { kind: 'retry', reason: message, rateLimited: false };
+    return record({ kind: 'retry', reason: message, rateLimited: false });
   } finally {
     clearTimeout(timer);
   }
@@ -233,6 +319,19 @@ export async function lookupWords(
     queue.push(word);
   }
 
+  // Cache hits are recorded once for the batch rather than once per word: a
+  // thousand of them would push every interesting line out of the log.
+  if (result.cached > 0) {
+    recordApiCall({
+      service: 'dictionary',
+      url: activeProvider().url,
+      subject: `${result.cached} word(s)`,
+      outcome: 'cached',
+      durationMs: 0,
+      detail: 'answered from the disk cache; nothing was sent',
+    });
+  }
+
   const total = queue.length;
   let done = 0;
   let abandoned: string | undefined;
@@ -252,7 +351,7 @@ export async function lookupWords(
       let lastReason = 'the dictionary service did not answer';
       for (let tries = 0; tries <= options.retryDelaysMs.length; tries += 1) {
         result.requested += 1;
-        const outcome = await attempt(word, options);
+        const outcome = await attempt(word, options, tries);
 
         if (outcome.kind === 'entry' || outcome.kind === 'missing') {
           const entry: CachedLookup =

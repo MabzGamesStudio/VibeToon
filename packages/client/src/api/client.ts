@@ -1,5 +1,8 @@
 import type {
+  ApiLogEntry,
+  ApiLogPage,
   ArtifactRef,
+  DictionaryProviders,
   DictionaryResult,
   GenerateResponse,
   Project,
@@ -94,6 +97,22 @@ export const api = {
       words,
       ...(limit === undefined ? {} : { limit }),
     }),
+
+  dictionaryProviders: () => request<DictionaryProviders>('GET', '/api/text/dictionary/providers'),
+  setDictionaryProvider: (id: string) =>
+    request<DictionaryProviders>('POST', '/api/text/dictionary/provider', { id }),
+
+  /** Calls the studio has made to the outside world. `since` asks for new ones only. */
+  logs: (options: { since?: number; service?: string; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (options.since !== undefined) query.set('since', String(options.since));
+    if (options.service) query.set('service', options.service);
+    if (options.limit !== undefined) query.set('limit', String(options.limit));
+    const suffix = query.toString();
+    return request<ApiLogPage>('GET', `/api/logs${suffix ? `?${suffix}` : ''}`);
+  },
+  logFile: (limit = 300) => request<{ entries: ApiLogEntry[] }>('GET', `/api/logs/file?limit=${limit}`),
+  clearLogs: () => request<{ ok: boolean }>('DELETE', '/api/logs'),
 
   artifactUrl: (projectId: string, artifactPath: string) =>
     `/api/projects/${projectId}/files/${artifactPath}`,

@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { getFlowKind } from '@vibetoon/shared';
+import { LogViewer } from './components/common/LogViewer';
 import { Toasts } from './components/common/Toasts';
 import { FlowEditor } from './components/editors/FlowEditor';
 import { GraphView } from './components/graph/GraphView';
@@ -17,6 +19,7 @@ export function App(): JSX.Element {
   const { project, focusedFlowId, focusFlow, saveState, generateAll, closeProject, busyFlows, loading } =
     useStudio();
   const tips = useTips();
+  const [logsOpen, setLogsOpen] = useState(false);
 
   if (!project) {
     return (
@@ -56,6 +59,14 @@ export function App(): JSX.Element {
         <div className={`vt-save-state is-${saveState}`}>{SAVE_LABEL[saveState] ?? saveState}</div>
         <button
           type="button"
+          className="vt-btn is-ghost is-small"
+          onClick={() => setLogsOpen(true)}
+          title="Every dictionary lookup and corpus download the studio has made"
+        >
+          Logs
+        </button>
+        <button
+          type="button"
           className={`vt-btn is-ghost is-small${tips.show ? ' is-active' : ''}`}
           aria-pressed={tips.show}
           onClick={tips.toggle}
@@ -85,6 +96,7 @@ export function App(): JSX.Element {
         {focused ? <FlowEditor node={focused} /> : <GraphView />}
       </div>
 
+      {logsOpen ? <LogViewer onClose={() => setLogsOpen(false)} /> : null}
       <Toasts />
     </div>
   );

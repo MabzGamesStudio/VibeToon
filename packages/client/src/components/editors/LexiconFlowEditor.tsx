@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_CORPUS_SOURCES,
   WORD_TYPES,
@@ -15,6 +15,7 @@ import {
   summarise,
   wordsNeedingLookup,
   type CorpusDataset,
+  type DictionaryProviders,
   type FlowNode,
   type LexiconFlowData,
   type Project,
@@ -53,6 +54,8 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
   const [url, setUrl] = useState('');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
+  const [providers, setProviders] = useState<DictionaryProviders | null>(null);
+  const [switching, setSwitching] = useState(false);
 
   const master = useMemo(() => masterDataset(data), [data]);
   const lexicon = useMemo(() => masterLexicon(data, master), [data, master]);
@@ -60,6 +63,38 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
   const pending = useMemo(() => wordsNeedingLookup(data, master), [data, master]);
 
   const patch = useCallback((next: LexiconFlowData) => setFlowData(node.id, next), [node.id, setFlowData]);
+
+  // Which dictionary services exist is a property of this installation, not of
+  // the project, so it is read from the server rather than stored in the flow.
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .dictionaryProviders()
+      .then((found) => !cancelled && setProviders(found))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const active = providers?.providers.find((provider) => provider.id === providers.activeId);
+
+  const switchProvider = useCallback(
+    async (id: string) => {
+      setSwitching(true);
+      try {
+        const next = await api.setDictionaryProvider(id);
+        setProviders(next);
+        const label = next.providers.find((provider) => provider.id === next.activeId)?.label ?? next.activeId;
+        notify('success', `Looking words up with ${label} from now on.`);
+      } catch (error) {
+        notify('error', `Could not switch dictionary: ${(error as Error).message}`);
+      } finally {
+        setSwitching(false);
+      }
+    },
+    [notify],
+  );
 
   const addCorpus = useCallback(
     (text: string, name: string, source: CorpusDataset['source']) => {
@@ -115,7 +150,10 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
     try {
       while (queue.length > 0) {
         if (stopRef.current) {
-          notify('warn', `Stopped after ${total - queue.length} of ${total} word(s). What was found is kept.`);
+          notify(
+            'warn',
+            `Stopped after ${tally.found + tally.missing} of ${total} word(s). What was found is kept.`,
+          );
           return;
         }
 
@@ -137,14 +175,17 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
         queue = [...result.remaining.filter((word) => batch.includes(word)), ...leftInBatch, ...queue.slice(batch.length)];
         queue = [...new Set(queue)];
 
-        const done = total - queue.length;
-        setProgress({ done, total });
-        setBusy(`Looked up ${done.toLocaleString()} of ${total.toLocaleString()}…`);
+        // Settled is not the same as answered: a word the service refused is
+        // finished with for this run, but nothing was learned about it.
+        const settledCount = total - queue.length;
+        const answered = tally.found + tally.missing;
+        setProgress({ done: settledCount, total });
+        setBusy(`Looked up ${answered.toLocaleString()} of ${total.toLocaleString()}…`);
 
         if (result.unreachable) {
           notify(
             'error',
-            `${result.unreachable} ${done.toLocaleString()} of ${total.toLocaleString()} word(s) were done; the rest keep their guessed type. Try again later to carry on.`,
+            `${result.unreachable} ${answered.toLocaleString()} of ${total.toLocaleString()} word(s) were answered before it stopped; the rest keep their guessed type. Open Logs to see what the service said, then try again to carry on.`,
           );
           return;
         }
@@ -163,10 +204,9 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
         }.`,
       );
     } catch (error) {
-      const done = total - queue.length;
       notify(
         'error',
-        `Lookup stopped after ${done.toLocaleString()} of ${total.toLocaleString()}: ${(error as Error).message}`,
+        `Lookup stopped after ${(tally.found + tally.missing).toLocaleString()} of ${total.toLocaleString()}: ${(error as Error).message}`,
       );
     } finally {
       setBusy(null);
@@ -286,6 +326,54 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
             flooded. Answers are cached, so a word is only ever fetched once — stopping part way keeps what was
             found, and running it again carries on.
           </div>
+
+          <Field
+            label="Dictionary"
+            tip="lexicon.provider"
+            hint={
+              providers
+                ? providers.pinnedByEnvironment
+                  ? 'VIBETOON_DICTIONARY_URL is set, so the address is fixed and this cannot be changed here.'
+                  : `In use because it is ${providers.reason}.`
+                : 'Reading which services are available…'
+            }
+          >
+            <select
+              value={providers?.activeId ?? ''}
+              aria-label="Dictionary"
+              disabled={!providers || providers.pinnedByEnvironment || switching}
+              onChange={(event) => void switchProvider(event.target.value)}
+            >
+              {providers?.pinnedByEnvironment ? <option value="custom">A custom address</option> : null}
+              {(providers?.providers ?? []).map((provider) => (
+                <option key={provider.id} value={provider.id} disabled={!provider.available}>
+                  {provider.label}
+                  {provider.available ? '' : ' — needs a key'}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {active ? (
+            <div className="vt-hint">
+              {active.note}
+              {active.needsKey && active.keyUrl ? (
+                <>
+                  {' '}
+                  <a href={active.keyUrl} target="_blank" rel="noreferrer">
+                    Get a key
+                  </a>
+                  , then set <code>VIBETOON_DICTIONARY_KEY</code> and restart the server.
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          {providers && !providers.hasKey ? (
+            <div className="vt-hint">
+              A service marked <em>needs a key</em> becomes selectable once{' '}
+              <code>VIBETOON_DICTIONARY_KEY</code> is set in the environment. The key stays on the server: it
+              is never written to a project or sent to this page.
+            </div>
+          ) : null}
         </div>
 
         <div className="vt-section">

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   DEFAULT_CORPUS_SOURCES,
   addGrammarDataset,
@@ -49,21 +49,47 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
   // The word database wired in is what types the words; without it every token
   // would be a guess, so the editor reads it before counting anything.
   const lexiconInput = inputsForPort(project, node.id, 'lexicon')[0];
+  const lexiconPath = lexiconInput?.artifact?.path ?? '';
   const lexiconHash = lexiconInput?.artifact?.hash ?? '';
-  useMemo(() => {
-    if (!lexiconInput?.artifact) {
+  useEffect(() => {
+    if (!lexiconPath) {
       setLexicon(null);
-      return;
+      setLexiconError(null);
+      return undefined;
     }
+    // Regenerating upstream changes the hash while a read is still in flight, so
+    // a stale answer must not be allowed to land on top of a newer one.
+    let cancelled = false;
+    setLexiconError(null);
     void api
-      .artifactText(project.id, lexiconInput.artifact.path)
+      .artifactText(project.id, lexiconPath)
       .then((body) => {
+        if (cancelled) return;
         setLexicon(JSON.parse(body) as Lexicon);
-        setLexiconError(null);
       })
-      .catch((error: Error) => setLexiconError(error.message));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.id, lexiconHash]);
+      .catch((error: Error) => {
+        if (!cancelled) setLexiconError(error.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.id, lexiconPath, lexiconHash]);
+
+  /**
+   * Why a corpus cannot be added right now, or null when one can.
+   *
+   * Reading a corpus happens here in the browser, and it cannot start until the
+   * word database it is read against has been generated. Every control that adds
+   * a corpus is gated on this one answer, so none of them is a dead end that
+   * looks live.
+   */
+  const blocked = !lexiconInput
+    ? 'Wire a Word Database into the Word database input first.'
+    : !lexicon
+      ? lexiconError
+        ? `Could not read the word database: ${lexiconError}`
+        : `Press Generate on ${lexiconInput.sourceNode.name} first — it has not written its word database yet.`
+      : null;
 
   const patch = useCallback((next: GrammarFlowData) => setFlowData(node.id, next), [node.id, setFlowData]);
 
@@ -134,18 +160,11 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
           <div className="vt-sync-banner">
             <span>{busy}</span>
           </div>
-        ) : !lexiconInput ? (
+        ) : blocked ? (
           <div className="vt-sync-banner">
             <span>
-              Wire a Word Database into this flow’s Word database input. It supplies the type and form of
-              every word, which is what turns a corpus into sentence shapes.
-            </span>
-          </div>
-        ) : !lexicon ? (
-          <div className="vt-sync-banner">
-            <span>
-              {lexiconError ??
-                `${lexiconInput.sourceNode.name} has not generated its word database yet — press Generate on it first.`}
+              {blocked} A word database supplies the type and form of every word, which is what turns a
+              corpus into sentence shapes.
             </span>
           </div>
         ) : null
@@ -321,6 +340,9 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
 
           <div className="vt-section">
             <h3>Add a corpus</h3>
+            {blocked ? (
+              <div className="vt-blocked">{blocked} Until then a corpus cannot be read here.</div>
+            ) : null}
             <Field label="From the web" tip="grammar.corpusUrl" hint="The same addresses the word database reads.">
               <div className="vt-row">
                 <input
@@ -332,7 +354,8 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
                 <button
                   type="button"
                   className="vt-btn"
-                  disabled={!url.trim() || busy !== null || !lexicon}
+                  disabled={!url.trim() || busy !== null || blocked !== null}
+                  title={blocked ?? (url.trim() ? 'Fetch this address and read it for its sentence shapes' : 'Paste an address, or pick one below')}
                   onClick={() => void fetchCorpus()}
                 >
                   Fetch and read
@@ -345,7 +368,8 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
                   key={source.id}
                   type="button"
                   className="vt-btn is-small"
-                  title={`${source.author} — ${source.note}`}
+                  disabled={blocked !== null}
+                  title={blocked ?? `${source.author} — ${source.note}`}
                   onClick={() => setUrl(source.url)}
                 >
                   {source.title}
@@ -354,7 +378,8 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
               <button
                 type="button"
                 className="vt-btn is-small"
-                disabled={!lexicon}
+                disabled={blocked !== null}
+                title={blocked ?? 'The short sample written for this project'}
                 onClick={() => lexicon && patch(addGrammarDataset(data, sampleGrammarDataset(lexicon)))}
               >
                 + Workshop sample
@@ -380,7 +405,8 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
             <button
               type="button"
               className="vt-btn"
-              disabled={!pasteText.trim() || !lexicon}
+              disabled={!pasteText.trim() || blocked !== null}
+              title={blocked ?? 'Read this text for its sentence shapes'}
               onClick={() => {
                 addCorpus(pasteText, pasteName || 'Pasted text', { kind: 'pasted' });
                 setPasteText('');
