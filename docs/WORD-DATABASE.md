@@ -169,8 +169,44 @@ be reached, fall back to a **guess**: a table of function words plus suffix rule
 presented as something a dictionary said. Corrections you make are kept against
 the spelling, so they survive rebuilding the database from different corpora.
 
-The service is `api.dictionaryapi.dev` by default; point `VIBETOON_DICTIONARY_URL`
-at another one (with `{word}` where the word goes) if you prefer.
+### Which dictionary
+
+Swapping dictionary is not just a different address: each service answers in its
+own shape, and a part of speech is `partOfSpeech` in one, `fl` in another, and a
+single letter glued to the front of the definition in a third. So the studio
+knows several services, each with the code that reads its replies. Pick one in
+the Word Database editor under **Dictionary**; the choice is remembered in
+`data/settings.json`.
+
+| Service | Key | What it is good and bad at |
+| --- | --- | --- |
+| **Free Dictionary API** | none | The default. Generous until it is not: it throttles hard on a long run, and has been known to refuse outright from a datacentre address. |
+| **Wiktionary** | none | Wikimedia's own, so it is steady and will not vanish. Definitions are written by hand and can be long; its part-of-speech labels are the broadest here. |
+| **Datamuse** | none | By far the most tolerant of a few thousand words in a row. Terse definitions, and only four parts of speech — but a *type* is what the grammar flow actually needs. |
+| **Merriam-Webster Collegiate** | [free](https://dictionaryapi.com/register/index) | The best definitions and the most reliable types. 1,000 lookups a day is the catch for a book-sized database. |
+| **Wordnik** | [free](https://developer.wordnik.com/) | Pulls from several published dictionaries at once, so coverage of unusual words is good. Non-commercial use. |
+
+For a large database, **Datamuse** is usually the right answer: word *type* is
+what decides whether the [grammar database](GRAMMAR-DATABASE.md) is any good,
+and Datamuse will answer thousands of words without complaining. Run
+Merriam-Webster afterwards if you want readable definitions — answers are
+cached per word, so the second service only fetches what the first did not get.
+
+Configured from the environment when you would rather not click:
+
+| Variable | What it does |
+| --- | --- |
+| `VIBETOON_DICTIONARY` | A service id: `free-dictionary`, `wiktionary`, `datamuse`, `merriam-webster`, `wordnik`. |
+| `VIBETOON_DICTIONARY_KEY` | The key, for a service that needs one. Read on the server only — never written to a project, never sent to the browser, and masked out of the [API log](API-LOG.md). |
+| `VIBETOON_DICTIONARY_URL` | Any other service, with `{word}` where the word goes. Wins over everything else, and the reply is read for whichever common shape it turns out to be in. |
+
+A service whose key is missing cannot be selected at all, rather than being used
+to fire a few hundred requests that can only come back 401.
+
+### When it does not work
+
+Open **Logs** in the header. Every attempt is there with the address, the status
+and the reason — see [API-LOG.md](API-LOG.md).
 
 ## Outputs
 

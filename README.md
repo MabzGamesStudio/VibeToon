@@ -48,6 +48,10 @@ Set `VIBETOON_DATA` to keep them somewhere else.
 - **Graph overview.** Add flows from a catalogue of 37 kinds, drag a port to
   another port to connect them, and see at a glance what is up to date, what is
   stale and what failed. Port types are checked and loops are refused.
+- **An API log.** Every dictionary lookup and corpus download the studio makes,
+  with the status, the timing, which attempt it was and why it failed — the
+  thing the browser's network tab cannot show you, because it happens on the
+  server. See [docs/API-LOG.md](docs/API-LOG.md).
 - **An (i) on every setting.** What it does and what a value of it looks like,
   with the useful range written out — `0.02` against `0.45` against `1`. One
   switch in the header hides them all again.
@@ -70,6 +74,8 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   and derives frequencies and weighted contexts. Each corpus stays its own
   dataset of raw counts, so combining and *un*-combining them is exact — build a
   database from two books, untick one, and what is left is precisely the other.
+  Five dictionary services are built in, three of them needing no key, so a
+  service that throttles is a switch rather than a dead end.
   Every entry also carries the other spellings its word takes — `walk`, `walks`,
   `walking`, `walked` — which is what makes the grammar flow possible.
   See [docs/WORD-DATABASE.md](docs/WORD-DATABASE.md).
@@ -132,7 +138,7 @@ packages/shared   domain model, flow catalogue, rules language, board derivation
                   the word database and text generator
 packages/server   file-backed projects, generation, video assembly (Express)
 packages/client   React + SCSS: graph canvas, flow editors, playblast
-docs/             architecture, the flow catalogue, the rules language
+docs/             architecture, the flow catalogue, the rules language, the log
 ```
 
 More detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the full flow
