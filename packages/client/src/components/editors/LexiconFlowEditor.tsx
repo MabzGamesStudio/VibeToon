@@ -115,7 +115,10 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
     try {
       while (queue.length > 0) {
         if (stopRef.current) {
-          notify('warn', `Stopped after ${total - queue.length} of ${total} word(s). What was found is kept.`);
+          notify(
+            'warn',
+            `Stopped after ${tally.found + tally.missing} of ${total} word(s). What was found is kept.`,
+          );
           return;
         }
 
@@ -137,14 +140,17 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
         queue = [...result.remaining.filter((word) => batch.includes(word)), ...leftInBatch, ...queue.slice(batch.length)];
         queue = [...new Set(queue)];
 
-        const done = total - queue.length;
-        setProgress({ done, total });
-        setBusy(`Looked up ${done.toLocaleString()} of ${total.toLocaleString()}…`);
+        // Settled is not the same as answered: a word the service refused is
+        // finished with for this run, but nothing was learned about it.
+        const settledCount = total - queue.length;
+        const answered = tally.found + tally.missing;
+        setProgress({ done: settledCount, total });
+        setBusy(`Looked up ${answered.toLocaleString()} of ${total.toLocaleString()}…`);
 
         if (result.unreachable) {
           notify(
             'error',
-            `${result.unreachable} ${done.toLocaleString()} of ${total.toLocaleString()} word(s) were done; the rest keep their guessed type. Try again later to carry on.`,
+            `${result.unreachable} ${answered.toLocaleString()} of ${total.toLocaleString()} word(s) were answered before it stopped; the rest keep their guessed type. Open Logs to see what the service said, then try again to carry on.`,
           );
           return;
         }
@@ -163,10 +169,9 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
         }.`,
       );
     } catch (error) {
-      const done = total - queue.length;
       notify(
         'error',
-        `Lookup stopped after ${done.toLocaleString()} of ${total.toLocaleString()}: ${(error as Error).message}`,
+        `Lookup stopped after ${(tally.found + tally.missing).toLocaleString()} of ${total.toLocaleString()}: ${(error as Error).message}`,
       );
     } finally {
       setBusy(null);

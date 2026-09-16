@@ -18,6 +18,7 @@ import {
 } from '@vibetoon/shared';
 import { fetchCorpus } from './text/corpusFetch';
 import { DEFAULT_LOOKUP_OPTIONS, lookupWords } from './text/dictionary';
+import { clearLogs, readLogFile, readLogs } from './logs';
 import { hasFfmpeg } from './render/video';
 import { assertSafeId, REPO_ROOT, resolveInProject } from './paths';
 import { buildSyncPlan, syncSources } from './services/sync';
@@ -123,6 +124,45 @@ export function createApp(): express.Express {
         ? Math.max(1, Math.min(500, Math.floor(body.limit as number)))
         : DEFAULT_LOOKUP_OPTIONS.limit;
       res.json(await lookupWords(words, { limit }));
+    }),
+  );
+
+  /**
+   * What the studio has asked of the outside world: every dictionary lookup and
+   * corpus download, with the status, the timing and the reason it failed. Held
+   * in memory for the viewer and appended to a file so a server restart does not
+   * throw away what you were reading.
+   */
+  app.get(
+    '/api/logs',
+    asyncRoute(async (req, res) => {
+      const since = Number(req.query.since);
+      const limit = Number(req.query.limit);
+      const service = typeof req.query.service === 'string' ? req.query.service : undefined;
+      res.json(
+        readLogs({
+          ...(Number.isFinite(since) ? { since } : {}),
+          ...(Number.isFinite(limit) ? { limit } : {}),
+          ...(service ? { service } : {}),
+        }),
+      );
+    }),
+  );
+
+  /** What the file holds, including whatever a restart lost from memory. */
+  app.get(
+    '/api/logs/file',
+    asyncRoute(async (req, res) => {
+      const limit = Number(req.query.limit);
+      res.json({ entries: await readLogFile(Number.isFinite(limit) ? limit : 300) });
+    }),
+  );
+
+  app.delete(
+    '/api/logs',
+    asyncRoute(async (_req, res) => {
+      clearLogs();
+      res.json({ ok: true });
     }),
   );
 

@@ -1,4 +1,5 @@
 import { nameFromUrl, stripGutenbergBoilerplate } from '@vibetoon/shared';
+import { recordApiCall } from '../logs';
 import { HttpError } from '../storage';
 
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -33,13 +34,26 @@ export async function fetchCorpus(url: string, fetchImpl: typeof fetch = fetch):
     throw new HttpError(400, 'That address is on this machine, not the web.');
   }
 
+  const started = Date.now();
+  const log = (outcome: Parameters<typeof recordApiCall>[0]['outcome'], extra: { status?: number; bytes?: number; detail?: string }) =>
+    recordApiCall({
+      service: 'corpus',
+      url: parsed.toString(),
+      subject: parsed.hostname,
+      outcome,
+      durationMs: Date.now() - started,
+      ...extra,
+    });
+
   let response: Response;
   try {
     response = await fetchImpl(parsed.toString(), { redirect: 'follow' });
   } catch (error) {
+    log('failed', { detail: (error as Error).message });
     throw new HttpError(502, `Could not reach ${parsed.hostname}: ${(error as Error).message}`);
   }
   if (!response.ok) {
+    log('failed', { status: response.status, detail: `answered ${response.status}` });
     throw new HttpError(502, `${parsed.hostname} answered ${response.status} for that address.`);
   }
 
@@ -48,8 +62,14 @@ export async function fetchCorpus(url: string, fetchImpl: typeof fetch = fetch):
   const text = stripGutenbergBoilerplate(truncated ? raw.slice(0, MAX_BYTES) : raw);
 
   if (text.trim().length === 0) {
+    log('failed', { status: response.status, bytes: raw.length, detail: 'nothing that looks like text' });
     throw new HttpError(422, 'That address returned nothing that looks like text.');
   }
 
+  log('ok', {
+    status: response.status,
+    bytes: raw.length,
+    ...(truncated ? { detail: `truncated to ${MAX_BYTES} bytes` } : {}),
+  });
   return { name: nameFromUrl(parsed.toString()), text, bytes: raw.length, truncated, url: parsed.toString() };
 }

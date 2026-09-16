@@ -4,6 +4,7 @@ export * from './types/artifacts';
 export * from './types/flow';
 export * from './types/project';
 export * from './types/text';
+export * from './types/logs';
 export * from './types/animatic';
 export * from './types/design';
 export * from './types/api';

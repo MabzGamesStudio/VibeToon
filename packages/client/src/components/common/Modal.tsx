@@ -5,9 +5,11 @@ export interface ModalProps {
   onClose(): void;
   children: ReactNode;
   footer?: ReactNode;
+  /** For content that is a table rather than a form. */
+  wide?: boolean;
 }
 
-export function Modal({ title, onClose, children, footer }: ModalProps): JSX.Element {
+export function Modal({ title, onClose, children, footer, wide = false }: ModalProps): JSX.Element {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
@@ -24,7 +26,7 @@ export function Modal({ title, onClose, children, footer }: ModalProps): JSX.Ele
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="vt-modal" role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`vt-modal${wide ? ' is-wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <header>
           <h2 style={{ flex: 1 }}>{title}</h2>
           <button type="button" className="vt-btn is-ghost is-small" onClick={onClose}>
