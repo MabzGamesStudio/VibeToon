@@ -14,6 +14,7 @@ import {
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
+import { useView } from '../../state/view';
 import { Field } from '../common/Field';
 import { EditorShell } from './EditorShell';
 
@@ -32,6 +33,7 @@ const BATCH_SIZE = 100;
 export function DictionaryFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
   const { setFlowData, generateFlow, notify } = useStudio();
   const data = node.data as DictionaryFlowData;
+  const { view: prefs } = useView();
   const [lexicon, setLexicon] = useState<Lexicon | null>(null);
   const [lexiconError, setLexiconError] = useState<string | null>(null);
   const [providers, setProviders] = useState<DictionaryProviders | null>(null);
@@ -174,8 +176,8 @@ export function DictionaryFlowEditor({ project, node }: { project: Project; node
     return applied.lexicon.lexemes
       .filter((lexeme) => !needle || lexeme.spelling.includes(needle))
       .sort((a, b) => b.frequency - a.frequency)
-      .slice(0, 300);
-  }, [applied, query]);
+      .slice(0, prefs.listLimit);
+  }, [applied, prefs.listLimit, query]);
 
   return (
     <EditorShell

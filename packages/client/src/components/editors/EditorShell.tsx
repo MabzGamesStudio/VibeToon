@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import { flowStatus, getFlowKind, inputsForPort, type FlowNode, type Project } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
+import { useView } from '../../state/view';
 import { ArtifactView } from '../inspector/ArtifactView';
 import { RunLog } from '../inspector/RunLog';
 
@@ -29,7 +30,8 @@ export function EditorShell({
   children,
 }: EditorShellProps): JSX.Element {
   const { focusFlow, generateFlow, busyFlows, runs, select } = useStudio();
-  const [panelOpen, setPanelOpen] = useState(true);
+  const { view, toggle } = useView();
+  const panelOpen = view.inspector;
   const def = getFlowKind(node.kind);
   const status = flowStatus(project, node);
   const busy = busyFlows.includes(node.id);
@@ -39,7 +41,7 @@ export function EditorShell({
   );
 
   return (
-    <div className="vt-editor">
+    <div className={`vt-editor${view.sidebar ? '' : ' is-no-sidebar'}`}>
       <div className="vt-editor-bar">
         <button type="button" className="vt-btn is-small" onClick={() => focusFlow(null)}>
           ◀ Graph
@@ -60,7 +62,8 @@ export function EditorShell({
         <button
           type="button"
           className={`vt-btn is-small${panelOpen ? ' is-active' : ''}`}
-          onClick={() => setPanelOpen((open) => !open)}
+          title="Inputs and generated files. Remembered across flows, in View."
+          onClick={() => toggle('inspector')}
         >
           Files
         </button>
@@ -117,9 +120,16 @@ export function EditorShell({
                   <div className="vt-empty">Nothing generated yet.</div>
                 ) : (
                   <div className="vt-artifacts">
-                    {node.outputs.map((artifact) => (
-                      <ArtifactView key={artifact.port} projectId={project.id} artifact={artifact} />
-                    ))}
+                    {node.outputs.map((artifact) =>
+                      view.artifactPreviews ? (
+                        <ArtifactView key={artifact.port} projectId={project.id} artifact={artifact} />
+                      ) : (
+                        <div key={artifact.port} className="vt-artifact-plain">
+                          <code>{artifact.fileName}</code>
+                          <span className="vt-faint">{artifact.kind}</span>
+                        </div>
+                      ),
+                    )}
                   </div>
                 )}
               </div>

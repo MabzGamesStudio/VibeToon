@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { settingTip, type SettingTip } from '@vibetoon/shared';
-import { useTips } from '../../state/tips';
+import { useTips } from '../../state/view';
 
 export interface InfoTipProps {
   /** A key into the shared tip registry, or a tip written out in place. */

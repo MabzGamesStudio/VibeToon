@@ -13,6 +13,7 @@ import {
   type TextFlowData,
 } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
+import { useView } from '../../state/view';
 import { Field } from '../common/Field';
 import { InfoTip } from '../common/InfoTip';
 import { Slider } from '../common/Slider';
@@ -25,8 +26,11 @@ const SEED_WORDS = ['rain', 'gear', 'lamp', 'brass', 'quiet', 'ember', 'thread',
 export function TextEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
   const { setFlowData, generateFlow, notify } = useStudio();
   const data = node.data as TextFlowData;
+  const { view: prefs } = useView();
   const [tab, setTab] = useState<'text' | 'lexicon'>('text');
-  const [live, setLive] = useState(true);
+  // Rerunning the generator on every keystroke is the most expensive thing the
+  // studio does, so whether it starts on is a preference.
+  const [live, setLive] = useState(prefs.livePreview);
   const upstream = useUpstreamText(project, node);
 
   const patch = useCallback(
