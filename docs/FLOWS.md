@@ -37,6 +37,15 @@ What the clip is about underneath, and how it should feel.
 
 ## Text
 
+### Corpus
+
+`text.corpus` · **bespoke editor**
+
+Gathers the text everything else reads, so one body of writing feeds every flow that needs it.
+
+- **In:** Text
+- **Out:** Corpus `corpus.txt`, Report `report.md`
+
 ### Word Database
 
 `text.lexicon` · **bespoke editor**
@@ -449,4 +458,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-37 flow kinds.
+38 flow kinds.

@@ -19,6 +19,7 @@ export * from './flows/storyboard';
 export * from './flows/brief';
 export * from './flows/text';
 export * from './flows/lexicon';
+export * from './flows/corpusFlow';
 export * from './flows/grammar';
 export * from './flows/animatic';
 export * from './flows/design';

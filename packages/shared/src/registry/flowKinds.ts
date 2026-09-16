@@ -89,6 +89,22 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
    * Text
    * ---------------------------------------------------------------- */
   {
+    kind: 'text.corpus',
+    category: 'text',
+    label: 'Corpus',
+    summary: 'Gathers the text everything else reads, so one body of writing feeds every flow that needs it.',
+    inputs: [
+      input('text', 'Text', ['text', 'markdown'], 'Text from another flow, added as a part of its own.'),
+    ],
+    outputs: [
+      output('corpus', 'Corpus', ['text'], 'corpus.txt', 'Every included part, one after another.'),
+      output('report', 'Report', ['markdown'], 'report.md', 'What went into it, and what could not be read.'),
+    ],
+    editor: 'corpus',
+    maturity: 'editor',
+  },
+
+  {
     kind: 'text.lexicon',
     category: 'text',
     label: 'Word Database',

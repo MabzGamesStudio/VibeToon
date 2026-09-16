@@ -169,6 +169,32 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
   },
 
   /* ---------------------------------------------------------------- *
+   * Corpus
+   * ---------------------------------------------------------------- */
+  'corpus.separator': {
+    what: 'What is written between one part and the next, so the end of one does not read as the start of the next.',
+    examples: [
+      'A blank line — the counting treats it as a break, so no word pair is learned across the join. The safe choice.',
+      'A line break — treated as a wrap, so the last word of one part pairs with the first of the next.',
+      'A break mark — visible in the text as well as being a break.',
+    ],
+  },
+  'corpus.url': {
+    what: 'A plain-text address to read. It is stored as an address and fetched every time the flow runs, so a novel never goes into the project file.',
+    examples: [
+      'A Project Gutenberg `.txt` file — its licence header and footer are trimmed off.',
+      'Any address that serves plain text.',
+      'Check fetches it once now, so a bad address is found before a run depends on it.',
+    ],
+    note: 'Use text you have the right to use. The buttons below are public-domain suggestions.',
+  },
+  'corpus.paste': {
+    what: 'Text pasted in and kept with the project, because nothing else has it.',
+    examples: ['Your own writing.', 'A transcript.', 'A script you are working from.'],
+    note: 'Unlike an address, this is stored in the project file — so keep it to the size you would happily copy around.',
+  },
+
+  /* ---------------------------------------------------------------- *
    * Word database — counting
    * ---------------------------------------------------------------- */
   'lexicon.maxWords': {

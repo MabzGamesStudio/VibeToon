@@ -15,6 +15,9 @@ function node(kind: string, data: FlowData): FlowNode {
 
 function project(nodes: FlowNode[]): Project {
   return {
+    schema: 1,
+    revision: 1,
+    view: { pan: { x: 0, y: 0 }, zoom: 1 },
     id: 'prj_1',
     name: 'Test',
     createdAt: '2026-01-01T00:00:00.000Z',

@@ -41,6 +41,7 @@ export type EditorId =
   | 'dialog'
   | 'storyboard'
   | 'text'
+  | 'corpus'
   | 'lexicon'
   | 'grammar'
   | 'animatic'
