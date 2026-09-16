@@ -106,6 +106,22 @@ sampler, and a starter database — so the editor previews a run with exactly th
 code the server will write the artifact with. [RANDOM-TEXT.md](RANDOM-TEXT.md)
 covers the scoring.
 
+## Grammar
+
+`text.grammar` is the third derivation, and the one that shows how two flows
+combine into something neither could do alone: it takes a corpus *and* a word
+database, and uses the second to read the first. The database is the authority on
+what type each word is, the inflection rules say which form its spelling is in,
+and what comes out is a count of the shapes the corpus's sentences take.
+
+It reuses the corpus machinery wholesale — datasets of raw counts, a master that
+is the sum of the ticked ones, exact subtraction when one is unticked — because
+the property that made corpora composable is the same property patterns need.
+`buildGrammarModel` turns the stored counts into what the sampler wants: sentence
+shapes to draw from, and a map from a run of slots to what followed it.
+
+[GRAMMAR-DATABASE.md](GRAMMAR-DATABASE.md) covers the whole flow.
+
 ## Video
 
 The board's panels are rasterised in the browser from the same stroke data

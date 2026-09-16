@@ -16,6 +16,46 @@ and wire its Word database output into a Random Text flow's Word database input.
 | `description` | The dictionary's first definition. |
 | `frequency` | How often the token appears in the corpora you included. |
 | `contexts` | Which words follow it, and how strongly — counted from the text. |
+| `variations` | The other spellings the word takes, keyed by form. |
+
+### Variations
+
+Which forms an entry carries depends on what type it is — there is no point
+asking a preposition for its plural:
+
+| Type | Forms |
+| --- | --- |
+| Verb | `infinitive`, `third_person_singular`, `present_progressive`, `past`, `past_participle` |
+| Noun | `singular`, `plural` |
+| Adjective, adverb | `positive`, `comparative`, `superlative` |
+| Everything else | none |
+
+```json
+{
+  "id": "lex_walk",
+  "spelling": "walk",
+  "type": "verb",
+  "frequency": 0.63,
+  "description": "To move at a regular pace by lifting and setting down each foot in turn.",
+  "variations": {
+    "infinitive": "walk",
+    "third_person_singular": "walks",
+    "present_progressive": "walking",
+    "past": "walked",
+    "past_participle": "walked"
+  }
+}
+```
+
+The forms are worked out from spelling rules plus tables of the irregulars —
+`go → went`, `knife → knives`, `good → better` — and a modal simply has no
+progressive, so `can` carries `could` and nothing else. The form names follow
+the convention used by [english-inflection](https://github.com/BryanKoo/english-inflection);
+the rules and tables here are this project's own.
+
+Variations are what let a [grammar database](GRAMMAR-DATABASE.md) say *which
+form* of a word a sentence used, and what let the generator write `walked` into
+a slot that asks for a past tense.
 
 ## Corpora, and the master
 
@@ -101,6 +141,26 @@ freely):
 first definition, and caches every answer on disk — a word is only ever fetched
 once, and the cache survives restarts. Punctuation and numbers are not sent
 anywhere; they are labelled locally.
+
+A database counted from a book runs to thousands of words, and no free
+dictionary will answer thousands of requests in a row, so the lookup runs **in
+batches**: a hundred words per call, a few requests in flight at a time with a
+breath between them. Each batch's answers are saved before the next one starts,
+so the progress bar is real progress and **Stop** keeps everything found so far —
+running it again carries on from where it stopped rather than starting over.
+
+Failures are handled rather than hidden:
+
+- A **429** is the service asking us to slow down. The word is retried, waiting
+  as long as `Retry-After` asks.
+- A **5xx** or a dropped connection is retried a few times with a growing gap.
+- A request that **never answers** is abandoned after eight seconds instead of
+  hanging the batch.
+- A **403** or similar will say the same thing however often it is asked, so it
+  is not retried at all.
+- A run of words the service will not answer **abandons the batch**, rather than
+  firing hundreds of doomed requests. Whatever was learned is kept, the rest come
+  back as still-to-ask, and the editor says what happened and how far it got.
 
 Words the dictionary has never heard of, and every word when the service cannot
 be reached, fall back to a **guess**: a table of function words plus suffix rules
