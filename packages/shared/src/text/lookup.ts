@@ -45,3 +45,28 @@ export interface DictionaryResult {
 export function lookupProgress(done: number, total: number): number {
   return total <= 0 ? 1 : Math.min(1, Math.max(0, done / total));
 }
+
+/** A dictionary service the studio can be pointed at, as the browser sees it. */
+export interface DictionaryProviderInfo {
+  id: string;
+  label: string;
+  note: string;
+  /** Whether it needs a key, which only the server ever sees. */
+  needsKey: boolean;
+  /** Where to register for one. */
+  keyUrl?: string;
+  /** False when it needs a key that has not been given, so it cannot be picked. */
+  available: boolean;
+}
+
+export interface DictionaryProviders {
+  providers: DictionaryProviderInfo[];
+  /** Which one is being asked. */
+  activeId: string;
+  /** Why that one — chosen here, set in the environment, or the default. */
+  reason: string;
+  /** Whether a key is present at all. Never the key itself. */
+  hasKey: boolean;
+  /** True when an explicit address is set, which no choice here can override. */
+  pinnedByEnvironment: boolean;
+}

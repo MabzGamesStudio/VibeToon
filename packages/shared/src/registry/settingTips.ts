@@ -240,6 +240,16 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     what: 'Text pasted in and counted as a corpus of its own, kept with the project rather than fetched.',
     examples: ['Your own writing.', 'A transcript.', 'A script you are working from.'],
   },
+  'lexicon.provider': {
+    what: 'Which dictionary service is asked for word types and definitions. Every service answers in its own shape, so this picks the address and the code that reads the reply.',
+    examples: [
+      'Free Dictionary API — no key, but throttles hard on a long run.',
+      'Datamuse — no key, and the most tolerant of a few thousand words in a row.',
+      'Wiktionary — no key, steady, with the broadest part-of-speech labels.',
+      'Merriam-Webster or Wordnik — a free key, better definitions, a daily cap.',
+    ],
+    note: 'A key is read from VIBETOON_DICTIONARY_KEY on the server and is never written to a project or sent to this page. Open Logs to see what a service actually answered.',
+  },
   'lexicon.wordType': {
     what: 'What part of speech this word is. It decides which words may follow it, and which variations it has.',
     examples: [

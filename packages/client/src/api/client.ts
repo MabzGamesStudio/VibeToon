@@ -2,6 +2,7 @@ import type {
   ApiLogEntry,
   ApiLogPage,
   ArtifactRef,
+  DictionaryProviders,
   DictionaryResult,
   GenerateResponse,
   Project,
@@ -96,6 +97,10 @@ export const api = {
       words,
       ...(limit === undefined ? {} : { limit }),
     }),
+
+  dictionaryProviders: () => request<DictionaryProviders>('GET', '/api/text/dictionary/providers'),
+  setDictionaryProvider: (id: string) =>
+    request<DictionaryProviders>('POST', '/api/text/dictionary/provider', { id }),
 
   /** Calls the studio has made to the outside world. `since` asks for new ones only. */
   logs: (options: { since?: number; service?: string; limit?: number } = {}) => {
