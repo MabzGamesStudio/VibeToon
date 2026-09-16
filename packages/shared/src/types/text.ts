@@ -65,6 +65,12 @@ export interface Lexeme {
   frequency: number;
   description: string;
   contexts: LexemeContext[];
+  /**
+   * The other spellings this word takes, keyed by form. Which keys are present
+   * depends on the word type: a verb has five, a noun two, an adjective three,
+   * and a preposition none at all.
+   */
+  variations?: Record<string, string>;
   /** Set when the entry was counted out of a corpus rather than written by hand. */
   stats?: {
     /** Times the token appears in the corpus behind this lexicon. */

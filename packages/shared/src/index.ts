@@ -25,6 +25,7 @@ export * from './text/lexicon';
 export * from './text/grammar';
 export * from './text/generate';
 export * from './text/corpus';
+export * from './text/inflect';
 export * from './text/sampleCorpus';
 export * from './text/corpusSources';
 
