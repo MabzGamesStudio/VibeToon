@@ -45,9 +45,12 @@ Set `VIBETOON_DATA` to keep them somewhere else.
 
 ## What you can do today
 
-- **Graph overview.** Add flows from a catalogue of 34 kinds, drag a port to
+- **Graph overview.** Add flows from a catalogue of 37 kinds, drag a port to
   another port to connect them, and see at a glance what is up to date, what is
   stale and what failed. Port types are checked and loops are refused.
+- **An (i) on every setting.** What it does and what a value of it looks like,
+  with the useful range written out — `0.02` against `0.45` against `1`. One
+  switch in the header hides them all again.
 - **Rules on every connection.** A documented set of `key: value` directives is
   interpreted (`panel per: beat`, `shot for line: MCU`, `ignore: direction`,
   `carry: sound -> notes`, `min duration: 1.2`, …) and anything else you write is
@@ -67,12 +70,22 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   and derives frequencies and weighted contexts. Each corpus stays its own
   dataset of raw counts, so combining and *un*-combining them is exact — build a
   database from two books, untick one, and what is left is precisely the other.
+  Every entry also carries the other spellings its word takes — `walk`, `walks`,
+  `walking`, `walked` — which is what makes the grammar flow possible.
   See [docs/WORD-DATABASE.md](docs/WORD-DATABASE.md).
+- **Grammar database.** A corpus plus a word database read for the *shapes* its
+  sentences take: `determiner noun:singular verb:third_person_singular` and how
+  often that shape turned up. Sentences, the fragments they are built from, and
+  every short phrase inside them, counted the same exact way corpora are, so
+  they combine and un-combine without drifting.
+  See [docs/GRAMMAR-DATABASE.md](docs/GRAMMAR-DATABASE.md).
 - **Random text.** Walks that database to write new text or rewrite text arriving
   over a wire. Length is set by word count, character
   count, or a percentage change, with a temperature that decides how exactly to
   land on it; another temperature decides how much of the incoming text is
-  replaced. Every run is seeded, so it is reproducible.
+  replaced. Wire a grammar database in and it stops writing word by word and
+  starts writing into sentence shapes, inflecting each word to fit its slot.
+  Every run is seeded, so it is reproducible.
   See [docs/RANDOM-TEXT.md](docs/RANDOM-TEXT.md).
 - **Design sheets.** Character, set and prop design flows are drawing surfaces:
   a sheet of plates (front, three-quarter, expressions) drawn with the same

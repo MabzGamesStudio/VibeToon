@@ -1,5 +1,6 @@
 import { newId } from '../ids';
 import type { Lexeme, Lexicon, WordType } from '../types/text';
+import { inflect } from './inflect';
 import { tokenize, type TextToken } from './tokenize';
 
 /**
@@ -304,13 +305,17 @@ export function deriveLexicon(
       .sort((a, b) => b.weight - a.weight)
       .slice(0, options.maxContexts);
 
+    const type = meaning?.type ?? inferWordType(entry.spelling);
+    const variations = inflect(entry.spelling, type);
+
     return {
       id: lexemeIdFor(entry.spelling),
       spelling: entry.spelling,
-      type: meaning?.type ?? inferWordType(entry.spelling),
+      type,
       frequency: Math.round((Math.log1p(entry.count) / Math.log1p(maxCount)) * 100) / 100,
       description: meaning?.description ?? '',
       contexts,
+      ...(variations ? { variations } : {}),
       stats: {
         count: entry.count,
         perMillion: Math.round((entry.count / total) * 1_000_000),

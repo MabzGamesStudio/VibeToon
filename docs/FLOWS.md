@@ -46,13 +46,22 @@ Counts words out of a corpus into a database other flows can write from.
 - **In:** Corpus
 - **Out:** Word database `lexicon.json`, Report `report.md`
 
+### Grammar Database
+
+`text.grammar` · **bespoke editor**
+
+Counts the shapes sentences take in a corpus, read against a word database.
+
+- **In:** Corpus, Word database *(required)*
+- **Out:** Grammar database `grammar.json`, Report `report.md`
+
 ### Random Text
 
 `text.random` · **bespoke editor**
 
 Writes or rewrites text from a word database of weighted contexts.
 
-- **In:** Text, Word database
+- **In:** Text, Word database, Grammar database
 - **Out:** Text `text.txt`, Word database `lexicon.json`, Report `report.md`
 - **Rules a new wire landing on `text` starts with:**
 
@@ -440,4 +449,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-36 flow kinds.
+37 flow kinds.

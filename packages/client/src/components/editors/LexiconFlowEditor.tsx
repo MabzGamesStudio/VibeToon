@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_CORPUS_SOURCES,
   WORD_TYPES,
@@ -7,6 +7,7 @@ import {
   extractCorpus,
   fillTokenMeanings,
   masterDataset,
+  lookupProgress,
   masterLexicon,
   removeDataset,
   sampleDataset,
@@ -22,8 +23,16 @@ import {
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
+import { InfoTip } from '../common/InfoTip';
 import { formatWhen } from '../common/format';
 import { EditorShell } from './EditorShell';
+
+/**
+ * Words per request. Small enough that a batch comes back in a few seconds and
+ * its answers are saved before the next one starts, large enough that a
+ * thousand-word database is a handful of calls rather than a thousand.
+ */
+const BATCH_SIZE = 100;
 
 const SOURCE_LABEL: Record<CorpusDataset['source']['kind'], string> = {
   builtin: 'built in',
@@ -37,6 +46,8 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
   const data = node.data as LexiconFlowData;
   const [tab, setTab] = useState<'corpora' | 'words'>('corpora');
   const [busy, setBusy] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const stopRef = useRef(false);
   const [pasteName, setPasteName] = useState('');
   const [pasteText, setPasteText] = useState('');
   const [url, setUrl] = useState('');
@@ -82,29 +93,85 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
     }
   }, [addCorpus, notify, url]);
 
+  /**
+   * Look the undefined words up a batch at a time.
+   *
+   * A database built from a book runs to thousands of words, and a dictionary
+   * service will not answer thousands of requests in a row — it throttles, or
+   * simply stops. So each call asks about a few hundred, the answers are saved
+   * as they arrive, and the loop carries on from what the server says it did not
+   * get to. Saving each batch means stopping half way still keeps the work.
+   */
   const lookUp = useCallback(async () => {
     if (pending.length === 0) return;
-    setBusy(`Looking up ${pending.length} word(s)…`);
+    stopRef.current = false;
+    const total = pending.length;
+    let queue = [...pending];
+    let meanings = { ...data.meanings };
+    const tally = { found: 0, missing: 0, failed: 0, cached: 0, rateLimited: 0 };
+
+    setProgress({ done: 0, total });
+    setBusy(`Looking up ${total.toLocaleString()} word(s)…`);
     try {
-      const result = await api.lookupWords(pending);
-      patch({ ...data, meanings: { ...data.meanings, ...result.meanings } });
-      if (result.unreachable) {
-        notify(
-          'error',
-          `${result.unreachable} ${result.found.length} word(s) were already cached; the rest keep their guessed type.`,
-        );
-      } else {
-        notify(
-          'success',
-          `Defined ${result.found.length} word(s)${result.cached > 0 ? ` (${result.cached} from the cache)` : ''}${
-            result.missing.length > 0 ? `, ${result.missing.length} not in the dictionary` : ''
-          }.`,
-        );
+      while (queue.length > 0) {
+        if (stopRef.current) {
+          notify('warn', `Stopped after ${total - queue.length} of ${total} word(s). What was found is kept.`);
+          return;
+        }
+
+        const batch = queue.slice(0, BATCH_SIZE);
+        const result = await api.lookupWords(batch, BATCH_SIZE);
+
+        meanings = { ...meanings, ...result.meanings };
+        patch({ ...data, meanings });
+        tally.found += result.found.length;
+        tally.missing += result.missing.length;
+        tally.failed += result.failed.length;
+        tally.cached += result.cached;
+        tally.rateLimited += result.rateLimited;
+
+        // Anything the server did not get to goes back on the front of the
+        // queue; anything it settled — defined, missing, or failed — does not.
+        const settled = new Set([...result.found, ...result.missing, ...result.failed]);
+        const leftInBatch = batch.filter((word) => !settled.has(word) && !(word in result.meanings));
+        queue = [...result.remaining.filter((word) => batch.includes(word)), ...leftInBatch, ...queue.slice(batch.length)];
+        queue = [...new Set(queue)];
+
+        const done = total - queue.length;
+        setProgress({ done, total });
+        setBusy(`Looked up ${done.toLocaleString()} of ${total.toLocaleString()}…`);
+
+        if (result.unreachable) {
+          notify(
+            'error',
+            `${result.unreachable} ${done.toLocaleString()} of ${total.toLocaleString()} word(s) were done; the rest keep their guessed type. Try again later to carry on.`,
+          );
+          return;
+        }
+        if (result.rateLimited > 0 && result.retryAfterMs) {
+          notify('warn', `The dictionary asked us to wait ${Math.ceil(result.retryAfterMs / 1000)}s — slowing down.`);
+          await new Promise((resolve) => setTimeout(resolve, result.retryAfterMs));
+        }
       }
+
+      notify(
+        'success',
+        `Defined ${tally.found.toLocaleString()} word(s)${tally.cached > 0 ? ` (${tally.cached.toLocaleString()} from the cache)` : ''}${
+          tally.missing > 0 ? `, ${tally.missing.toLocaleString()} not in the dictionary` : ''
+        }${tally.failed > 0 ? `, ${tally.failed.toLocaleString()} could not be looked up` : ''}${
+          tally.rateLimited > 0 ? `, slowed down ${tally.rateLimited} time(s)` : ''
+        }.`,
+      );
     } catch (error) {
-      notify('error', `Lookup failed: ${(error as Error).message}`);
+      const done = total - queue.length;
+      notify(
+        'error',
+        `Lookup stopped after ${done.toLocaleString()} of ${total.toLocaleString()}: ${(error as Error).message}`,
+      );
     } finally {
       setBusy(null);
+      setProgress(null);
+      stopRef.current = false;
     }
   }, [data, notify, patch, pending]);
 
@@ -188,18 +255,36 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               {summary.undefined > 0 ? `, ${summary.undefined.toLocaleString()} guessed` : ''}
             </dd>
           </dl>
-          <button
-            type="button"
-            className="vt-btn is-small"
-            style={{ marginTop: 8 }}
-            disabled={pending.length === 0 || busy !== null}
-            onClick={() => void lookUp()}
-          >
-            Look up {pending.length.toLocaleString()} word{pending.length === 1 ? '' : 's'}
-          </button>
+          <div className="vt-row" style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              className="vt-btn is-small"
+              disabled={pending.length === 0 || progress !== null}
+              onClick={() => void lookUp()}
+            >
+              Look up {pending.length.toLocaleString()} word{pending.length === 1 ? '' : 's'}
+            </button>
+            {progress ? (
+              <button type="button" className="vt-btn is-small" onClick={() => (stopRef.current = true)}>
+                Stop
+              </button>
+            ) : null}
+          </div>
+          {progress ? (
+            <div className="vt-progress" role="progressbar" aria-valuenow={progress.done} aria-valuemin={0} aria-valuemax={progress.total}>
+              <div
+                className="vt-progress-bar"
+                style={{ width: `${Math.round(lookupProgress(progress.done, progress.total) * 100)}%` }}
+              />
+              <span>
+                {progress.done.toLocaleString()} of {progress.total.toLocaleString()} in batches of {BATCH_SIZE}
+              </span>
+            </div>
+          ) : null}
           <div className="vt-hint">
-            Asks a dictionary for each word’s type and definition. Answers are cached, so a word is only ever
-            fetched once.
+            Asks a dictionary for each word’s type and definition, {BATCH_SIZE} at a time so the service is not
+            flooded. Answers are cached, so a word is only ever fetched once — stopping part way keeps what was
+            found, and running it again carries on.
           </div>
         </div>
 
@@ -209,7 +294,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
             Applied when a corpus is added. A dataset keeps the counts it was pruned to, so changing these
             affects the next corpus you add, not the ones already counted.
           </div>
-          <Field label="Words kept per corpus">
+          <Field label="Words kept per corpus" tip="lexicon.maxWords">
             <input
               type="number"
               min={50}
@@ -220,7 +305,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
-          <Field label="Links kept per word">
+          <Field label="Links kept per word" tip="lexicon.maxLinksPerWord">
             <input
               type="number"
               min={1}
@@ -233,7 +318,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
-          <Field label="A pair must occur" hint="Times a pair has to turn up before it is kept.">
+          <Field label="A pair must occur" tip="lexicon.minPairCount" hint="Times a pair has to turn up before it is kept.">
             <input
               type="number"
               min={1}
@@ -256,6 +341,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               }
             />
             <span>Count punctuation as words</span>
+            <InfoTip tip="lexicon.includePunctuation" label="Count punctuation as words" />
           </label>
         </div>
 
@@ -266,6 +352,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
           </div>
           <Field
             label="Lift ceiling"
+            tip="lexicon.liftCeiling"
             hint="How much more often a word must follow another than it appears at all to count as a full-strength link."
           >
             <input
@@ -278,7 +365,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
-          <Field label="Weakest link kept">
+          <Field label="Weakest link kept" tip="lexicon.minWeight">
             <input
               type="number"
               min={0}
@@ -290,7 +377,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
-          <Field label="Contexts per word">
+          <Field label="Contexts per word" tip="lexicon.maxContexts">
             <input
               type="number"
               min={1}
@@ -363,6 +450,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
 
             <Field
               label="From the web"
+              tip="lexicon.corpusUrl"
               hint="Any plain-text address. A Project Gutenberg file has its licence header and footer trimmed off."
             >
               <div className="vt-row">
@@ -407,7 +495,11 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               </button>
             </div>
 
-            <Field label="Or paste text" hint="Anything you have the right to use — a script, a transcript, your own writing.">
+            <Field
+              label="Or paste text"
+              tip="lexicon.pasteText"
+              hint="Anything you have the right to use — a script, a transcript, your own writing."
+            >
               <input
                 value={pasteName}
                 placeholder="Name for this corpus"
@@ -497,7 +589,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
                     <dd>{current.frequency.toFixed(2)}</dd>
                   </dl>
 
-                  <Field label="Word type" hint="From the dictionary, or your correction.">
+                  <Field label="Word type" tip="lexicon.wordType" hint="From the dictionary, or your correction.">
                     <select
                       value={current.type}
                       onChange={(event) =>
@@ -511,7 +603,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
                       ))}
                     </select>
                   </Field>
-                  <Field label="Description">
+                  <Field label="Description" tip="lexicon.description">
                     <textarea
                       rows={3}
                       value={current.description}

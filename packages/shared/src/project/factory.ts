@@ -3,6 +3,7 @@ import { emptyDialogData } from '../flows/dialog';
 import { emptyStoryboardData } from '../flows/storyboard';
 import { emptyAnimaticData } from '../flows/animatic';
 import { emptyDesignData } from '../flows/design';
+import { emptyGrammarFlowData } from '../flows/grammar';
 import { emptyLexiconFlowData } from '../flows/lexicon';
 import { emptyTextData } from '../flows/text';
 import { newId } from '../ids';
@@ -42,6 +43,8 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyDesignData(def);
     case 'lexicon':
       return emptyLexiconFlowData();
+    case 'grammar':
+      return emptyGrammarFlowData();
     default:
       return emptyBriefData(def);
   }

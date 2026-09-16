@@ -14,50 +14,13 @@ import {
 } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
+import { InfoTip } from '../common/InfoTip';
+import { Slider } from '../common/Slider';
 import { EditorShell } from './EditorShell';
 import { LexiconEditor } from './LexiconEditor';
 import { useUpstreamText } from './useUpstreamText';
 
 const SEED_WORDS = ['rain', 'gear', 'lamp', 'brass', 'quiet', 'ember', 'thread', 'hollow', 'drift', 'salt'];
-
-function Slider({
-  label,
-  hint,
-  value,
-  min = 0,
-  max = 1,
-  step = 0.05,
-  format,
-  onChange,
-}: {
-  label: string;
-  hint?: string;
-  value: number;
-  min?: number;
-  max?: number;
-  step?: number;
-  format?: (value: number) => string;
-  onChange(value: number): void;
-}): JSX.Element {
-  return (
-    <div className="vt-field">
-      <div className="vt-label">
-        <span>{label}</span>
-        <span>{format ? format(value) : value.toFixed(2)}</span>
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        aria-label={label}
-        onChange={(event) => onChange(Number(event.target.value))}
-      />
-      {hint ? <div className="vt-hint">{hint}</div> : null}
-    </div>
-  );
-}
 
 export function TextEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
   const { setFlowData, generateFlow, notify } = useStudio();
@@ -99,6 +62,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
         input: resolved.input,
         options: resolved.options,
         lexicon: resolved.lexicon,
+        grammar: resolved.grammar,
       });
     } catch (error) {
       return { error: (error as Error).message } as const;
@@ -108,6 +72,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
   const result = preview && !('error' in preview) ? preview : null;
   const parts = useMemo(() => (result ? renderParts(result.tokens) : []), [result]);
   const upstreamText = upstream.sources.find((source) => source.port === 'text' && source.text);
+  const upstreamGrammar = upstream.sources.find((source) => source.port === 'grammar' && source.grammar)?.label;
   const stats = result?.stats;
   const options = resolved.options;
   const overridden = JSON.stringify(options) !== JSON.stringify(data.options);
@@ -159,7 +124,10 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
         <>
           <aside className="vt-editor-side">
             <div className="vt-section">
-              <h3>What the run does</h3>
+              <h3>
+                What the run does
+                <InfoTip tip="text.mode" label="What the run does" />
+              </h3>
               <div className="vt-mode-picker">
                 {(['generate', 'alter'] as const).map((mode) => (
                   <button
@@ -179,14 +147,14 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                   </button>
                 ))}
               </div>
-              <Field label="Seed" hint="The same seed and settings always write the same text.">
+              <Field label="Seed" tip="text.seed" hint="The same seed and settings always write the same text.">
                 <input value={data.options.seed} onChange={(event) => setOption('seed', event.target.value)} />
               </Field>
             </div>
 
             <div className="vt-section">
               <h3>Length</h3>
-              <Field label="Measured by">
+              <Field label="Measured by" tip="text.length.mode">
                 <select
                   value={options.length.mode}
                   onChange={(event) => setLength('mode', event.target.value as LengthMode)}
@@ -200,7 +168,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               </Field>
 
               {options.length.mode === 'words' ? (
-                <Field label="Words">
+                <Field label="Words" tip="text.length.words">
                   <input
                     type="number"
                     min={1}
@@ -210,7 +178,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                 </Field>
               ) : null}
               {options.length.mode === 'characters' ? (
-                <Field label="Characters">
+                <Field label="Characters" tip="text.length.characters">
                   <input
                     type="number"
                     min={1}
@@ -223,6 +191,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               {options.length.mode === 'wordPercent' ? (
                 <Slider
                   label="Change in words"
+                  tip="text.length.wordPercent"
                   min={-90}
                   max={200}
                   step={5}
@@ -235,6 +204,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               {options.length.mode === 'charPercent' ? (
                 <Slider
                   label="Change in characters"
+                  tip="text.length.charPercent"
                   min={-90}
                   max={200}
                   step={5}
@@ -247,6 +217,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
 
               <Slider
                 label="Length temperature"
+                tip="text.length.temperature"
                 value={data.options.length.temperature}
                 hint={
                   stats?.plan
@@ -261,12 +232,14 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               <h3>How words are picked</h3>
               <Slider
                 label="Alter temperature"
+                tip="text.alterTemperature"
                 value={data.options.alterTemperature}
                 hint="Share of the incoming words this run may replace. Only used when altering."
                 onChange={(value) => setOption('alterTemperature', value)}
               />
               <Slider
                 label="Pick temperature"
+                tip="text.pickTemperature"
                 min={0.02}
                 value={data.options.pickTemperature}
                 hint="0 always takes the strongest candidate; 1 draws straight from the scores."
@@ -274,6 +247,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               />
               <Slider
                 label="Context window"
+                tip="text.contextWindow"
                 min={0}
                 max={8}
                 step={1}
@@ -284,30 +258,46 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               />
               <Slider
                 label="Context decay"
+                tip="text.contextDecay"
                 value={data.options.contextDecay}
                 hint="How fast that pull fades further back in the window."
                 onChange={(value) => setOption('contextDecay', value)}
               />
               <Slider
                 label="Frequency bias"
+                tip="text.frequencyBias"
                 value={data.options.frequencyBias}
                 hint="0 lets context decide everything; 1 just uses how common a word is."
                 onChange={(value) => setOption('frequencyBias', value)}
               />
               <Slider
                 label="Context symmetry"
+                tip="text.contextSymmetry"
                 value={data.options.contextSymmetry}
                 hint="How much a link read backwards counts — `tree` listing `apple` pulling apple → tree."
                 onChange={(value) => setOption('contextSymmetry', value)}
               />
               <Slider
                 label="Grammar bias"
+                tip="text.grammarBias"
                 value={data.options.grammarBias}
                 hint="How strictly word order is followed. 0 is word soup."
                 onChange={(value) => setOption('grammarBias', value)}
               />
               <Slider
+                label="Grammar database"
+                tip="text.grammarWeight"
+                value={data.options.grammarWeight}
+                hint={
+                  upstreamGrammar
+                    ? `Writing into sentence shapes from ${upstreamGrammar}.`
+                    : 'Nothing yet — wire a Grammar Database flow into the Grammar database input.'
+                }
+                onChange={(value) => setOption('grammarWeight', value)}
+              />
+              <Slider
                 label="Sentence length"
+                tip="text.sentenceLength"
                 min={3}
                 max={40}
                 step={1}
@@ -347,6 +337,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
 
             <Field
               label={upstreamText ? 'Input (from upstream)' : 'Input'}
+              tip="text.input"
               hint={
                 upstreamText
                   ? `Coming from ${upstreamText.label}. The text below is kept for when nothing is wired in.`

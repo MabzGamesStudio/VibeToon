@@ -42,6 +42,7 @@ export type EditorId =
   | 'storyboard'
   | 'text'
   | 'lexicon'
+  | 'grammar'
   | 'animatic'
   | 'design'
   | 'brief';

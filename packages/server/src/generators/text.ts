@@ -2,6 +2,7 @@ import {
   lexiconStats,
   resolveTextRun,
   runRandomText,
+  type GrammarDataset,
   type Lexicon,
   type TextFlowData,
   type TextRunSource,
@@ -27,7 +28,7 @@ export async function generateText(ctx: GenerationContext): Promise<GenerationRe
 
   for (const input of ctx.inputs) {
     const port = input.connection.to.portId;
-    if (port !== 'text' && port !== 'lexicon') continue;
+    if (port !== 'text' && port !== 'lexicon' && port !== 'grammar') continue;
     const label = `${input.sourceNode.name} → ${input.targetPort?.label ?? port}`;
     const body = await ctx.readUpstream(input, INPUT_LIMIT);
 
@@ -38,9 +39,21 @@ export async function generateText(ctx: GenerationContext): Promise<GenerationRe
     }
 
     if (!body) {
-      ctx.warn(`${input.sourceNode.name} has not generated a word database yet.`);
+      ctx.warn(`${input.sourceNode.name} has not generated a database yet.`);
       continue;
     }
+
+    if (port === 'grammar') {
+      try {
+        const parsed = JSON.parse(body) as GrammarDataset;
+        if (!Array.isArray(parsed.sentences)) throw new Error('no `sentences` array');
+        sources.push({ port, label, rules: input.connection.rules, grammar: parsed });
+      } catch (error) {
+        ctx.warn(`Could not read the grammar database from ${input.sourceNode.name}: ${String(error)}`);
+      }
+      continue;
+    }
+
     try {
       const parsed = JSON.parse(body) as Lexicon;
       if (!Array.isArray(parsed.lexemes)) throw new Error('no `lexemes` array');
@@ -65,6 +78,7 @@ export async function generateText(ctx: GenerationContext): Promise<GenerationRe
     input: resolved.input,
     options: resolved.options,
     lexicon: resolved.lexicon,
+    grammar: resolved.grammar,
   });
   for (const warning of result.warnings) ctx.warn(warning);
 
@@ -78,6 +92,11 @@ export async function generateText(ctx: GenerationContext): Promise<GenerationRe
     `- Characters: ${result.stats.inputCharacters} → ${result.stats.outputCharacters} (${percent(result.stats.charChangePercent)})`,
     `- Changed: ${result.stats.replaced} replaced, ${result.stats.added} added, ${result.stats.removed} removed`,
     `- Database: ${stats.total} word(s), ${stats.contextEdges} context link(s)`,
+    `- Grammar: ${
+      resolved.grammar
+        ? `${resolved.grammar.sentences.length} sentence shape(s), ${result.stats.patternsUsed} used`
+        : 'none wired in'
+    }`,
     `- Landed ${result.stats.onTarget ? 'inside' : 'outside'} the tolerance band`,
     '',
   ];

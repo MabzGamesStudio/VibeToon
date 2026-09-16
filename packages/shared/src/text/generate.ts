@@ -1,6 +1,17 @@
 import { hashString } from '../ids';
 import type { Lexeme, Lexicon, RandomTextOptions, WordType } from '../types/text';
 import { followWeight, type FollowFrom } from './grammar';
+import {
+  buildGrammarModel,
+  continuationScore,
+  pickSentencePattern,
+  slotForLexeme,
+  spellForSlot,
+  type GrammarDataset,
+  type GrammarModel,
+  type GrammarSlot,
+} from './grammarDatabase';
+import { formOf } from './inflect';
 import { buildLexiconIndex, type LexiconIndex } from './lexicon';
 import {
   SENTENCE_END,
@@ -68,6 +79,14 @@ export interface PickContext {
   nextType?: WordType;
   /** Lexeme ids that must not be picked, e.g. the word being replaced. */
   forbid?: Set<string>;
+  /** The shape this position has to fill, when a grammar database is driving. */
+  slot?: GrammarSlot;
+  /** Sentence shapes and phrase counts, when one is wired in. */
+  model?: GrammarModel | undefined;
+  /** The slots already written, for scoring what would continue them. */
+  recentSlots?: GrammarSlot[];
+  /** Cache of each lexeme's own slot, so it is worked out once per run. */
+  slotOf?: Map<string, GrammarSlot>;
   /**
    * The last few lexemes for the repeat penalty. Separate from `history`
    * because the context window can be shorter than we want to look back for
@@ -148,6 +167,18 @@ export function scoreCandidate(candidate: Lexeme, ctx: PickContext): number {
   if (ctx.desiredType && candidate.type !== ctx.desiredType) {
     // Replacing a word usually wants the same part of speech back.
     score *= (1 - options.grammarBias) ** 2;
+  }
+
+  const weight = Math.max(0, Math.min(1, options.grammarWeight ?? 0));
+  if (ctx.slot && weight > 0) {
+    // A sentence shape asked for this kind of word here.
+    score *= candidate.type === ctx.slot.type ? 1 : (1 - weight) ** 3;
+  }
+  if (ctx.model && ctx.recentSlots && weight > 0) {
+    // And this is how often the corpus continued a run like this one that way.
+    const own = ctx.slotOf?.get(candidate.id) ?? slotForLexeme(candidate);
+    ctx.slotOf?.set(candidate.id, own);
+    score *= 1 + weight * 6 * continuationScore(ctx.model, ctx.recentSlots, own);
   }
 
   // Saying the same word again so soon is the fastest way to sound generated,
@@ -254,6 +285,8 @@ export interface RunStats {
   removed: number;
   /** Input words that are not in the database, so nothing could be read from them. */
   unknownWords: string[];
+  /** Sentence shapes taken from the grammar database, if one was used. */
+  patternsUsed: number;
 }
 
 export interface RunResult {
@@ -267,6 +300,8 @@ export interface RunInput {
   input: string;
   options: RandomTextOptions;
   lexicon: Lexicon;
+  /** Sentence shapes to write into, when a grammar database is wired in. */
+  grammar?: GrammarDataset | null;
 }
 
 function resolve(token: TextToken, index: LexiconIndex): Lexeme | undefined {
@@ -385,6 +420,12 @@ function tokenFor(lexeme: Lexeme): OutputToken {
   return { ...makeToken(lexeme.spelling, kind), origin: 'added' };
 }
 
+/** The same, spelled the way the slot asks for: a past tense slot gets `walked`. */
+function tokenForSlot(lexeme: Lexeme, slot: GrammarSlot): OutputToken {
+  const kind = lexeme.type === 'punctuation' ? 'punctuation' : lexeme.type === 'number' ? 'number' : 'word';
+  return { ...makeToken(spellForSlot(lexeme, slot), kind), origin: 'added' };
+}
+
 /** Write new text until the plan says to stop. */
 function generateTokens(
   index: LexiconIndex,
@@ -392,6 +433,8 @@ function generateTokens(
   plan: LengthPlan | null,
   rng: () => number,
   warnings: string[],
+  model: GrammarModel | null,
+  counters: { patternsUsed: number },
 ): OutputToken[] {
   const tokens: OutputToken[] = [];
   if (index.byId.size === 0) {
@@ -407,16 +450,50 @@ function generateTokens(
   const goal = Math.max(1, target + Math.round((rng() * 2 - 1) * tolerance));
   const ceiling = target + tolerance;
 
+  const useGrammar = model !== null && (options.grammarWeight ?? 0) > 0;
+  const slotOf = new Map<string, GrammarSlot>();
+  const recentSlots: GrammarSlot[] = [];
+  let pending: GrammarSlot[] = [];
+
+  /** The next slot a sentence shape asks for, refilling from a new shape when spent. */
+  const nextSlot = (): GrammarSlot | undefined => {
+    if (!useGrammar || !model) return undefined;
+    if (pending.length === 0) {
+      const pattern = pickSentencePattern(model, rng, options.pickTemperature);
+      if (!pattern || pattern.slots.length === 0) return undefined;
+      pending = [...pattern.slots];
+      counters.patternsUsed += 1;
+    }
+    return pending.shift();
+  };
+
   const next = (): boolean => {
     const before = measure(tokens, metric);
+    const slot = nextSlot();
+
+    // A shape that calls for punctuation gets it directly; there is no word to
+    // choose and no point asking the database for one.
+    if (slot?.type === 'punctuation') {
+      const mark = slot.mark ?? '.';
+      const last = tokens[tokens.length - 1];
+      if (!last || last.kind === 'punctuation') return true;
+      tokens.push({ ...makeToken(mark, 'punctuation'), origin: 'added' });
+      recentSlots.push(slot);
+      return true;
+    }
+
     const ctx: PickContext = {
       index,
       options,
       ...buildContext(tokens, tokens.length, index, options),
+      ...(slot ? { slot } : {}),
+      ...(useGrammar && model ? { model, recentSlots, slotOf } : {}),
     };
     const lexeme = pickNext(ctx, rng);
     if (!lexeme) return false;
-    tokens.push(tokenFor(lexeme));
+    tokens.push(slot ? tokenForSlot(lexeme, slot) : tokenFor(lexeme));
+    recentSlots.push(slot ?? slotOf.get(lexeme.id) ?? slotForLexeme(lexeme));
+    if (recentSlots.length > 8) recentSlots.shift();
     // A word is several characters, so the last one can overshoot a character
     // goal. Keep it only if stopping short would miss by more.
     if (metric === 'characters') {
@@ -469,10 +546,28 @@ function alterTokens(
   index: LexiconIndex,
   options: RandomTextOptions,
   rng: () => number,
+  model: GrammarModel | null,
 ): number {
   const share = Math.max(0, Math.min(1, options.alterTemperature));
   if (share === 0) return 0;
   let replaced = 0;
+  const slotOf = new Map<string, GrammarSlot>();
+
+  /** The shapes of the few tokens before `at`, for scoring what continues them. */
+  const slotsBefore = (at: number): GrammarSlot[] => {
+    const slots: GrammarSlot[] = [];
+    for (let i = Math.max(0, at - 6); i < at; i += 1) {
+      const token = tokens[i]!;
+      if (token.kind === 'break') continue;
+      if (token.kind === 'punctuation') {
+        slots.push({ type: 'punctuation', mark: token.text });
+        continue;
+      }
+      const lexeme = resolve(token, index);
+      if (lexeme) slots.push(slotOf.get(lexeme.id) ?? slotForLexeme(lexeme));
+    }
+    return slots;
+  };
 
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i]!;
@@ -481,6 +576,13 @@ function alterTokens(
 
     const current = resolve(token, index);
     const nextType = typeAt(tokens, i + 1, index);
+    // Whatever form the word being replaced was in, the new word takes it: a
+    // past tense verb comes back as a past tense verb.
+    const form = current ? formOf(token.key, current.type) : undefined;
+    const slot: GrammarSlot | undefined = current
+      ? { type: current.type, ...(form ? { form } : {}) }
+      : undefined;
+
     const ctx: PickContext = {
       index,
       options,
@@ -488,11 +590,13 @@ function alterTokens(
       ...(current ? { desiredType: current.type } : {}),
       ...(current ? { forbid: new Set([current.id]) } : {}),
       ...(nextType ? { nextType } : {}),
+      ...(slot ? { slot } : {}),
+      ...(model ? { model, recentSlots: slotsBefore(i), slotOf } : {}),
     };
     const next = pickNext(ctx, rng);
     if (!next || next.type === 'punctuation') continue;
 
-    tokens[i] = { ...tokenFor(next), origin: 'replaced' };
+    tokens[i] = { ...(slot ? tokenForSlot(next, slot) : tokenFor(next)), origin: 'replaced' };
     replaced += 1;
   }
 
@@ -596,10 +700,15 @@ function fitLength(
  * that came in — changing some share of its words and pulling its length towards
  * the target.
  */
-export function runRandomText({ input, options, lexicon }: RunInput): RunResult {
+export function runRandomText({ input, options, lexicon, grammar }: RunInput): RunResult {
   const warnings: string[] = [];
   const index = buildLexiconIndex(lexicon);
   const rng = createRng(options.seed || 'vibetoon');
+  const model = buildGrammarModel(grammar ?? null);
+  const counters = { patternsUsed: 0 };
+  if (model && model.sentences.length === 0 && (options.grammarWeight ?? 0) > 0) {
+    warnings.push('The grammar database has no sentence shapes in it yet.');
+  }
 
   const inputTokens = tokenize(input);
   const inputWords = countWordTokens(inputTokens);
@@ -613,7 +722,7 @@ export function runRandomText({ input, options, lexicon }: RunInput): RunResult 
 
   if (options.mode === 'alter' && inputTokens.length > 0) {
     tokens = inputTokens.map((token) => ({ ...token, origin: 'kept' as TokenOrigin }));
-    replaced = alterTokens(tokens, index, options, rng);
+    replaced = alterTokens(tokens, index, options, rng, model);
     if (plan) {
       const fitted = fitLength(tokens, index, options, plan, rng);
       added = fitted.added;
@@ -625,7 +734,7 @@ export function runRandomText({ input, options, lexicon }: RunInput): RunResult 
     if (options.mode === 'alter') {
       warnings.push('Nothing came in to alter, so this run wrote new text instead.');
     }
-    tokens = generateTokens(index, options, plan, rng, warnings);
+    tokens = generateTokens(index, options, plan, rng, warnings, model, counters);
     added = tokens.length;
   }
 
@@ -671,6 +780,7 @@ export function runRandomText({ input, options, lexicon }: RunInput): RunResult 
       added,
       removed,
       unknownWords,
+      patternsUsed: counters.patternsUsed,
     },
   };
 }

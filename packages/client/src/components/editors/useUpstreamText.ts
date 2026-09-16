@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react';
-import { inputsForPort, type FlowNode, type Lexicon, type Project, type TextRunSource } from '@vibetoon/shared';
+import {
+  inputsForPort,
+  type FlowNode,
+  type GrammarDataset,
+  type Lexicon,
+  type Project,
+  type TextRunSource,
+} from '@vibetoon/shared';
 import { api } from '../../api/client';
 
 interface Loaded {
@@ -10,8 +17,9 @@ interface Loaded {
 
 /**
  * Reads what is wired into a text flow so the editor can preview exactly what a
- * run would produce: the text on the Text input and any word database on the
- * Lexicon input, both fetched from the artifacts they were generated into.
+ * run would produce: the text on the Text input, any word database on the
+ * Lexicon input and any sentence shapes on the Grammar input, all fetched from
+ * the artifacts they were generated into.
  */
 export function useUpstreamText(project: Project, node: FlowNode): Loaded {
   const [state, setState] = useState<Loaded>({ sources: [], loading: false, error: null });
@@ -19,6 +27,7 @@ export function useUpstreamText(project: Project, node: FlowNode): Loaded {
   const incoming = [
     ...inputsForPort(project, node.id, 'text'),
     ...inputsForPort(project, node.id, 'lexicon'),
+    ...inputsForPort(project, node.id, 'grammar'),
   ];
   // Refetch only when a wire, its rules, or the artifact behind it changes.
   const signature = incoming
@@ -50,6 +59,9 @@ export function useUpstreamText(project: Project, node: FlowNode): Loaded {
           if (port === 'lexicon') {
             const parsed = JSON.parse(body) as Lexicon;
             sources.push({ ...base, lexicon: parsed });
+          } else if (port === 'grammar') {
+            const parsed = JSON.parse(body) as GrammarDataset;
+            sources.push({ ...base, grammar: parsed });
           } else {
             sources.push({ ...base, text: body });
           }

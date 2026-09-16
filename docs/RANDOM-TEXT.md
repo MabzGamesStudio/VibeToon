@@ -37,7 +37,7 @@ merging never quietly drops what you had.
 Every candidate in the database is scored, and one is drawn:
 
 ```
-score = frequency^e × (1 + gain × contextPull) × grammar × sentenceShape × repeatPenalty
+score = frequency^e × (1 + gain × contextPull) × grammar × sentenceShape × nextFit × repeatPenalty
 ```
 
 - **`contextPull`** is what the previous words want. Each step back through the
@@ -52,11 +52,27 @@ score = frequency^e × (1 + gain × contextPull) × grammar × sentenceShape × 
   adjective and very little else.
 - **Sentence shape** is what puts punctuation in: a full stop becomes likely as
   the sentence passes **sentence length** words, and impossible before three.
+- **`nextFit`** is the [grammar database](GRAMMAR-DATABASE.md), when one is wired
+  in and the **Grammar database** weight is above 0: a word whose slot often
+  continued the run just written scores higher, and a word of the wrong type for
+  the slot the sentence shape is asking for is pushed down hard.
 - A word used in the last few tokens is penalised, on a sliding scale, so the
   text does not loop.
 
 The draw itself is reshaped by **pick temperature**: at 0 the strongest candidate
 always wins, at 1 the draw is straight proportional to score.
+
+## Sentence shapes
+
+Wire a **Grammar Database** flow into the Grammar database input and the run
+stops writing word by word and starts writing *into a shape*: a whole sentence
+pattern is drawn — weighted by how often the corpus used it — and each slot is
+filled with a word of that type, spelled into that form. A slot asking for
+`verb:past` gets `walked`, not `walk`.
+
+The **Grammar database** slider is how hard that pulls. At 0 a wired grammar
+changes nothing, which makes it easy to hear what it does: same seed, same
+settings, 0 and then 0.7. See [GRAMMAR-DATABASE.md](GRAMMAR-DATABASE.md).
 
 ## Length
 
@@ -87,7 +103,9 @@ last, punctuation never.
 **Alter temperature** is the share of the incoming words a run may replace. Each
 replacement is drawn with the same scoring, with two additions: the word being
 replaced is excluded, and its part of speech is preferred, so a noun comes back
-as a noun.
+as a noun. With a grammar database wired in, the replacement also has to fit the
+form the original was in and follow what came before it, so a past tense stays
+past tense.
 
 What the text *is* survives the pass. Line breaks, blank lines, punctuation runs
 like `====`, and words that are not in the database are all left alone — only

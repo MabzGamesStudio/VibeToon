@@ -11,6 +11,7 @@ import {
 } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
+import { InfoTip } from '../common/InfoTip';
 
 const MODES: ConnectionMode[] = ['suggest', 'apply', 'reference'];
 
@@ -84,7 +85,10 @@ export function ConnectionInspector({
 
       <div className="vt-section vt-rules-editor">
         <h3>
-          <span>Rules</span>
+          <span>
+            Rules
+            <InfoTip tip="connection.rules" label="Rules" />
+          </span>
           <span className="vt-faint">{parsed.directives.length} directive(s)</span>
         </h3>
         <textarea
@@ -136,7 +140,10 @@ export function ConnectionInspector({
       </div>
 
       <div className="vt-section">
-        <h3>Mode</h3>
+        <h3>
+          Mode
+          <InfoTip tip="connection.mode" label="Mode" />
+        </h3>
         <div className="vt-mode-picker">
           {MODES.map((mode) => {
             const [title, ...rest] = connectionModeLabel(mode).split(' — ');
@@ -158,7 +165,11 @@ export function ConnectionInspector({
       </div>
 
       <div className="vt-section">
-        <Field label={`Weight — ${settings.weight.toFixed(2)}`} hint="How hard this input should push the result.">
+        <Field
+          label={`Weight — ${settings.weight.toFixed(2)}`}
+          tip="connection.weight"
+          hint="How hard this input should push the result."
+        >
           <input
             type="range"
             min={0}
@@ -172,7 +183,7 @@ export function ConnectionInspector({
             }
           />
         </Field>
-        <Field label="Connection notes" hint="Why this wire exists. Travels with the rules.">
+        <Field label="Connection notes" tip="connection.notes" hint="Why this wire exists. Travels with the rules.">
           <textarea
             rows={2}
             value={settings.notes}
@@ -191,6 +202,7 @@ export function ConnectionInspector({
             }
           />
           <span>Enabled</span>
+          <InfoTip tip="connection.enabled" label="Enabled" />
         </label>
       </div>
 
