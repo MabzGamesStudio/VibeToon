@@ -17,6 +17,7 @@ export * from './flows/storyboard';
 export * from './flows/brief';
 export * from './flows/text';
 export * from './flows/lexicon';
+export * from './flows/grammar';
 export * from './flows/animatic';
 export * from './flows/design';
 
@@ -26,6 +27,7 @@ export * from './text/grammar';
 export * from './text/generate';
 export * from './text/corpus';
 export * from './text/inflect';
+export * from './text/grammarDatabase';
 export * from './text/sampleCorpus';
 export * from './text/corpusSources';
 

@@ -139,6 +139,12 @@ export interface RandomTextOptions {
   contextSymmetry: number;
   /** 0..1 — how strongly part-of-speech order is enforced. 0 is word soup. */
   grammarBias: number;
+  /**
+   * 0..1 — how strongly a wired-in grammar database drives the writing. At 0 it
+   * is ignored; above that, sentences are written into shapes counted from a
+   * corpus, and words are spelled in the form each slot asks for.
+   */
+  grammarWeight: number;
   /** Average words per sentence the punctuation aims for. */
   sentenceLength: number;
 }
@@ -163,6 +169,7 @@ export const DEFAULT_RANDOM_TEXT_OPTIONS: RandomTextOptions = {
   frequencyBias: 0.45,
   contextSymmetry: 0.5,
   grammarBias: 0.85,
+  grammarWeight: 0.7,
   sentenceLength: 12,
 };
 

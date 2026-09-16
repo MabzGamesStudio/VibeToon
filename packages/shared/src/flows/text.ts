@@ -1,4 +1,5 @@
 import { parseRules, ruleNumber, ruleValue, type ParsedRules } from '../rules/parseRules';
+import type { GrammarDataset } from '../text/grammarDatabase';
 import { mergeLexicons } from '../text/lexicon';
 import { starterLexicon } from './lexicon';
 import {
@@ -103,17 +104,20 @@ export function applyRulesToOptions(options: RandomTextOptions, rules: ParsedRul
 }
 
 export interface TextRunSource {
-  /** What the connection carries: `text` or `lexicon`. */
+  /** What the connection carries: `text`, `lexicon` or `grammar`. */
   port: string;
   label: string;
   rules: string;
   text?: string;
   lexicon?: Lexicon;
+  grammar?: GrammarDataset;
 }
 
 export interface ResolvedTextRun {
   input: string;
   lexicon: Lexicon;
+  /** The sentence shapes to write into, when one is wired in. */
+  grammar: GrammarDataset | null;
   options: RandomTextOptions;
   /** Lines for the run log: where the input and the database came from. */
   notes: string[];
@@ -126,10 +130,17 @@ export interface ResolvedTextRun {
  */
 export function resolveTextRun(data: TextFlowData, sources: TextRunSource[]): ResolvedTextRun {
   const notes: string[] = [];
-  let options: RandomTextOptions = { ...data.options, length: { ...data.options.length } };
+  // Fill in any option a stored project predates, so an older flow runs with
+  // this build's defaults rather than with undefined.
+  let options: RandomTextOptions = {
+    ...DEFAULT_RANDOM_TEXT_OPTIONS,
+    ...data.options,
+    length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, ...data.options.length },
+  };
 
   const texts: string[] = [];
   let lexicon: Lexicon = data.lexicon;
+  let grammar: GrammarDataset | null = null;
 
   for (const source of sources) {
     if (source.rules.trim()) {
@@ -146,6 +157,12 @@ export function resolveTextRun(data: TextFlowData, sources: TextRunSource[]): Re
         `Merged ${source.lexicon.lexemes.length} word(s) from ${source.label}: ${before} → ${lexicon.lexemes.length}.`,
       );
     }
+    if (source.grammar) {
+      grammar = source.grammar;
+      notes.push(
+        `Reading ${source.grammar.sentences.length} sentence shape(s) from ${source.label}.`,
+      );
+    }
   }
 
   const input = texts.length > 0 ? texts.join('\n\n') : data.input;
@@ -153,5 +170,5 @@ export function resolveTextRun(data: TextFlowData, sources: TextRunSource[]): Re
     notes.push('Used the text written in the flow, since nothing is wired into the Text input.');
   }
 
-  return { input, lexicon, options, notes };
+  return { input, lexicon, grammar, options, notes };
 }

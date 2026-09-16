@@ -869,3 +869,37 @@
   gap: 4px;
   margin: -4px 0 12px;
 }
+
+/* Grammar patterns ----------------------------------------------------- */
+
+.vt-patterns {
+  display: grid;
+  gap: 3px;
+}
+
+.vt-pattern {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 4px 8px;
+  border-radius: $radius-sm;
+  background: $bg-1;
+
+  &:nth-child(odd) {
+    background: $bg-2;
+  }
+
+  .vt-pattern-count {
+    font-family: $mono;
+    font-size: 11px;
+    color: $text-faint;
+    text-align: right;
+  }
+
+  .vt-pattern-shape {
+    font-size: 11.5px;
+    color: $text-dim;
+    overflow-wrap: anywhere;
+  }
+}

@@ -105,6 +105,25 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
   },
 
   {
+    kind: 'text.grammar',
+    category: 'text',
+    label: 'Grammar Database',
+    summary: 'Counts the shapes sentences take in a corpus, read against a word database.',
+    inputs: [
+      input('corpus', 'Corpus', ['text', 'markdown'], 'Text to read for its sentence shapes.'),
+      input('lexicon', 'Word database', ['json'], 'Supplies the word type and form of each token.', {
+        required: true,
+      }),
+    ],
+    outputs: [
+      output('grammar', 'Grammar database', ['json'], 'grammar.json', 'Sentence, fragment and phrase patterns with their counts.'),
+      output('report', 'Report', ['markdown'], 'report.md', 'What was read and the shapes it found.'),
+    ],
+    editor: 'grammar',
+    maturity: 'editor',
+  },
+
+  {
     kind: 'text.random',
     category: 'text',
     label: 'Random Text',
@@ -112,6 +131,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     inputs: [
       input('text', 'Text', ['text', 'markdown'], 'Text to rewrite. Without it the flow writes new text.'),
       input('lexicon', 'Word database', ['json'], 'A lexicon to merge into this one.'),
+      input('grammar', 'Grammar database', ['json'], 'Sentence shapes to write into.'),
     ],
     outputs: [
       output('text', 'Text', ['text'], 'text.txt', 'The text this run produced.'),
