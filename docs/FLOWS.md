@@ -37,6 +37,15 @@ What the clip is about underneath, and how it should feel.
 
 ## Text
 
+### Word Database
+
+`text.lexicon` · **bespoke editor**
+
+Counts words out of a corpus into a database other flows can write from.
+
+- **In:** Corpus
+- **Out:** Word database `lexicon.json`, Report `report.md`
+
 ### Random Text
 
 `text.random` · **bespoke editor**
@@ -431,4 +440,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-35 flow kinds.
+36 flow kinds.

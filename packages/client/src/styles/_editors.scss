@@ -828,3 +828,44 @@
     padding: 5px 8px;
   }
 }
+
+/* Corpora -------------------------------------------------------------- */
+
+.vt-corpora {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.vt-corpus {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  @include card;
+  background: $bg-1;
+  padding: 7px 9px;
+  opacity: 0.55;
+
+  &.is-included {
+    opacity: 1;
+    border-left: 2px solid $accent;
+  }
+
+  .vt-corpus-check input {
+    width: auto;
+  }
+
+  .vt-corpus-body {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+}
+
+.vt-corpus-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: -4px 0 12px;
+}

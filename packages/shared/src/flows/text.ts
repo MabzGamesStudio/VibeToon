@@ -1,6 +1,6 @@
 import { parseRules, ruleNumber, ruleValue, type ParsedRules } from '../rules/parseRules';
 import { mergeLexicons } from '../text/lexicon';
-import { createStarterLexicon } from '../text/starterLexicon';
+import { starterLexicon } from './lexicon';
 import {
   DEFAULT_RANDOM_TEXT_OPTIONS,
   type Lexicon,
@@ -14,7 +14,11 @@ export function emptyTextData(): TextFlowData {
     input: '',
     output: '',
     options: { ...DEFAULT_RANDOM_TEXT_OPTIONS, length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length } },
-    lexicon: createStarterLexicon(),
+    // Counted out of the bundled sample corpus, so a new flow writes something
+    // immediately and its numbers mean the same thing as a database built from
+    // a book: frequency is how often the word appeared, and a context is how
+    // much more often one word followed another than it turned up at all.
+    lexicon: starterLexicon(),
   };
 }
 

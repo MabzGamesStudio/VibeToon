@@ -89,6 +89,22 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
    * Text
    * ---------------------------------------------------------------- */
   {
+    kind: 'text.lexicon',
+    category: 'text',
+    label: 'Word Database',
+    summary: 'Counts words out of a corpus into a database other flows can write from.',
+    inputs: [
+      input('corpus', 'Corpus', ['text', 'markdown'], 'Text to count as a corpus of its own.'),
+    ],
+    outputs: [
+      output('lexicon', 'Word database', ['json'], 'lexicon.json', 'Words, frequencies and weighted contexts.'),
+      output('report', 'Report', ['markdown'], 'report.md', 'What went into it and what came out.'),
+    ],
+    editor: 'lexicon',
+    maturity: 'editor',
+  },
+
+  {
     kind: 'text.random',
     category: 'text',
     label: 'Random Text',
