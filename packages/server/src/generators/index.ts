@@ -1,7 +1,9 @@
 import { generateAnimatic } from './animatic';
 import { generateAssembly } from './assembly';
 import { generateBrief } from './brief';
+import { generateCorpus } from './corpus';
 import { generateDesign } from './design';
+import { generateDictionary } from './dictionary';
 import { generateGrammar } from './grammar';
 import { generateLexicon } from './lexicon';
 import { generateDialog } from './dialog';
@@ -18,7 +20,9 @@ const GENERATORS: Record<string, Generator> = {
   'story.dialog': generateDialog,
   'animation.storyboard': generateStoryboard,
   'text.random': generateText,
+  'text.corpus': generateCorpus,
   'text.lexicon': generateLexicon,
+  'text.dictionary': generateDictionary,
   'text.grammar': generateGrammar,
   'animation.character.design': generateDesign,
   'animation.set.design': generateDesign,

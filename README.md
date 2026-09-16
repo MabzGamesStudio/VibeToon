@@ -33,7 +33,7 @@ above), press **Generate stale**, open the storyboard and hit **Review sync**.
 Other commands:
 
 ```sh
-npm test           # shared model + server API tests
+npm test           # shared model + server API tests (see docs/TESTING.md)
 npm run typecheck  # whole monorepo
 npm run build      # production client bundle
 npm start          # serve API + built client from :5174
@@ -48,6 +48,10 @@ Set `VIBETOON_DATA` to keep them somewhere else.
 - **Graph overview.** Add flows from a catalogue of 37 kinds, drag a port to
   another port to connect them, and see at a glance what is up to date, what is
   stale and what failed. Port types are checked and loops are refused.
+- **A View menu.** Everything the studio draws costs something on a big project:
+  forty nodes with their ports and files, an inspector fetching every generated
+  file, a preview that reruns the generator on every keystroke. Each can be
+  turned off, and “Lighten everything” turns the lot down in one click.
 - **An API log.** Every dictionary lookup and corpus download the studio makes,
   with the status, the timing, which attempt it was and why it failed — the
   thing the browser's network tab cannot show you, because it happens on the
@@ -68,6 +72,15 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   add, update or drop *before* it touches the board; sketches, panel notes and
   pinned panels are never overwritten. Generates `storyboard.json`,
   `shotlist.csv`, `boards.md` and a rasterised `panels/` folder.
+- **Corpus.** The text everything else reads, gathered in one place. A part that
+  is an address is fetched on every run, so a novel never lives in the project
+  file; a part you pasted is kept. Wire it into a word database and a grammar
+  database and both read exactly the same words.
+- **Dictionary.** A word database in, a better one out: it asks a dictionary
+  what each word is, because word *type* is what decides whether the grammar
+  flow produces English or soup. Five services are built in, three needing no
+  key, and a key for the others is entered in the studio and kept on the server,
+  outside every project.
 - **Word database.** Counted out of a corpus rather than written by hand: point
   it at a public-domain book or paste your own text, and it tallies every word
   and every pair of adjacent words, asks a dictionary for types and definitions,

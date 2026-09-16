@@ -1,0 +1,55 @@
+name: CI
+
+# Every pull request, and every push to the default branch. A flow editor
+# without tests, a type error, a build that will not build, or a docs page that
+# no longer matches the registry all fail here rather than after merging.
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+concurrency:
+  # A new push supersedes the run in flight for the same branch.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest version package.json claims to support, and the current one.
+        node: ['20.11', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # The shared suite includes the guard that every flow with an editor of its
+      # own has unit tests of its own, so a new editor cannot arrive untested.
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: The flow catalogue matches the registry
+        run: |
+          npm run docs:flows
+          if ! git diff --quiet -- docs/FLOWS.md; then
+            echo "::error file=docs/FLOWS.md::docs/FLOWS.md is out of date. Run 'npm run docs:flows' and commit the result."
+            git --no-pager diff -- docs/FLOWS.md
+            exit 1
+          fi

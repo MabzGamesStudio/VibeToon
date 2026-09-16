@@ -10,7 +10,7 @@ import {
 } from '@vibetoon/shared';
 import { recordApiCall } from '../logs';
 import { DATA_ROOT } from '../paths';
-import { getSettings } from '../settings';
+import { dictionaryKeyFor, getSettings } from '../settings';
 import { CUSTOM_PROVIDER, providerById, type DictionaryProvider } from './dictionaryProviders';
 
 /**
@@ -20,8 +20,16 @@ import { CUSTOM_PROVIDER, providerById, type DictionaryProvider } from './dictio
  */
 export const DICTIONARY_URL_OVERRIDE = process.env.VIBETOON_DICTIONARY_URL ?? '';
 
-/** The key for a service that needs one. Never stored, never sent to the browser. */
-const DICTIONARY_KEY = process.env.VIBETOON_DICTIONARY_KEY ?? '';
+/** A key from the environment, used for any service that has none of its own. */
+const ENV_DICTIONARY_KEY = process.env.VIBETOON_DICTIONARY_KEY ?? '';
+
+/**
+ * The key for one service: the one entered in the studio, else the environment's.
+ * Never written into an artifact, sent to the browser, or recorded in the log.
+ */
+export function keyForProvider(providerId: string): string {
+  return dictionaryKeyFor(providerId) || ENV_DICTIONARY_KEY;
+}
 
 const DEFAULT_PROVIDER = 'free-dictionary';
 const CACHE_DIR = path.join(DATA_ROOT, 'cache', 'dictionary');
@@ -34,7 +42,7 @@ const CACHE_DIR = path.join(DATA_ROOT, 'cache', 'dictionary');
  * been given is skipped rather than used to fire a few hundred requests that can
  * only come back 401.
  */
-export function activeProvider(): { provider: DictionaryProvider; url: string; reason: string } {
+export function activeProvider(prefer = ''): { provider: DictionaryProvider; url: string; reason: string } {
   if (DICTIONARY_URL_OVERRIDE) {
     return {
       provider: CUSTOM_PROVIDER,
@@ -46,36 +54,40 @@ export function activeProvider(): { provider: DictionaryProvider; url: string; r
   const chosen = getSettings().dictionaryProvider;
   const fromEnv = process.env.VIBETOON_DICTIONARY ?? '';
   for (const [id, reason] of [
+    [prefer, 'set on this flow'],
     [chosen ?? '', 'chosen in the studio'],
     [fromEnv, 'VIBETOON_DICTIONARY is set'],
     [DEFAULT_PROVIDER, 'the default'],
   ] as const) {
     const provider = id ? providerById(id) : undefined;
-    if (provider && (!provider.needsKey || DICTIONARY_KEY)) {
+    if (!provider) continue;
+    if (!provider.needsKey || keyForProvider(provider.id)) {
       return { provider, url: provider.url, reason };
     }
-    if (provider && provider.needsKey && !DICTIONARY_KEY) {
-      return {
-        provider: providerById(DEFAULT_PROVIDER)!,
-        url: providerById(DEFAULT_PROVIDER)!.url,
-        reason: `${provider.label} needs VIBETOON_DICTIONARY_KEY, so the default is being used instead`,
-      };
-    }
+    // A service whose key is missing is never used to fire requests that can
+    // only come back 401; the keyless default is used and the reason says why.
+    const fallback = providerById(DEFAULT_PROVIDER)!;
+    return {
+      provider: fallback,
+      url: fallback.url,
+      reason: `${provider.label} has no key yet, so the default is being used instead`,
+    };
   }
   const fallback = providerById(DEFAULT_PROVIDER)!;
   return { provider: fallback, url: fallback.url, reason: 'the default' };
 }
 
 /** The address for one word, with the key filled in when the service takes one. */
-export function dictionaryUrlFor(word: string): string {
-  return activeProvider()
-    .url.replace('{word}', encodeURIComponent(word))
-    .replace('{key}', encodeURIComponent(DICTIONARY_KEY));
+export function dictionaryUrlFor(word: string, prefer = ''): string {
+  const active = activeProvider(prefer);
+  return active.url
+    .replace('{word}', encodeURIComponent(word))
+    .replace('{key}', encodeURIComponent(keyForProvider(active.provider.id)));
 }
 
-/** Whether a key is present, without saying what it is. */
-export function hasDictionaryKey(): boolean {
-  return DICTIONARY_KEY.length > 0;
+/** Whether a service has a key, without saying what it is. */
+export function hasDictionaryKey(providerId?: string): boolean {
+  return providerId ? keyForProvider(providerId).length > 0 : ENV_DICTIONARY_KEY.length > 0;
 }
 
 export interface LookupOptions {
@@ -94,6 +106,8 @@ export interface LookupOptions {
   fetchImpl: typeof fetch;
   /** Called after each word is settled, for a log line. */
   onProgress?: (done: number, total: number) => void;
+  /** Ask this service rather than whatever the studio is set to. */
+  provider: string;
 }
 
 /**
@@ -110,6 +124,7 @@ export const DEFAULT_LOOKUP_OPTIONS: LookupOptions = {
   retryDelaysMs: [500, 1_500, 4_000],
   maxFailures: 3,
   fetchImpl: fetch,
+  provider: '',
 };
 
 interface CachedLookup {
@@ -140,8 +155,11 @@ async function writeCache(entry: CachedLookup): Promise<void> {
 }
 
 /** Pull the first part of speech and definition out of whatever the service sent. */
-export function readDictionaryResponse(payload: unknown): { partOfSpeech?: string; definition?: string } {
-  return activeProvider().provider.read(payload);
+export function readDictionaryResponse(
+  payload: unknown,
+  prefer = '',
+): { partOfSpeech?: string; definition?: string } {
+  return activeProvider(prefer).provider.read(payload);
 }
 
 function meaningFrom(cached: CachedLookup): DictionaryResult['meanings'][string] {
@@ -193,7 +211,7 @@ function outcomeOf(result: Attempt): { outcome: LogOutcome; detail?: string } {
 async function attempt(word: string, options: LookupOptions, tries: number): Promise<Attempt> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs);
-  const url = dictionaryUrlFor(word);
+  const url = dictionaryUrlFor(word, options.provider);
   const started = Date.now();
   let status: number | undefined;
 
@@ -243,7 +261,7 @@ async function attempt(word: string, options: LookupOptions, tries: number): Pro
       return record({ kind: 'fatal', reason: `The dictionary service answered ${response.status}.` });
     }
 
-    const parsed = readDictionaryResponse(await response.json());
+    const parsed = readDictionaryResponse(await response.json(), options.provider);
     // Some services answer 200 with an empty list, or with spelling suggestions,
     // for a word they do not have. Nothing useful came back either way.
     if (!parsed.partOfSpeech && !parsed.definition) return record({ kind: 'missing' });
@@ -324,7 +342,7 @@ export async function lookupWords(
   if (result.cached > 0) {
     recordApiCall({
       service: 'dictionary',
-      url: activeProvider().url,
+      url: activeProvider(options.provider).url,
       subject: `${result.cached} word(s)`,
       outcome: 'cached',
       durationMs: 0,

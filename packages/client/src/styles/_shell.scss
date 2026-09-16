@@ -326,3 +326,98 @@
     overflow-wrap: anywhere;
   }
 }
+
+/** What the studio draws, chosen by hand when a big project starts to drag. */
+.vt-viewmenu {
+  position: relative;
+  display: inline-flex;
+}
+
+.vt-viewmenu-panel {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 330px;
+  max-width: calc(100vw - 16px);
+  padding: 10px 12px;
+  @include card;
+  background: $bg-2;
+  box-shadow: $shadow-2;
+}
+
+.vt-viewmenu-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(51, 58, 71, 0.5);
+  cursor: pointer;
+
+  &:last-of-type {
+    border-bottom: 0;
+  }
+
+  input {
+    width: auto;
+    margin-top: 2px;
+  }
+
+  > span {
+    flex: 1;
+    display: grid;
+    gap: 1px;
+  }
+
+  strong {
+    font-size: 12px;
+    font-weight: 500;
+    color: $text;
+  }
+
+  .vt-faint {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  &.is-choice {
+    align-items: center;
+    cursor: default;
+
+    select {
+      width: 96px;
+      flex: none;
+    }
+  }
+}
+
+/** A generated file listed without being fetched and drawn. */
+.vt-artifact-plain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid $line;
+  border-radius: $radius-sm;
+  background: $bg-1;
+  font-size: 11px;
+}
+
+/** The settings column, turned off. */
+.vt-editor.is-no-sidebar .vt-editor-side {
+  display: none;
+}
+
+/**
+ * Cosmetics off. A transition on every node is not free when there are forty of
+ * them and the graph is being panned.
+ */
+.vt-no-effects {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+    box-shadow: none !important;
+  }
+}

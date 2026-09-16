@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { getFlowKind } from '@vibetoon/shared';
 import { LogViewer } from './components/common/LogViewer';
+import { ViewMenu } from './components/common/ViewMenu';
 import { Toasts } from './components/common/Toasts';
 import { FlowEditor } from './components/editors/FlowEditor';
 import { GraphView } from './components/graph/GraphView';
 import { ProjectPicker } from './components/ProjectPicker';
 import { useStudio } from './state/store';
-import { useTips } from './state/tips';
 
 const SAVE_LABEL: Record<string, string> = {
   clean: 'Saved',
@@ -18,7 +18,6 @@ const SAVE_LABEL: Record<string, string> = {
 export function App(): JSX.Element {
   const { project, focusedFlowId, focusFlow, saveState, generateAll, closeProject, busyFlows, loading } =
     useStudio();
-  const tips = useTips();
   const [logsOpen, setLogsOpen] = useState(false);
 
   if (!project) {
@@ -65,19 +64,7 @@ export function App(): JSX.Element {
         >
           Logs
         </button>
-        <button
-          type="button"
-          className={`vt-btn is-ghost is-small${tips.show ? ' is-active' : ''}`}
-          aria-pressed={tips.show}
-          onClick={tips.toggle}
-          title={
-            tips.show
-              ? 'Hide the (i) beside every setting'
-              : 'Show an (i) beside every setting, explaining what it does'
-          }
-        >
-          {tips.show ? 'Tips on' : 'Tips off'}
-        </button>
+        <ViewMenu />
         <button
           type="button"
           className="vt-btn"

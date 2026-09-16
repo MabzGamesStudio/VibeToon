@@ -23,6 +23,7 @@ import {
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
+import { useView } from '../../state/view';
 import { Field } from '../common/Field';
 import { InfoTip } from '../common/InfoTip';
 import { formatWhen } from '../common/format';
@@ -45,6 +46,7 @@ const SOURCE_LABEL: Record<CorpusDataset['source']['kind'], string> = {
 export function LexiconFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
   const { setFlowData, generateFlow, notify } = useStudio();
   const data = node.data as LexiconFlowData;
+  const { view: prefs } = useView();
   const [tab, setTab] = useState<'corpora' | 'words'>('corpora');
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -220,8 +222,8 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
     return lexicon.lexemes
       .filter((lexeme) => !needle || lexeme.spelling.includes(needle))
       .sort((a, b) => (b.stats?.count ?? 0) - (a.stats?.count ?? 0))
-      .slice(0, 400);
-  }, [lexicon.lexemes, query]);
+      .slice(0, prefs.listLimit);
+  }, [lexicon.lexemes, prefs.listLimit, query]);
 
   const current = selected ? lexicon.lexemes.find((lexeme) => lexeme.id === selected) : undefined;
   const currentEntry = current ? master.entries.find((entry) => entry.spelling === current.spelling) : undefined;

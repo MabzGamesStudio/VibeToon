@@ -8,6 +8,7 @@ import {
   type Vec2,
 } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
+import { useView } from '../../state/view';
 import {
   boundsOf,
   edgeMidpoint,
@@ -52,6 +53,7 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
     removeConnection,
     busyFlows,
   } = useStudio();
+  const { view: prefs } = useView();
   if (!project) throw new Error('GraphCanvas needs an open project');
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -437,6 +439,7 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
               node={node}
               selected={selection.type === 'node' && selection.id === node.id}
               busy={busyFlows.includes(node.id)}
+              compact={prefs.nodeDetail === 'compact'}
               dropTarget={
                 dragWire && hoverPort && hoverPort.side === 'in'
                   ? { nodeId: hoverPort.nodeId, portId: hoverPort.portId }

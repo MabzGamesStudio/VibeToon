@@ -903,3 +903,37 @@
     overflow-wrap: anywhere;
   }
 }
+
+/** The corpus flow's part list: order matters, so it reads as an ordered list. */
+.vt-corpus-list {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.vt-corpus-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid $line;
+  border-radius: $radius-sm;
+  background: $bg-1;
+  opacity: 0.55;
+
+  &.is-on {
+    opacity: 1;
+    border-color: $line-strong;
+  }
+
+  .vt-corpus-tick {
+    padding-top: 2px;
+  }
+
+  .vt-corpus-body {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+  }
+}

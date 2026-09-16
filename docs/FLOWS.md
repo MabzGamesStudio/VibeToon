@@ -37,6 +37,15 @@ What the clip is about underneath, and how it should feel.
 
 ## Text
 
+### Corpus
+
+`text.corpus` · **bespoke editor**
+
+Gathers the text everything else reads, so one body of writing feeds every flow that needs it.
+
+- **In:** Text
+- **Out:** Corpus `corpus.txt`, Report `report.md`
+
 ### Word Database
 
 `text.lexicon` · **bespoke editor**
@@ -44,6 +53,15 @@ What the clip is about underneath, and how it should feel.
 Counts words out of a corpus into a database other flows can write from.
 
 - **In:** Corpus
+- **Out:** Word database `lexicon.json`, Report `report.md`
+
+### Dictionary
+
+`text.dictionary` · **bespoke editor**
+
+Takes a word database and asks a dictionary what each word is, so its types are known rather than guessed.
+
+- **In:** Word database *(required)*
 - **Out:** Word database `lexicon.json`, Report `report.md`
 
 ### Grammar Database
@@ -449,4 +467,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-37 flow kinds.
+39 flow kinds.

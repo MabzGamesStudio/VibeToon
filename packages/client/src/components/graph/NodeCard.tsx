@@ -28,6 +28,8 @@ export interface NodeCardProps {
   busy: boolean;
   /** Port currently highlighted as a drop target. */
   dropTarget: { nodeId: string; portId: string } | null;
+  /** Draw the name and ports only, for a graph too big to draw in full. */
+  compact: boolean;
   registerAnchor(key: string, element: HTMLElement | null): void;
   onSelect(nodeId: string): void;
   onOpen(nodeId: string): void;
@@ -57,6 +59,7 @@ export const NodeCard = memo(function NodeCard({
   node,
   selected,
   busy,
+  compact,
   dropTarget,
   registerAnchor,
   onSelect,
@@ -98,10 +101,8 @@ export const NodeCard = memo(function NodeCard({
         </div>
       </div>
 
-      {node.notes.trim() ? (
-        <div className="vt-node-summary">{node.notes}</div>
-      ) : (
-        <div className="vt-node-summary">{def?.summary}</div>
+      {compact ? null : (
+        <div className="vt-node-summary">{node.notes.trim() ? node.notes : def?.summary}</div>
       )}
 
       <div className="vt-node-ports">
@@ -161,7 +162,7 @@ export const NodeCard = memo(function NodeCard({
         </div>
       </div>
 
-      {(node.outputs.length > 0 || warnings > 0 || node.lastRun?.error) && (
+      {!compact && (node.outputs.length > 0 || warnings > 0 || node.lastRun?.error) && (
         <div className="vt-node-foot">
           {node.outputs.slice(0, 3).map((artifact) => (
             <span key={artifact.port} className="vt-artifact-chip" title={artifact.path}>

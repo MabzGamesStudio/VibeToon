@@ -92,13 +92,16 @@ export const api = {
       { url },
     ),
   /** One batch of a dictionary lookup. `remaining` says what to ask for next. */
-  lookupWords: (words: string[], limit?: number) =>
+  lookupWords: (words: string[], limit?: number, provider?: string) =>
     request<DictionaryResult>('POST', '/api/text/dictionary', {
       words,
       ...(limit === undefined ? {} : { limit }),
+      ...(provider ? { provider } : {}),
     }),
 
   dictionaryProviders: () => request<DictionaryProviders>('GET', '/api/text/dictionary/providers'),
+  setDictionaryKey: (id: string, key: string) =>
+    request<DictionaryProviders>('POST', '/api/text/dictionary/key', { id, key }),
   setDictionaryProvider: (id: string) =>
     request<DictionaryProviders>('POST', '/api/text/dictionary/provider', { id }),
 

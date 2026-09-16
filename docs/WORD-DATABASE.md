@@ -7,6 +7,15 @@ the `lexicon.json` that a Random Text flow writes from.
 The **Word Database** flow (`text.lexicon`) owns this. Add it from the palette
 and wire its Word database output into a Random Text flow's Word database input.
 
+Two neighbouring flows do the jobs either side of it:
+
+- The **Corpus** flow (`text.corpus`) gathers the text. Wire it into both this
+  flow and a [grammar database](GRAMMAR-DATABASE.md) and the two read exactly
+  the same words, which is what makes their word types line up.
+- The **Dictionary** flow (`text.dictionary`) takes a database in and hands a
+  better one out, asking a service what each word is. The counting knows how
+  often a word appears; only a dictionary knows what kind of word it is.
+
 ## What a row is made of
 
 | Field | Where it comes from |

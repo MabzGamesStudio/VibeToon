@@ -18,6 +18,7 @@ import {
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
+import { useView } from '../../state/view';
 import { Field } from '../common/Field';
 import { InfoTip } from '../common/InfoTip';
 import { formatWhen } from '../common/format';
@@ -34,6 +35,7 @@ const KIND_LABEL: Record<PatternKind, string> = {
 export function GrammarFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
   const { setFlowData, generateFlow, notify } = useStudio();
   const data = node.data as GrammarFlowData;
+  const { view: prefs } = useView();
   const [tab, setTab] = useState<'corpora' | 'patterns'>('corpora');
   const [kind, setKind] = useState<PatternKind>('sentences');
   const [busy, setBusy] = useState<string | null>(null);
@@ -441,7 +443,7 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
             <div className="vt-empty">Nothing counted yet.</div>
           ) : (
             <div className="vt-patterns">
-              {patterns.slice(0, 200).map(([signature, count]) => (
+              {patterns.slice(0, prefs.listLimit).map(([signature, count]) => (
                 <div className="vt-pattern" key={signature}>
                   <span className="vt-pattern-count">{count}×</span>
                   <code className="vt-pattern-shape">{describePattern(signature)}</code>

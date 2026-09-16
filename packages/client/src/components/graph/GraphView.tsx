@@ -1,13 +1,15 @@
 import { useCallback, useState } from 'react';
 import { staleNodes, type Vec2 } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
+import { useView } from '../../state/view';
 import { Inspector } from '../inspector/Inspector';
 import { FlowPalette } from './FlowPalette';
 import { GraphCanvas } from './GraphCanvas';
 
 export function GraphView(): JSX.Element {
   const { project, busyFlows, generateAll } = useStudio();
-  const [paletteOpen, setPaletteOpen] = useState(true);
+  const { view, toggle } = useView();
+  const paletteOpen = view.palette;
   const [dropPoint, setDropPoint] = useState<Vec2>({ x: 160, y: 120 });
   const onViewportCentre = useCallback((point: Vec2) => setDropPoint(point), []);
   if (!project) return <></>;
@@ -20,7 +22,7 @@ export function GraphView(): JSX.Element {
         <button
           type="button"
           className={`vt-btn is-small${paletteOpen ? ' is-active' : ''}`}
-          onClick={() => setPaletteOpen((open) => !open)}
+          onClick={() => toggle('palette')}
         >
           {paletteOpen ? '◀ Flows' : 'Flows ▶'}
         </button>
@@ -46,7 +48,7 @@ export function GraphView(): JSX.Element {
       <div className="vt-graph-body">
         {paletteOpen ? <FlowPalette dropPoint={dropPoint} /> : null}
         <GraphCanvas onViewportCentre={onViewportCentre} />
-        <Inspector />
+        {view.inspector ? <Inspector /> : null}
       </div>
     </div>
   );

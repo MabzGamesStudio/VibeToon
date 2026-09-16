@@ -25,6 +25,10 @@ export function Slider({
   format,
   onChange,
 }: SliderProps): JSX.Element {
+  // A setting a stored project predates is normalised on the way out of storage,
+  // but a control that white-screens the studio when one slips through is not a
+  // reasonable way to find that out. Fall back to the floor and carry on.
+  const current = Number.isFinite(value) ? value : min;
   return (
     <div className="vt-field">
       <div className="vt-label">
@@ -32,14 +36,14 @@ export function Slider({
           {label}
           {tip ? <InfoTip tip={tip} label={label} /> : null}
         </span>
-        <span>{format ? format(value) : value.toFixed(2)}</span>
+        <span>{format ? format(current) : current.toFixed(2)}</span>
       </div>
       <input
         type="range"
         min={min}
         max={max}
         step={step}
-        value={value}
+        value={current}
         aria-label={label}
         onChange={(event) => onChange(Number(event.target.value))}
       />

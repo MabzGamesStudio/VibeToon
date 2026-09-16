@@ -89,6 +89,22 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
    * Text
    * ---------------------------------------------------------------- */
   {
+    kind: 'text.corpus',
+    category: 'text',
+    label: 'Corpus',
+    summary: 'Gathers the text everything else reads, so one body of writing feeds every flow that needs it.',
+    inputs: [
+      input('text', 'Text', ['text', 'markdown'], 'Text from another flow, added as a part of its own.'),
+    ],
+    outputs: [
+      output('corpus', 'Corpus', ['text'], 'corpus.txt', 'Every included part, one after another.'),
+      output('report', 'Report', ['markdown'], 'report.md', 'What went into it, and what could not be read.'),
+    ],
+    editor: 'corpus',
+    maturity: 'editor',
+  },
+
+  {
     kind: 'text.lexicon',
     category: 'text',
     label: 'Word Database',
@@ -101,6 +117,22 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       output('report', 'Report', ['markdown'], 'report.md', 'What went into it and what came out.'),
     ],
     editor: 'lexicon',
+    maturity: 'editor',
+  },
+
+  {
+    kind: 'text.dictionary',
+    category: 'text',
+    label: 'Dictionary',
+    summary: 'Takes a word database and asks a dictionary what each word is, so its types are known rather than guessed.',
+    inputs: [
+      input('lexicon', 'Word database', ['json'], 'The database to look words up for.', { required: true }),
+    ],
+    outputs: [
+      output('lexicon', 'Word database', ['json'], 'lexicon.json', 'The same database, with types and definitions filled in.'),
+      output('report', 'Report', ['markdown'], 'report.md', 'What was asked, what answered, and what changed.'),
+    ],
+    editor: 'dictionary',
     maturity: 'editor',
   },
 

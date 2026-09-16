@@ -169,6 +169,32 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
   },
 
   /* ---------------------------------------------------------------- *
+   * Corpus
+   * ---------------------------------------------------------------- */
+  'corpus.separator': {
+    what: 'What is written between one part and the next, so the end of one does not read as the start of the next.',
+    examples: [
+      'A blank line — the counting treats it as a break, so no word pair is learned across the join. The safe choice.',
+      'A line break — treated as a wrap, so the last word of one part pairs with the first of the next.',
+      'A break mark — visible in the text as well as being a break.',
+    ],
+  },
+  'corpus.url': {
+    what: 'A plain-text address to read. It is stored as an address and fetched every time the flow runs, so a novel never goes into the project file.',
+    examples: [
+      'A Project Gutenberg `.txt` file — its licence header and footer are trimmed off.',
+      'Any address that serves plain text.',
+      'Check fetches it once now, so a bad address is found before a run depends on it.',
+    ],
+    note: 'Use text you have the right to use. The buttons below are public-domain suggestions.',
+  },
+  'corpus.paste': {
+    what: 'Text pasted in and kept with the project, because nothing else has it.',
+    examples: ['Your own writing.', 'A transcript.', 'A script you are working from.'],
+    note: 'Unlike an address, this is stored in the project file — so keep it to the size you would happily copy around.',
+  },
+
+  /* ---------------------------------------------------------------- *
    * Word database — counting
    * ---------------------------------------------------------------- */
   'lexicon.maxWords': {
@@ -249,6 +275,22 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'Merriam-Webster or Wordnik — a free key, better definitions, a daily cap.',
     ],
     note: 'A key is read from VIBETOON_DICTIONARY_KEY on the server and is never written to a project or sent to this page. Open Logs to see what a service actually answered.',
+  },
+  'dictionary.key': {
+    what: 'The API token for a service that needs one. It is stored on the server, in `data/settings.json`, which sits outside every project and is gitignored.',
+    examples: [
+      'Paste it once — it is never shown again, only whether one is stored.',
+      'Clear removes it, and the service becomes unpickable again.',
+    ],
+    note: 'It is never sent back to this page, written into a project or an artifact, or recorded in the API log. It is stored in plain text on this machine, exactly as a .env file would be.',
+  },
+  'dictionary.minFrequency': {
+    what: 'Words rarer than this are not asked about. Frequency runs 0 to 1, where the commonest word in the corpus is 1.',
+    examples: [
+      '0 — ask about everything.',
+      '0.1 — skips the long tail of words seen once or twice, which is often half the database.',
+      '0.3 — only the words that actually turn up in what gets written.',
+    ],
   },
   'lexicon.wordType': {
     what: 'What part of speech this word is. It decides which words may follow it, and which variations it has.',

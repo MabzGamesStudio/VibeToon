@@ -3,6 +3,8 @@ import { useStudio } from '../../state/store';
 import { AnimaticEditor } from './AnimaticEditor';
 import { BriefEditor } from './BriefEditor';
 import { DesignEditor } from './DesignEditor';
+import { CorpusFlowEditor } from './CorpusFlowEditor';
+import { DictionaryFlowEditor } from './DictionaryFlowEditor';
 import { GrammarFlowEditor } from './GrammarFlowEditor';
 import { LexiconFlowEditor } from './LexiconFlowEditor';
 import { DialogEditor } from './DialogEditor';
@@ -34,6 +36,10 @@ export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
       return <LexiconFlowEditor project={project} node={node} />;
     case 'grammar':
       return <GrammarFlowEditor project={project} node={node} />;
+    case 'corpus':
+      return <CorpusFlowEditor project={project} node={node} />;
+    case 'dictionary':
+      return <DictionaryFlowEditor project={project} node={node} />;
     default:
       return <BriefEditor project={project} node={node} />;
   }
