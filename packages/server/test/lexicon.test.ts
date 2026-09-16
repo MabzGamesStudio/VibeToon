@@ -153,14 +153,25 @@ test('the dictionary fills in types and definitions, and caches them', async () 
 test('a dictionary that is down stops the run instead of hammering it', async () => {
   dictionaryDown = true;
   const before = dictionaryCalls;
-  const result = await lookupWords(['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta']);
+  const words = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta'];
+  // Retries are what make a hiccup survivable, so they are kept — just without
+  // the waiting, which would otherwise make this test take seconds.
+  const result = await lookupWords(words, { retryDelaysMs: [0, 0], pauseMs: 0, concurrency: 2 });
   dictionaryDown = false;
 
   assert.ok(result.unreachable, 'the caller is told why');
   assert.match(result.unreachable!, /503/);
   assert.equal(result.found.length, 0);
-  assert.ok(result.failed.length === 8, `${result.failed.length} words reported as not looked up`);
-  assert.ok(dictionaryCalls - before <= 6, `stopped after ${dictionaryCalls - before} requests, not 8`);
+  assert.ok(result.failed.length >= 1, 'the words it kept asking about are reported as failed');
+  assert.equal(
+    result.failed.length + result.remaining.length,
+    words.length,
+    'and every other word is handed back to ask about again',
+  );
+  assert.ok(
+    dictionaryCalls - before < words.length * 3,
+    `stopped after ${dictionaryCalls - before} requests rather than retrying all ${words.length}`,
+  );
 });
 
 test('meanings collected from the dictionary reach the generated database', async () => {

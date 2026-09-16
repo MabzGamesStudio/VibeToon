@@ -1,6 +1,6 @@
 import type {
   ArtifactRef,
-  WordMeaning,
+  DictionaryResult,
   GenerateResponse,
   Project,
   ProjectSummary,
@@ -88,15 +88,12 @@ export const api = {
       '/api/text/corpus',
       { url },
     ),
-  lookupWords: (words: string[]) =>
-    request<{
-      meanings: Record<string, WordMeaning>;
-      found: string[];
-      missing: string[];
-      failed: string[];
-      unreachable?: string;
-      cached: number;
-    }>('POST', '/api/text/dictionary', { words }),
+  /** One batch of a dictionary lookup. `remaining` says what to ask for next. */
+  lookupWords: (words: string[], limit?: number) =>
+    request<DictionaryResult>('POST', '/api/text/dictionary', {
+      words,
+      ...(limit === undefined ? {} : { limit }),
+    }),
 
   artifactUrl: (projectId: string, artifactPath: string) =>
     `/api/projects/${projectId}/files/${artifactPath}`,

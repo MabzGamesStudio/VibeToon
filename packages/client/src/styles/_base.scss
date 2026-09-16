@@ -265,3 +265,30 @@ label {
 .vt-spacer {
   flex: 1;
 }
+
+/** A long job's progress, with the count written across it. */
+.vt-progress {
+  position: relative;
+  margin-top: 8px;
+  height: 18px;
+  border-radius: $radius-sm;
+  background: $bg-3;
+  overflow: hidden;
+
+  .vt-progress-bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: $accent-soft;
+    border-right: 1px solid $accent;
+    transition: width 120ms linear;
+  }
+
+  span {
+    position: relative;
+    display: block;
+    line-height: 18px;
+    text-align: center;
+    font-size: 11px;
+    color: $text-dim;
+  }
+}

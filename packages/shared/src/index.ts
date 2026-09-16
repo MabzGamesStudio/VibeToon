@@ -30,6 +30,7 @@ export * from './text/inflect';
 export * from './text/grammarDatabase';
 export * from './text/sampleCorpus';
 export * from './text/corpusSources';
+export * from './text/lookup';
 
 export * from './project/factory';
 export * from './project/migrate';

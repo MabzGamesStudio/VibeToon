@@ -17,7 +17,7 @@ import {
   type SyncResponse,
 } from '@vibetoon/shared';
 import { fetchCorpus } from './text/corpusFetch';
-import { lookupWords } from './text/dictionary';
+import { DEFAULT_LOOKUP_OPTIONS, lookupWords } from './text/dictionary';
 import { hasFfmpeg } from './render/video';
 import { assertSafeId, REPO_ROOT, resolveInProject } from './paths';
 import { buildSyncPlan, syncSources } from './services/sync';
@@ -105,14 +105,24 @@ export function createApp(): express.Express {
     }),
   );
 
-  /** Look up word types and definitions, cached on disk between runs. */
+  /**
+   * Look up word types and definitions, cached on disk between runs.
+   *
+   * One call is one batch: the caller says how many words it wants attempted,
+   * and the answer says which ones were not got to, so a database of thousands
+   * of words is worked through a few hundred at a time instead of in one
+   * request the dictionary service would throttle.
+   */
   app.post(
     '/api/text/dictionary',
     asyncRoute(async (req, res) => {
-      const body = (req.body ?? {}) as { words?: string[] };
+      const body = (req.body ?? {}) as { words?: string[]; limit?: number };
       const words = Array.isArray(body.words) ? body.words.slice(0, 2000) : [];
       if (words.length === 0) throw new HttpError(400, 'No words to look up.');
-      res.json(await lookupWords(words));
+      const limit = Number.isFinite(body.limit)
+        ? Math.max(1, Math.min(500, Math.floor(body.limit as number)))
+        : DEFAULT_LOOKUP_OPTIONS.limit;
+      res.json(await lookupWords(words, { limit }));
     }),
   );
 
