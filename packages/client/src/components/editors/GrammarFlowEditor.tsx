@@ -19,6 +19,7 @@ import {
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
+import { InfoTip } from '../common/InfoTip';
 import { formatWhen } from '../common/format';
 import { EditorShell } from './EditorShell';
 
@@ -182,7 +183,11 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
           <div className="vt-hint" style={{ marginBottom: 8 }}>
             Applied when a corpus is read. A dataset keeps the patterns it was counted with.
           </div>
-          <Field label="Longest sentence kept" hint="Sentences longer than this are read but not kept as a shape.">
+          <Field
+            label="Longest sentence kept"
+            tip="grammar.maxSentenceSlots"
+            hint="Sentences longer than this are read but not kept as a shape."
+          >
             <input
               type="number"
               min={4}
@@ -195,7 +200,7 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
-          <Field label="Shortest phrase">
+          <Field label="Shortest phrase" tip="grammar.phraseMin">
             <input
               type="number"
               min={2}
@@ -205,7 +210,7 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
-          <Field label="Longest phrase">
+          <Field label="Longest phrase" tip="grammar.phraseMax">
             <input
               type="number"
               min={2}
@@ -215,7 +220,7 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
-          <Field label="Patterns kept of each kind">
+          <Field label="Patterns kept of each kind" tip="grammar.maxPatterns">
             <input
               type="number"
               min={20}
@@ -226,7 +231,7 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
-          <Field label="A pattern must occur" hint="Times a shape has to turn up before it is kept.">
+          <Field label="A pattern must occur" tip="grammar.minCount" hint="Times a shape has to turn up before it is kept.">
             <input
               type="number"
               min={1}
@@ -246,6 +251,7 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
               }
             />
             <span>Include word forms</span>
+            <InfoTip tip="grammar.useForms" label="Include word forms" />
           </label>
           <div className="vt-hint">
             On, a slot is `verb·past` rather than `verb`: more precise shapes, but each one is rarer.
@@ -313,7 +319,7 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
 
           <div className="vt-section">
             <h3>Add a corpus</h3>
-            <Field label="From the web" hint="The same addresses the word database reads.">
+            <Field label="From the web" tip="grammar.corpusUrl" hint="The same addresses the word database reads.">
               <div className="vt-row">
                 <input
                   value={url}
@@ -353,7 +359,7 @@ export function GrammarFlowEditor({ project, node }: { project: Project; node: F
               </button>
             </div>
 
-            <Field label="Or paste text">
+            <Field label="Or paste text" tip="lexicon.pasteText">
               <input
                 value={pasteName}
                 placeholder="Name for this corpus"

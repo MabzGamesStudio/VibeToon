@@ -9,6 +9,7 @@ export * from './types/design';
 export * from './types/api';
 
 export * from './registry/flowKinds';
+export * from './registry/settingTips';
 export * from './rules/parseRules';
 export * from './graph/graph';
 

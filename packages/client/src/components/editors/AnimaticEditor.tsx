@@ -16,6 +16,7 @@ import {
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
+import { InfoTip } from '../common/InfoTip';
 import { EditorShell } from './EditorShell';
 import { Playblast } from './Playblast';
 import { clipsFromImages, loadImage, type ImageClipSource } from './playClips';
@@ -261,6 +262,7 @@ export function AnimaticEditor({ project, node }: { project: Project; node: Flow
             <div className="vt-cut-stat">
               <Field
                 label="Target"
+                tip="animatic.targetSeconds"
                 hint={
                   limits.targetSeconds !== undefined && data.targetSeconds <= 0
                     ? `Set to ${formatDuration(limits.targetSeconds)} by the rules on the wire.`
@@ -301,6 +303,7 @@ export function AnimaticEditor({ project, node }: { project: Project; node: Flow
               )}
             </div>
             <span className="vt-spacer" />
+            <InfoTip tip="animatic.shotHold" label="Shot hold" />
             <button
               type="button"
               className="vt-btn is-small"
@@ -311,7 +314,7 @@ export function AnimaticEditor({ project, node }: { project: Project; node: Flow
             </button>
           </div>
 
-          <Field label="Pacing" hint="Written into the cut list for whoever works from it.">
+          <Field label="Pacing" tip="animatic.pacing" hint="Written into the cut list for whoever works from it.">
             <textarea
               rows={2}
               value={data.pacing}

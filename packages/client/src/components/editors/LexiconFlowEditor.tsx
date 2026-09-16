@@ -23,6 +23,7 @@ import {
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
+import { InfoTip } from '../common/InfoTip';
 import { formatWhen } from '../common/format';
 import { EditorShell } from './EditorShell';
 
@@ -293,7 +294,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
             Applied when a corpus is added. A dataset keeps the counts it was pruned to, so changing these
             affects the next corpus you add, not the ones already counted.
           </div>
-          <Field label="Words kept per corpus">
+          <Field label="Words kept per corpus" tip="lexicon.maxWords">
             <input
               type="number"
               min={50}
@@ -304,7 +305,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
-          <Field label="Links kept per word">
+          <Field label="Links kept per word" tip="lexicon.maxLinksPerWord">
             <input
               type="number"
               min={1}
@@ -317,7 +318,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
-          <Field label="A pair must occur" hint="Times a pair has to turn up before it is kept.">
+          <Field label="A pair must occur" tip="lexicon.minPairCount" hint="Times a pair has to turn up before it is kept.">
             <input
               type="number"
               min={1}
@@ -340,6 +341,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               }
             />
             <span>Count punctuation as words</span>
+            <InfoTip tip="lexicon.includePunctuation" label="Count punctuation as words" />
           </label>
         </div>
 
@@ -350,6 +352,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
           </div>
           <Field
             label="Lift ceiling"
+            tip="lexicon.liftCeiling"
             hint="How much more often a word must follow another than it appears at all to count as a full-strength link."
           >
             <input
@@ -362,7 +365,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
-          <Field label="Weakest link kept">
+          <Field label="Weakest link kept" tip="lexicon.minWeight">
             <input
               type="number"
               min={0}
@@ -374,7 +377,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
-          <Field label="Contexts per word">
+          <Field label="Contexts per word" tip="lexicon.maxContexts">
             <input
               type="number"
               min={1}
@@ -447,6 +450,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
 
             <Field
               label="From the web"
+              tip="lexicon.corpusUrl"
               hint="Any plain-text address. A Project Gutenberg file has its licence header and footer trimmed off."
             >
               <div className="vt-row">
@@ -491,7 +495,11 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               </button>
             </div>
 
-            <Field label="Or paste text" hint="Anything you have the right to use — a script, a transcript, your own writing.">
+            <Field
+              label="Or paste text"
+              tip="lexicon.pasteText"
+              hint="Anything you have the right to use — a script, a transcript, your own writing."
+            >
               <input
                 value={pasteName}
                 placeholder="Name for this corpus"
@@ -581,7 +589,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
                     <dd>{current.frequency.toFixed(2)}</dd>
                   </dl>
 
-                  <Field label="Word type" hint="From the dictionary, or your correction.">
+                  <Field label="Word type" tip="lexicon.wordType" hint="From the dictionary, or your correction.">
                     <select
                       value={current.type}
                       onChange={(event) =>
@@ -595,7 +603,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
                       ))}
                     </select>
                   </Field>
-                  <Field label="Description">
+                  <Field label="Description" tip="lexicon.description">
                     <textarea
                       rows={3}
                       value={current.description}

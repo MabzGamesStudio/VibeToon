@@ -4,6 +4,7 @@ import { FlowEditor } from './components/editors/FlowEditor';
 import { GraphView } from './components/graph/GraphView';
 import { ProjectPicker } from './components/ProjectPicker';
 import { useStudio } from './state/store';
+import { useTips } from './state/tips';
 
 const SAVE_LABEL: Record<string, string> = {
   clean: 'Saved',
@@ -15,6 +16,7 @@ const SAVE_LABEL: Record<string, string> = {
 export function App(): JSX.Element {
   const { project, focusedFlowId, focusFlow, saveState, generateAll, closeProject, busyFlows, loading } =
     useStudio();
+  const tips = useTips();
 
   if (!project) {
     return (
@@ -52,6 +54,19 @@ export function App(): JSX.Element {
         </nav>
         <div className="vt-spacer" />
         <div className={`vt-save-state is-${saveState}`}>{SAVE_LABEL[saveState] ?? saveState}</div>
+        <button
+          type="button"
+          className={`vt-btn is-ghost is-small${tips.show ? ' is-active' : ''}`}
+          aria-pressed={tips.show}
+          onClick={tips.toggle}
+          title={
+            tips.show
+              ? 'Hide the (i) beside every setting'
+              : 'Show an (i) beside every setting, explaining what it does'
+          }
+        >
+          {tips.show ? 'Tips on' : 'Tips off'}
+        </button>
         <button
           type="button"
           className="vt-btn"

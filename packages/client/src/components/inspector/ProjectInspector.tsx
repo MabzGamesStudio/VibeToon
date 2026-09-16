@@ -15,7 +15,7 @@ export function ProjectInspector({ project }: { project: Project }): JSX.Element
   return (
     <>
       <div className="vt-section">
-        <Field label="Project name">
+        <Field label="Project name" tip="project.name">
           <input
             value={project.name}
             onChange={(event) =>
@@ -25,7 +25,7 @@ export function ProjectInspector({ project }: { project: Project }): JSX.Element
             }
           />
         </Field>
-        <Field label="Style note" hint="Prepended to every flow's guidance when it generates.">
+        <Field label="Style note" tip="project.styleNote" hint="Prepended to every flow's guidance when it generates.">
           <textarea
             rows={3}
             value={project.settings.styleNote}
@@ -37,7 +37,7 @@ export function ProjectInspector({ project }: { project: Project }): JSX.Element
       <div className="vt-section">
         <h3>Frame</h3>
         <div className="vt-row" style={{ gap: 8 }}>
-          <Field label="FPS">
+          <Field label="FPS" tip="project.fps">
             <input
               type="number"
               min={1}
@@ -46,7 +46,7 @@ export function ProjectInspector({ project }: { project: Project }): JSX.Element
               onChange={(event) => setSetting('fps', Number(event.target.value) || 24)}
             />
           </Field>
-          <Field label="Width">
+          <Field label="Width" tip="project.width">
             <input
               type="number"
               min={160}
@@ -55,7 +55,7 @@ export function ProjectInspector({ project }: { project: Project }): JSX.Element
               onChange={(event) => setSetting('width', Number(event.target.value) || 1920)}
             />
           </Field>
-          <Field label="Height">
+          <Field label="Height" tip="project.height">
             <input
               type="number"
               min={120}
@@ -65,7 +65,11 @@ export function ProjectInspector({ project }: { project: Project }): JSX.Element
             />
           </Field>
         </div>
-        <Field label="Default shot length (s)" hint="Used when a beat or panel has no duration of its own.">
+        <Field
+          label="Default shot length (s)"
+          tip="project.shotSeconds"
+          hint="Used when a beat or panel has no duration of its own."
+        >
           <input
             type="number"
             min={0.2}

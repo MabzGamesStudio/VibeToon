@@ -26,11 +26,12 @@ export function NodeInspector({ project, node }: { project: Project; node: FlowN
   return (
     <>
       <div className="vt-section">
-        <Field label="Name">
+        <Field label="Name" tip="node.name">
           <input value={node.name} onChange={(event) => patchNode(node.id, { name: event.target.value })} />
         </Field>
         <Field
           label="Notes"
+          tip="node.notes"
           hint="Read by this flow's generator as guidance, and shown on the node."
         >
           <textarea
