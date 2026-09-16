@@ -26,7 +26,7 @@ import {
   DICTIONARY_URL_OVERRIDE,
 } from './text/dictionary';
 import { DICTIONARY_PROVIDERS, providerById } from './text/dictionaryProviders';
-import { patchSettings } from './settings';
+import { patchSettings, setDictionaryKey } from './settings';
 import { clearLogs, readLogFile, readLogs } from './logs';
 import { hasFfmpeg } from './render/video';
 import { assertSafeId, REPO_ROOT, resolveInProject } from './paths';
@@ -90,7 +90,8 @@ function describeProviders(): DictionaryProviders {
       note: provider.note,
       needsKey: provider.needsKey,
       ...(provider.keyUrl ? { keyUrl: provider.keyUrl } : {}),
-      available: !provider.needsKey || hasDictionaryKey(),
+      available: !provider.needsKey || hasDictionaryKey(provider.id),
+      hasKey: hasDictionaryKey(provider.id),
     })),
     activeId: active.provider.id,
     reason: active.reason,
@@ -145,13 +146,14 @@ export function createApp(): express.Express {
   app.post(
     '/api/text/dictionary',
     asyncRoute(async (req, res) => {
-      const body = (req.body ?? {}) as { words?: string[]; limit?: number };
+      const body = (req.body ?? {}) as { words?: string[]; limit?: number; provider?: string };
       const words = Array.isArray(body.words) ? body.words.slice(0, 2000) : [];
       if (words.length === 0) throw new HttpError(400, 'No words to look up.');
       const limit = Number.isFinite(body.limit)
         ? Math.max(1, Math.min(500, Math.floor(body.limit as number)))
         : DEFAULT_LOOKUP_OPTIONS.limit;
-      res.json(await lookupWords(words, { limit }));
+      const provider = typeof body.provider === 'string' && providerById(body.provider) ? body.provider : '';
+      res.json(await lookupWords(words, { limit, provider }));
     }),
   );
 
@@ -163,6 +165,25 @@ export function createApp(): express.Express {
     }),
   );
 
+  /**
+   * Store the key for a service, or clear it with an empty one.
+   *
+   * The key is written to `data/settings.json`, which is outside every project
+   * and gitignored, so it never travels with a project you copy or commit. It is
+   * never sent back to the browser: the listing says only whether one is there.
+   */
+  app.post(
+    '/api/text/dictionary/key',
+    asyncRoute(async (req, res) => {
+      const body = (req.body ?? {}) as { id?: string; key?: string };
+      const provider = body.id ? providerById(body.id) : undefined;
+      if (!provider) throw new HttpError(400, `No such dictionary: ${body.id ?? '(none)'}`);
+      if (!provider.needsKey) throw new HttpError(400, `${provider.label} does not take a key.`);
+      await setDictionaryKey(provider.id, typeof body.key === 'string' ? body.key : '');
+      res.json(describeProviders());
+    }),
+  );
+
   /** Point the studio at a different dictionary, and remember the choice. */
   app.post(
     '/api/text/dictionary/provider',
@@ -170,10 +191,10 @@ export function createApp(): express.Express {
       const body = (req.body ?? {}) as { id?: string };
       const provider = body.id ? providerById(body.id) : undefined;
       if (!provider) throw new HttpError(400, `No such dictionary: ${body.id ?? '(none)'}`);
-      if (provider.needsKey && !hasDictionaryKey()) {
+      if (provider.needsKey && !hasDictionaryKey(provider.id)) {
         throw new HttpError(
           400,
-          `${provider.label} needs a key. Set VIBETOON_DICTIONARY_KEY and restart the server.`,
+          `${provider.label} needs a key. Enter one for it, or set VIBETOON_DICTIONARY_KEY.`,
         );
       }
       await patchSettings({ dictionaryProvider: provider.id });

@@ -43,6 +43,7 @@ export type EditorId =
   | 'text'
   | 'corpus'
   | 'lexicon'
+  | 'dictionary'
   | 'grammar'
   | 'animatic'
   | 'design'

@@ -121,6 +121,22 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
   },
 
   {
+    kind: 'text.dictionary',
+    category: 'text',
+    label: 'Dictionary',
+    summary: 'Takes a word database and asks a dictionary what each word is, so its types are known rather than guessed.',
+    inputs: [
+      input('lexicon', 'Word database', ['json'], 'The database to look words up for.', { required: true }),
+    ],
+    outputs: [
+      output('lexicon', 'Word database', ['json'], 'lexicon.json', 'The same database, with types and definitions filled in.'),
+      output('report', 'Report', ['markdown'], 'report.md', 'What was asked, what answered, and what changed.'),
+    ],
+    editor: 'dictionary',
+    maturity: 'editor',
+  },
+
+  {
     kind: 'text.grammar',
     category: 'text',
     label: 'Grammar Database',

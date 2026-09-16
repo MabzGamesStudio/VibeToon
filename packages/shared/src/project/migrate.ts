@@ -1,5 +1,6 @@
 import { emptyAnimaticData, parseDuration } from '../flows/animatic';
 import { emptyDesignData } from '../flows/design';
+import { DEFAULT_DICTIONARY_OPTIONS } from '../flows/dictionary';
 import { getFlowKind } from '../registry/flowKinds';
 import { DEFAULT_DERIVE_OPTIONS, DEFAULT_EXTRACT_OPTIONS } from '../text/corpus';
 import { DEFAULT_GRAMMAR_OPTIONS } from '../text/grammarDatabase';
@@ -82,6 +83,10 @@ export function normaliseFlowData(data: FlowData): FlowData {
     }
     case 'grammar': {
       const options = fill(data.options, DEFAULT_GRAMMAR_OPTIONS);
+      return options.filled ? { ...data, options: options.value } : data;
+    }
+    case 'dictionary': {
+      const options = fill(data.options, DEFAULT_DICTIONARY_OPTIONS);
       return options.filled ? { ...data, options: options.value } : data;
     }
     default:

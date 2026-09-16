@@ -55,6 +55,15 @@ Counts words out of a corpus into a database other flows can write from.
 - **In:** Corpus
 - **Out:** Word database `lexicon.json`, Report `report.md`
 
+### Dictionary
+
+`text.dictionary` · **bespoke editor**
+
+Takes a word database and asks a dictionary what each word is, so its types are known rather than guessed.
+
+- **In:** Word database *(required)*
+- **Out:** Word database `lexicon.json`, Report `report.md`
+
 ### Grammar Database
 
 `text.grammar` · **bespoke editor**
@@ -458,4 +467,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-38 flow kinds.
+39 flow kinds.

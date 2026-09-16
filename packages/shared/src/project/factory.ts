@@ -4,6 +4,7 @@ import { emptyStoryboardData } from '../flows/storyboard';
 import { emptyAnimaticData } from '../flows/animatic';
 import { emptyDesignData } from '../flows/design';
 import { emptyCorpusFlowData } from '../flows/corpusFlow';
+import { emptyDictionaryFlowData } from '../flows/dictionary';
 import { emptyGrammarFlowData } from '../flows/grammar';
 import { emptyLexiconFlowData } from '../flows/lexicon';
 import { emptyTextData } from '../flows/text';
@@ -48,6 +49,8 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyGrammarFlowData();
     case 'corpus':
       return emptyCorpusFlowData();
+    case 'dictionary':
+      return emptyDictionaryFlowData();
     default:
       return emptyBriefData(def);
   }

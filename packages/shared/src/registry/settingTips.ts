@@ -276,6 +276,22 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     ],
     note: 'A key is read from VIBETOON_DICTIONARY_KEY on the server and is never written to a project or sent to this page. Open Logs to see what a service actually answered.',
   },
+  'dictionary.key': {
+    what: 'The API token for a service that needs one. It is stored on the server, in `data/settings.json`, which sits outside every project and is gitignored.',
+    examples: [
+      'Paste it once — it is never shown again, only whether one is stored.',
+      'Clear removes it, and the service becomes unpickable again.',
+    ],
+    note: 'It is never sent back to this page, written into a project or an artifact, or recorded in the API log. It is stored in plain text on this machine, exactly as a .env file would be.',
+  },
+  'dictionary.minFrequency': {
+    what: 'Words rarer than this are not asked about. Frequency runs 0 to 1, where the commonest word in the corpus is 1.',
+    examples: [
+      '0 — ask about everything.',
+      '0.1 — skips the long tail of words seen once or twice, which is often half the database.',
+      '0.3 — only the words that actually turn up in what gets written.',
+    ],
+  },
   'lexicon.wordType': {
     what: 'What part of speech this word is. It decides which words may follow it, and which variations it has.',
     examples: [

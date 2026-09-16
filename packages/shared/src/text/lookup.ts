@@ -57,6 +57,8 @@ export interface DictionaryProviderInfo {
   keyUrl?: string;
   /** False when it needs a key that has not been given, so it cannot be picked. */
   available: boolean;
+  /** Whether a key has been stored for this service. Never the key itself. */
+  hasKey: boolean;
 }
 
 export interface DictionaryProviders {

@@ -2,6 +2,7 @@ import type { ArtifactRef } from './artifacts';
 import type { AnimaticFlowData } from './animatic';
 import type { DesignFlowData } from './design';
 import type { CorpusFlowData } from '../flows/corpusFlow';
+import type { DictionaryFlowData } from '../flows/dictionary';
 import type { GrammarFlowData } from '../flows/grammar';
 import type { LexiconFlowData } from '../flows/lexicon';
 import type { TextFlowData } from './text';
@@ -177,7 +178,8 @@ export type FlowData =
   | DesignFlowData
   | LexiconFlowData
   | GrammarFlowData
-  | CorpusFlowData;
+  | CorpusFlowData
+  | DictionaryFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph
