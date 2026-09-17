@@ -1,5 +1,6 @@
 import { newId } from '../ids';
 import type { Lexeme, Lexicon, LexemeContext, WordType } from '../types/text';
+import { inflect } from './inflect';
 
 export interface LexiconIndex {
   byId: Map<string, Lexeme>;
@@ -173,4 +174,27 @@ export function setContextWeight(lexeme: Lexeme, id: string, weight: number): Le
   const contexts = lexeme.contexts.filter((context) => context.id !== id);
   if (weight > 0) contexts.push({ id, weight });
   return contexts.sort((a, b) => b.weight - a.weight);
+}
+
+/* ------------------------------------------------------------------ *
+ * The forms a word takes
+ * ------------------------------------------------------------------ */
+
+/**
+ * Every spelling a lexeme takes, keyed by form.
+ *
+ * Normally these were worked out when the database was built and stored on the
+ * entry; a database written before variations existed, or one hand-edited, may
+ * not have them, so they are worked out on the spot instead. Returns nothing
+ * when the word's type does not inflect — a determiner has no other forms.
+ */
+export function variationsOf(lexeme: Lexeme): Record<string, string> | undefined {
+  return lexeme.variations ?? inflect(lexeme.spelling, lexeme.type);
+}
+
+/** Which of its own forms a lexeme's spelling is: `cats` is a `plural`. */
+export function formOfLexeme(lexeme: Lexeme): string | undefined {
+  const variations = variationsOf(lexeme);
+  if (!variations) return undefined;
+  return Object.entries(variations).find(([, spelling]) => spelling === lexeme.spelling)?.[0];
 }

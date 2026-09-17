@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_CORPUS_SOURCES,
   WORD_TYPES,
@@ -6,6 +6,7 @@ import {
   addDataset,
   extractCorpus,
   fillTokenMeanings,
+  formOfLexeme,
   masterDataset,
   lookupProgress,
   masterLexicon,
@@ -13,6 +14,7 @@ import {
   sampleDataset,
   setIncluded,
   summarise,
+  variationsOf,
   wordsNeedingLookup,
   type CorpusDataset,
   type DictionaryProviders,
@@ -227,6 +229,10 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
 
   const current = selected ? lexicon.lexemes.find((lexeme) => lexeme.id === selected) : undefined;
   const currentEntry = current ? master.entries.find((entry) => entry.spelling === current.spelling) : undefined;
+  // The forms this word takes, and which of them its spelling is. Recomputed
+  // rather than read off the entry, so correcting the type updates them at once.
+  const currentVariations = current ? variationsOf(current) : undefined;
+  const currentForm = current ? formOfLexeme(current) : undefined;
   const byId = useMemo(() => new Map(lexicon.lexemes.map((lexeme) => [lexeme.id, lexeme])), [lexicon.lexemes]);
 
   const setMeaning = (spelling: string, change: { type?: WordType; description?: string }) => {
@@ -693,6 +699,34 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
                       ))}
                     </select>
                   </Field>
+                  <Field
+                    label="Forms"
+                    tip="lexicon.variations"
+                    hint={
+                      currentVariations
+                        ? 'Worked out from the word\u2019s type. The one in blue is the spelling counted in the corpus.'
+                        : undefined
+                    }
+                  >
+                    {currentVariations ? (
+                      <dl className="vt-variations">
+                        {Object.entries(currentVariations).map(([form, spelling]) => (
+                          <Fragment key={form}>
+                            <dt className={form === currentForm ? 'is-current' : undefined}>
+                              {form.replace(/_/g, ' ')}
+                            </dt>
+                            <dd className={form === currentForm ? 'is-current' : undefined}>{spelling}</dd>
+                          </Fragment>
+                        ))}
+                      </dl>
+                    ) : (
+                      <div className="vt-hint" style={{ marginTop: 0 }}>
+                        A {WORD_TYPE_LABEL[current.type].toLowerCase()} has no other forms. Only nouns, verbs,
+                        adjectives and adverbs inflect — change the type above and the forms appear.
+                      </div>
+                    )}
+                  </Field>
+
                   <Field label="Description" tip="lexicon.description">
                     <textarea
                       rows={3}
