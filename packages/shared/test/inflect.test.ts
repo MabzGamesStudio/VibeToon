@@ -118,3 +118,66 @@ test('which form a spelling is', () => {
   assert.equal(formOf('coldest', 'adjective'), 'superlative');
   assert.equal(formOf('the', 'determiner'), undefined);
 });
+
+/* ---------------- singular nouns that end in s ---------------- */
+
+test('a singular noun ending in s is not mistaken for a plural', () => {
+  // Stripping the `s` off `cactus` gives a stem that pluralises straight back to
+  // `cactus`, so the usual guard waves it through and the word database ends up
+  // holding `cactu`.
+  assert.equal(lemmaOf('cactus', 'noun'), 'cactus');
+  assert.deepEqual(inflect('cactus', 'noun'), { singular: 'cactus', plural: 'cacti' });
+
+  assert.equal(lemmaOf('analysis', 'noun'), 'analysis');
+  assert.equal(inflect('analysis', 'noun')?.plural, 'analyses');
+
+  for (const word of ['focus', 'fungus', 'nucleus', 'basis', 'crisis', 'thesis']) {
+    assert.equal(lemmaOf(word, 'noun'), word, `${word} is already singular`);
+  }
+});
+
+test('the -ss, -us and -is endings are read as singular', () => {
+  assert.equal(lemmaOf('glass', 'noun'), 'glass');
+  assert.equal(inflect('glass', 'noun')?.plural, 'glasses');
+  assert.equal(lemmaOf('virus', 'noun'), 'virus');
+  assert.equal(inflect('virus', 'noun')?.plural, 'viruses');
+  assert.equal(lemmaOf('lens', 'noun'), 'lens', 'and the awkward ones are named');
+  assert.equal(lemmaOf('gas', 'noun'), 'gas');
+});
+
+test('a real plural still resolves to its singular', () => {
+  assert.equal(lemmaOf('crises', 'noun'), 'crisis', 'the reverse table is consulted first');
+  assert.equal(lemmaOf('cacti', 'noun'), 'cactus');
+  assert.equal(lemmaOf('glasses', 'noun'), 'glass');
+  assert.equal(lemmaOf('lamps', 'noun'), 'lamp');
+});
+
+/* ---------------- an irregular verb behind a prefix ---------------- */
+
+test('a prefixed verb keeps the pattern of the verb underneath it', () => {
+  assert.equal(conjugate('forgive').past, 'forgave');
+  assert.equal(conjugate('forgive').past_participle, 'forgiven');
+  assert.equal(conjugate('understand').past, 'understood');
+  assert.equal(conjugate('rewrite').past_participle, 'rewritten');
+  assert.equal(conjugate('become').past, 'became');
+  assert.equal(conjugate('overhear').past, 'overheard');
+  assert.equal(conjugate('withdraw').past_participle, 'withdrawn');
+  assert.equal(conjugate('undo').past, 'undid');
+  assert.equal(conjugate('misread').past, 'misread');
+  assert.equal(conjugate('outrun').past, 'outran');
+});
+
+test('a prefix that is not a prefix is left alone', () => {
+  // `beat` is not `be` + `at`, and `unite` is not `un` + `ite`.
+  assert.equal(conjugate('beat').past, 'beat');
+  assert.equal(conjugate('unite').past, 'united');
+  assert.equal(conjugate('render').past, 'rendered', 'not `re` + `nder`');
+  assert.equal(conjugate('forest').past, 'forested');
+});
+
+test('a prefixed verb round-trips back to itself', () => {
+  for (const verb of ['forgive', 'understand', 'rewrite', 'become']) {
+    const forms = conjugate(verb);
+    assert.equal(lemmaOf(forms.past!, 'verb'), verb, `${forms.past} should lemmatise to ${verb}`);
+  }
+});
