@@ -6,16 +6,14 @@ import {
   combineDatasets,
   deriveLexicon,
   extractCorpus,
-  inferWordType,
   isLookupCandidate,
-  lexemeIdFor,
   meaningForToken,
   subtractDataset,
   wordTypeFromPartOfSpeech,
   type CorpusDataset,
-  type WordMeaning,
 } from '../src/text/corpus';
 import { buildLexiconIndex } from '../src/text/lexicon';
+import { lexemeIdFor, type WordMeaning } from '../src/text/senses';
 
 const OPTIONS = { ...DEFAULT_EXTRACT_OPTIONS, minPairCount: 1, maxWords: 200 };
 
@@ -186,17 +184,55 @@ test('derived contexts always point at words that are in the lexicon', () => {
   );
 });
 
-test('meanings from the dictionary are used, and anything missing is guessed', () => {
+test('what the dictionary said is used, and anything it was not asked about stays unknown', () => {
   const meanings: Record<string, WordMeaning> = {
-    lamp: { type: 'noun', description: 'A light you can move.', source: 'dictionary' },
+    lamp: {
+      senses: [{ type: 'noun', description: 'A light you can move.' }],
+      source: 'dictionary',
+    },
   };
   const lexicon = deriveLexicon(extract('the lamp flickers quietly.'), meanings);
   const byName = new Map(lexicon.lexemes.map((lexeme) => [lexeme.spelling, lexeme]));
 
+  assert.equal(byName.get('lamp')!.type, 'noun');
   assert.equal(byName.get('lamp')!.description, 'A light you can move.');
-  assert.equal(byName.get('the')!.type, 'determiner', 'a function word is known without a dictionary');
-  assert.equal(byName.get('quietly')!.type, 'adverb', 'and a suffix is a fair guess');
-  assert.equal(byName.get('lamp')!.description !== '' && byName.get('quietly')!.description, '');
+  assert.equal(byName.get('the')!.type, 'unknown', 'not even a function word is assumed');
+  assert.equal(byName.get('quietly')!.type, 'unknown', 'and a suffix is not a fair guess');
+  assert.equal(byName.get('quietly')!.description, '');
+});
+
+test('a spelling with several meanings becomes several entries', () => {
+  const meanings: Record<string, WordMeaning> = {
+    light: {
+      senses: [
+        { type: 'noun', description: 'What lets you see.', variations: { singular: 'light', plural: 'lights' } },
+        {
+          type: 'verb',
+          description: 'To set burning.',
+          variations: { infinitive: 'light', past: 'lit', past_participle: 'lit' },
+        },
+        { type: 'adjective', description: 'Not heavy.' },
+      ],
+      source: 'dictionary',
+    },
+  };
+  const lexicon = deriveLexicon(extract('the light is light. light the light.'), meanings);
+  const rows = lexicon.lexemes.filter((lexeme) => lexeme.spelling === 'light');
+
+  assert.equal(rows.length, 3, 'a noun, a verb and an adjective');
+  assert.deepEqual(rows.map((row) => row.type), ['noun', 'verb', 'adjective']);
+  assert.deepEqual(
+    rows.map((row) => row.description),
+    ['What lets you see.', 'To set burning.', 'Not heavy.'],
+  );
+
+  // The commonest sense keeps the plain id, because the context links counted
+  // out of the corpus point at it and know nothing about senses.
+  assert.equal(rows[0]!.id, lexemeIdFor('light'));
+  assert.equal(new Set(rows.map((row) => row.id)).size, 3, 'and the ids do not collide');
+
+  // The counting could not tell the senses apart, so each carries the same count.
+  assert.equal(new Set(rows.map((row) => row.stats?.count)).size, 1);
 });
 
 test('tighter derivation settings cut the weak links', () => {
@@ -220,8 +256,9 @@ test('the dictionary’s part of speech maps onto a word type', () => {
 });
 
 test('tokens a dictionary cannot help with are handled here', () => {
-  assert.equal(meaningForToken('.')?.type, 'punctuation');
-  assert.equal(meaningForToken('42')?.type, 'number');
+  assert.equal(meaningForToken('.')?.senses[0]?.type, 'punctuation');
+  assert.equal(meaningForToken('.')?.source, 'token', 'read off the token, not from a dictionary');
+  assert.equal(meaningForToken('42')?.senses[0]?.type, 'number');
   assert.equal(meaningForToken('lamp'), undefined, 'a real word is the dictionary’s job');
   assert.equal(isLookupCandidate('lamp'), true);
   assert.equal(isLookupCandidate("don't"), true);
@@ -229,12 +266,25 @@ test('tokens a dictionary cannot help with are handled here', () => {
   assert.equal(isLookupCandidate('—'), false);
 });
 
-test('guessing a word type', () => {
-  assert.equal(inferWordType('the'), 'determiner');
-  assert.equal(inferWordType('quietly'), 'adverb');
-  assert.equal(inferWordType('turning'), 'verb');
-  assert.equal(inferWordType('careless'), 'adjective');
-  assert.equal(inferWordType('happiness'), 'noun');
-  assert.equal(inferWordType('.'), 'punctuation');
-  assert.equal(inferWordType('42'), 'number');
+/**
+ * There used to be an `inferWordType` here that read a type off a word's ending —
+ * `-ly` is an adverb, `-ness` is a noun, everything else is a noun. It was wrong
+ * often enough to be worse than nothing, because the grammar flow trusts the type
+ * completely and has no way to tell a guess from an answer.
+ */
+test('a word nobody has looked up gets no type rather than a guessed one', () => {
+  const dataset = extract('The quietly careless happiness turning.');
+  const lexicon = deriveLexicon(dataset, {});
+  const words = lexicon.lexemes.filter((lexeme) => /[a-z]/.test(lexeme.spelling));
+
+  assert.ok(words.length >= 5);
+  assert.deepEqual(
+    [...new Set(words.map((lexeme) => lexeme.type))],
+    ['unknown'],
+    'every one of them, including the ones a suffix rule would have been confident about',
+  );
+  assert.ok(
+    words.every((lexeme) => lexeme.variations === undefined),
+    'and no forms either, since forms follow from the type',
+  );
 });

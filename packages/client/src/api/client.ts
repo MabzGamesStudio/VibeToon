@@ -4,6 +4,7 @@ import type {
   ArtifactRef,
   DictionaryProviders,
   DictionaryResult,
+  MorphologyStatus,
   GenerateResponse,
   Project,
   ProjectSummary,
@@ -92,11 +93,12 @@ export const api = {
       { url },
     ),
   /** One batch of a dictionary lookup. `remaining` says what to ask for next. */
-  lookupWords: (words: string[], limit?: number, provider?: string) =>
+  lookupWords: (words: string[], limit?: number, provider?: string, morphology?: string) =>
     request<DictionaryResult>('POST', '/api/text/dictionary', {
       words,
       ...(limit === undefined ? {} : { limit }),
       ...(provider ? { provider } : {}),
+      ...(morphology ? { morphology } : {}),
     }),
 
   dictionaryProviders: () => request<DictionaryProviders>('GET', '/api/text/dictionary/providers'),
@@ -104,6 +106,22 @@ export const api = {
     request<DictionaryProviders>('POST', '/api/text/dictionary/key', { id, key }),
   setDictionaryProvider: (id: string) =>
     request<DictionaryProviders>('POST', '/api/text/dictionary/provider', { id }),
+
+  /** Which forms datasets exist, and whether the active one is indexed here. */
+  morphology: (source?: string) =>
+    request<MorphologyStatus>(
+      'GET',
+      `/api/text/morphology${source ? `?source=${encodeURIComponent(source)}` : ''}`,
+    ),
+  /** Download and index the dataset. Seconds, once, and then it answers from disk. */
+  buildMorphology: (id?: string) =>
+    request<MorphologyStatus & { built: { meta: { paradigms: number; spellings: number; skipped: number }; bytes: number; ms: number } }>(
+      'POST',
+      '/api/text/morphology/build',
+      id ? { id } : {},
+    ),
+  setMorphologySource: (id: string) =>
+    request<MorphologyStatus>('POST', '/api/text/morphology/source', { id }),
 
   /** Calls the studio has made to the outside world. `since` asks for new ones only. */
   logs: (options: { since?: number; service?: string; limit?: number } = {}) => {

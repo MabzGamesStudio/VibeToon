@@ -119,9 +119,12 @@ SCENE 1 — INT. WORKSHOP - NIGHT        SCENE 1 — INT. WORKSHOP - NIGHT
     It did it yesterday. Twice.            It asks it yesterday. Twice.
 ```
 
-The database holds whatever was counted, so a word the corpus never used is
-unknown — including inflections (`waits` when the corpus only ever said `wait`).
-Counting a larger corpus is what fixes that.
+The database holds whatever was counted, so a word the corpus never used is not in
+it. Its *forms* are a different matter: once the morphology dataset has been
+built, `waits` has a row of its own even if the corpus only ever said `wait`, so
+the generator can spell a slot that asks for the third person. See
+[Variations](WORD-DATABASE.md#variations). A word the corpus never used at all
+still needs a larger corpus.
 
 ## Rules on the wire
 

@@ -9,9 +9,10 @@ import {
   type CorpusDataset,
   type CorpusExtractOptions,
   type DeriveLexiconOptions,
-  type WordMeaning,
 } from '../text/corpus';
+import { expandVariants, type VariantExpansion, type WordMeaning } from '../text/senses';
 import { SAMPLE_CORPUS, SAMPLE_CORPUS_NAME } from '../text/sampleCorpus';
+import { SAMPLE_MEANINGS } from '../text/sampleMeanings';
 import type { Lexicon } from '../types/text';
 
 /**
@@ -24,7 +25,7 @@ export interface LexiconFlowData {
   datasets: CorpusDataset[];
   /** Dataset ids that make up the master. */
   included: string[];
-  /** Word type and description per spelling, from the dictionary or guessed. */
+  /** Every sense of every spelling, as a dictionary reported them. */
   meanings: Record<string, WordMeaning>;
   /** Applied when a corpus is added; a dataset keeps the counts it was pruned to. */
   extract: CorpusExtractOptions;
@@ -49,7 +50,9 @@ export function emptyLexiconFlowData(): LexiconFlowData {
     editor: 'lexicon',
     datasets: [sample],
     included: [sample.id],
-    meanings: {},
+    // The sample corpus arrives with its words already answered for. Nothing else
+    // does: a corpus you add is unlooked-up until a dictionary says otherwise.
+    meanings: { ...SAMPLE_MEANINGS },
     extract: { ...DEFAULT_EXTRACT_OPTIONS },
     derive: { ...DEFAULT_DERIVE_OPTIONS },
   };
@@ -74,8 +77,23 @@ export function masterDataset(data: LexiconFlowData): CorpusDataset {
   return combineDatasets(includedDatasets(data), 'Master');
 }
 
+/**
+ * The master database: every included dataset's counts, turned into one entry
+ * per sense of each spelling, and then one entry per form of each of those.
+ *
+ * The expansion is returned alongside the database rather than folded into it so
+ * a run can say how many rows came from the corpus and how many are forms of
+ * them — the difference matters, because only the first kind has been counted.
+ */
+export function masterLexiconParts(
+  data: LexiconFlowData,
+  master = masterDataset(data),
+): VariantExpansion {
+  return expandVariants(deriveLexicon(master, data.meanings, data.derive));
+}
+
 export function masterLexicon(data: LexiconFlowData, master = masterDataset(data)): Lexicon {
-  return deriveLexicon(master, data.meanings, data.derive);
+  return masterLexiconParts(data, master).lexicon;
 }
 
 export function addDataset(data: LexiconFlowData, dataset: CorpusDataset, include = true): LexiconFlowData {
@@ -147,8 +165,10 @@ export interface LexiconSummary {
   links: number;
   /** Words whose type and description came from the dictionary. */
   defined: number;
-  /** Words still waiting on a lookup. */
+  /** Words still waiting on a lookup, so their type is `unknown`. */
   undefined: number;
+  /** Entries that are a form of another entry rather than a counted word. */
+  variants: number;
 }
 
 export function summarise(data: LexiconFlowData, lexicon: Lexicon, master: CorpusDataset): LexiconSummary {
@@ -163,5 +183,6 @@ export function summarise(data: LexiconFlowData, lexicon: Lexicon, master: Corpu
     links: lexicon.lexemes.reduce((sum, lexeme) => sum + lexeme.contexts.length, 0),
     defined,
     undefined: wordsNeedingLookup(data, master).length,
+    variants: lexicon.lexemes.filter((lexeme) => lexeme.variantOf).length,
   };
 }

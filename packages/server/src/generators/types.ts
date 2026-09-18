@@ -34,3 +34,18 @@ export interface GenerationResult {
 }
 
 export type Generator = (ctx: GenerationContext) => Promise<GenerationResult>;
+
+/**
+ * What a shortened upstream read ends with.
+ *
+ * It matters for anything reading JSON: half a database is not a smaller
+ * database, it is a syntax error, and one that reads as though the file were
+ * corrupt rather than merely long. `readsWhole` lets a generator say what
+ * actually happened.
+ */
+export const TRUNCATION_MARK = '[truncated]';
+
+/** True when a read returned the whole artifact rather than the front of it. */
+export function readsWhole(body: string | undefined): boolean {
+  return body === undefined || !body.endsWith(TRUNCATION_MARK);
+}

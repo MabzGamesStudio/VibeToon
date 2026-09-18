@@ -1,4 +1,4 @@
-import type { WordMeaning } from './corpus';
+import type { WordMeaning } from './senses';
 
 /**
  * What the dictionary lookup takes and gives back.
@@ -20,7 +20,7 @@ export interface DictionaryResult {
   meanings: Record<string, WordMeaning>;
   /** Words the dictionary defined. */
   found: string[];
-  /** Words it has no entry for. They keep a guessed type, and are not asked about again. */
+  /** Words it has no entry for. Their type stays `unknown`, and they are not asked again. */
   missing: string[];
   /** Words whose lookup was attempted and failed, so they still have no definition. */
   failed: string[];
@@ -39,6 +39,14 @@ export interface DictionaryResult {
   cached: number;
   /** Words this batch actually sent a request for. */
   requested: number;
+  /** Words the morphology dataset supplied forms for. */
+  withForms: number;
+  /**
+   * Words that should have forms — a noun, a verb, an adjective — and for which
+   * the dataset had none. Nought of these with a built index is coverage; all of
+   * them means the index has not been built yet.
+   */
+  formless: number;
 }
 
 /** The share of a lookup that is done, for a progress readout. */
@@ -59,6 +67,38 @@ export interface DictionaryProviderInfo {
   available: boolean;
   /** Whether a key has been stored for this service. Never the key itself. */
   hasKey: boolean;
+}
+
+/** A morphology dataset, as the browser sees it. */
+export interface MorphologySourceInfo {
+  id: string;
+  label: string;
+  note: string;
+  /** Where to read about the dataset, so its claims can be checked. */
+  homeUrl: string;
+  /** Roughly how big the one-off download is. */
+  approxBytes: number;
+}
+
+/**
+ * Where the forms of a word come from, and whether it is ready.
+ *
+ * Unlike a dictionary, this is one file rather than a request per word: it is
+ * downloaded and indexed once and then answers from disk, so the interesting
+ * question is not "is the service up" but "has it been built here yet".
+ */
+export interface MorphologyStatus {
+  sources: MorphologySourceInfo[];
+  activeId: string;
+  /** Why that one — set on the flow, chosen in the studio, or the default. */
+  reason: string;
+  /** Whether the active dataset has been downloaded and indexed on this machine. */
+  ready: boolean;
+  /** Complete sets of forms in the local index. */
+  paradigms: number;
+  /** Distinct spellings it can answer for, including every inflected one. */
+  spellings: number;
+  builtAt?: string;
 }
 
 export interface DictionaryProviders {

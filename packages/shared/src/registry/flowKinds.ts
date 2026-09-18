@@ -124,7 +124,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     kind: 'text.dictionary',
     category: 'text',
     label: 'Dictionary',
-    summary: 'Takes a word database and asks a dictionary what each word is, so its types are known rather than guessed.',
+    summary: 'Takes a word database and asks a dictionary what each word is and a dataset what forms it takes, so nothing is guessed.',
     inputs: [
       input('lexicon', 'Word database', ['json'], 'The database to look words up for.', { required: true }),
     ],

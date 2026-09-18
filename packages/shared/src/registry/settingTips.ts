@@ -292,22 +292,32 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       '0.3 — only the words that actually turn up in what gets written.',
     ],
   },
+  'dictionary.morphology': {
+    what: 'Which dataset the forms of a word come from. No dictionary API returns inflections, so this is a separate file, downloaded once and then answered from disk.',
+    examples: [
+      'AGID — 112,000 words, broad: it lists a form wherever its word list had one.',
+      'NIH SPECIALIST — 40,000 words, careful: where a word has no genuinely inflected form it says so.',
+    ],
+    note: 'Neither needs a key. Until one is built, words have no forms — they are left unknown rather than worked out from the spelling, because working them out produced `forgived` and `cactu`.',
+  },
   'lexicon.wordType': {
-    what: 'What part of speech this word is. It decides which words may follow it, and which variations it has.',
+    what: 'What part of speech this word is. It decides which words may follow it, and which forms it has.',
     examples: [
       'Comes from the dictionary when one has answered about this word.',
-      'Set it yourself to correct a guess — a wrong type is the commonest cause of odd writing.',
+      '“Not looked up” means exactly that: nothing has been asked, and nothing is being guessed.',
+      'Set it yourself to correct one — a wrong type is the commonest cause of odd writing.',
     ],
+    note: 'A spelling with several meanings has a row per meaning, each with its own type. Changing one here does not touch the others.',
   },
   'lexicon.variations': {
-    what: 'The other spellings this word takes, worked out from its type. They are what lets the generator write a past tense where a sentence shape asks for one.',
+    what: 'The other spellings this word takes, from the forms dataset. They are what lets the generator write a past tense where a sentence shape asks for one.',
     examples: [
       'A verb has five: infinitive, third person singular, present progressive, past, past participle.',
       'A noun has two: singular and plural.',
       'An adjective or adverb has three: positive, comparative, superlative.',
       'Everything else \u2014 determiners, prepositions, pronouns \u2014 has none.',
     ],
-    note: 'Worked out by rule, with tables for the irregulars. Correct the word type above and the forms are worked out again for the type it now is.',
+    note: 'Looked up in a dataset, never worked out from the spelling. Empty means either that this kind of word has no other forms, or that the dataset has nothing for it \u2014 the panel says which.',
   },
   'lexicon.description': {
     what: 'What the word means. It is for you, not for the generator: nothing in the writing reads it.',

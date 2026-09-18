@@ -4,6 +4,7 @@ import { DEFAULT_DICTIONARY_OPTIONS } from '../flows/dictionary';
 import { getFlowKind } from '../registry/flowKinds';
 import { DEFAULT_DERIVE_OPTIONS, DEFAULT_EXTRACT_OPTIONS } from '../text/corpus';
 import { DEFAULT_GRAMMAR_OPTIONS } from '../text/grammarDatabase';
+import { normaliseMeanings } from '../text/senses';
 import type { BriefFlowData, FlowData, FlowNode, Project } from '../types/project';
 import { DEFAULT_RANDOM_TEXT_OPTIONS } from '../types/text';
 import { defaultDataForKind } from './factory';
@@ -78,8 +79,9 @@ export function normaliseFlowData(data: FlowData): FlowData {
     case 'lexicon': {
       const extract = fill(data.extract, DEFAULT_EXTRACT_OPTIONS);
       const derive = fill(data.derive, DEFAULT_DERIVE_OPTIONS);
-      if (!extract.filled && !derive.filled) return data;
-      return { ...data, extract: extract.value, derive: derive.value };
+      const meanings = normaliseMeanings(data.meanings);
+      if (!extract.filled && !derive.filled && !meanings.changed) return data;
+      return { ...data, extract: extract.value, derive: derive.value, meanings: meanings.meanings };
     }
     case 'grammar': {
       const options = fill(data.options, DEFAULT_GRAMMAR_OPTIONS);
@@ -87,7 +89,11 @@ export function normaliseFlowData(data: FlowData): FlowData {
     }
     case 'dictionary': {
       const options = fill(data.options, DEFAULT_DICTIONARY_OPTIONS);
-      return options.filled ? { ...data, options: options.value } : data;
+      const meanings = normaliseMeanings(data.meanings);
+      // `morphologyId` arrived with the forms dataset; older flows have no key.
+      const morphologyId = data.morphologyId ?? '';
+      if (!options.filled && !meanings.changed && data.morphologyId !== undefined) return data;
+      return { ...data, options: options.value, meanings: meanings.meanings, morphologyId };
     }
     default:
       return data;

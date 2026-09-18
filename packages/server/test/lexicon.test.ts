@@ -47,6 +47,7 @@ const { lookupWords } = await import('../src/text/dictionary');
 import {
   emptyLexiconFlowData,
   masterDataset,
+  type DictionaryResult,
   type GenerateResponse,
   type LexiconFlowData,
   type Lexicon,
@@ -129,19 +130,32 @@ test('generating writes the database and a report of what went into it', async (
 
 test('the dictionary fills in types and definitions, and caches them', async () => {
   const before = dictionaryCalls;
-  const first = await api<{ meanings: Record<string, { type: string; description: string; source: string }>; found: string[]; cached: number }>(
-    'POST',
-    '/api/text/dictionary',
-    { words: ['lamp', 'quietly', 'zzzz', '.', '42'] },
-  );
+  const first = await api<DictionaryResult>('POST', '/api/text/dictionary', {
+    words: ['lamp', 'quietly', 'zzzz', '.', '42'],
+  });
 
   assert.equal(first.meanings.lamp!.source, 'dictionary');
-  assert.match(first.meanings.lamp!.description, /A definition of lamp/);
-  assert.equal(first.meanings.quietly!.type, 'adverb', 'the part of speech is mapped onto a word type');
-  assert.equal(first.meanings.zzzz!.source, 'inferred', 'a word with no entry falls back to a guess');
-  assert.equal(first.meanings['.']!.type, 'punctuation', 'no dictionary is asked about a full stop');
-  assert.equal(first.meanings['42']!.type, 'number');
+  assert.match(first.meanings.lamp!.senses[0]!.description, /A definition of lamp/);
+  assert.equal(
+    first.meanings.quietly!.senses[0]!.type,
+    'adverb',
+    'the part of speech is mapped onto a word type',
+  );
+  assert.equal(
+    first.meanings.zzzz!.source,
+    'none',
+    'a word with no entry is recorded as having none, rather than given a guessed type',
+  );
+  assert.deepEqual(first.meanings.zzzz!.senses, []);
+  assert.equal(first.meanings['.']!.senses[0]!.type, 'punctuation', 'no dictionary is asked about a full stop');
+  assert.equal(first.meanings['.']!.source, 'token');
+  assert.equal(first.meanings['42']!.senses[0]!.type, 'number');
   assert.equal(dictionaryCalls - before, 3, 'only the three real words were fetched');
+
+  // The forms dataset has not been built in this test, and that is reported as a
+  // separate fact from whether the dictionary answered.
+  assert.equal(first.withForms, 0);
+  assert.ok(first.formless > 0, 'words that ought to have forms, and have none yet');
 
   const second = await api<{ cached: number }>('POST', '/api/text/dictionary', {
     words: ['lamp', 'quietly', 'zzzz'],

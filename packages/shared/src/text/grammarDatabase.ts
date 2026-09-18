@@ -1,8 +1,7 @@
 import { newId } from '../ids';
 import type { Lexeme, Lexicon, WordType } from '../types/text';
 import type { CorpusSource } from './corpus';
-import { inferWordType } from './corpus';
-import { formOf, inflect, lemmaOf, type VariationKey } from './inflect';
+import { formIn, type VariationKey } from './forms';
 import { buildLexiconIndex, type LexiconIndex } from './lexicon';
 import { isSentenceEnd, tokenize, type TextToken } from './tokenize';
 
@@ -108,10 +107,17 @@ export interface TaggedToken {
 }
 
 /**
- * Work out what each token is. The word database is the authority on type —
- * that is the whole reason the grammar flow takes one — and the form comes from
- * the inflection rules. A word the database has never seen is still tagged, by
- * guess, so an unfamiliar word does not break the sentence it sits in.
+ * Work out what each token is.
+ *
+ * The word database is the only authority here — that is the whole reason the
+ * grammar flow takes one. Both the type and the form come off the entry it
+ * matched: the form is which of that entry's own spellings this token is, which
+ * is why a word database with its variants filled in produces a far more
+ * detailed grammar than one without.
+ *
+ * A token the database has never seen is tagged `unknown` rather than guessed at.
+ * It still takes a place in the pattern, so an unfamiliar word does not break the
+ * sentence it sits in — it just does not pretend to be a noun.
  */
 export function tagTokens(
   tokens: readonly TextToken[],
@@ -126,8 +132,8 @@ export function tagTokens(
       }
 
       const lexeme = index.bySpelling.get(token.key)?.[0];
-      const type = lexeme?.type ?? inferWordType(token.key);
-      const form = useForms ? formOf(token.key, type) : undefined;
+      const type = lexeme?.type ?? 'unknown';
+      const form = useForms ? formIn(lexeme?.variations, token.key) : undefined;
       return {
         token,
         slot: { type, ...(form ? { form } : {}) },
@@ -424,21 +430,21 @@ export function pickSentencePattern(
 /** The slot a lexeme fills as it stands: its type, and which form its spelling is. */
 export function slotForLexeme(lexeme: Lexeme): GrammarSlot {
   if (lexeme.type === 'punctuation') return { type: 'punctuation', mark: lexeme.spelling };
-  const form = lexeme.variations
-    ? (Object.entries(lexeme.variations).find(([, spelling]) => spelling === lexeme.spelling)?.[0] as
-        | VariationKey
-        | undefined)
-    : formOf(lexeme.spelling, lexeme.type);
+  const form = formIn(lexeme.variations, lexeme.spelling);
   return { type: lexeme.type, ...(form ? { form } : {}) };
 }
 
 /**
  * Put a word into the shape a slot asks for: the slot wants a past tense verb,
  * the lexeme is `walk`, the text gets `walked`.
+ *
+ * `walked` is only available if it is on the entry, put there by a morphology
+ * dataset. When it is not, the word goes in as it is rather than being bent into
+ * shape by rule — a sentence with an uninflected word in it reads oddly, but a
+ * sentence containing `forgived` reads as a bug, and it would be one.
  */
 export function spellForSlot(lexeme: Lexeme, slot: GrammarSlot): string {
   if (!slot.form) return lexeme.spelling;
-  const variations = lexeme.variations ?? inflect(lemmaOf(lexeme.spelling, lexeme.type), lexeme.type);
-  const spelling = variations?.[slot.form];
+  const spelling = lexeme.variations?.[slot.form];
   return spelling && spelling.trim() ? spelling : lexeme.spelling;
 }

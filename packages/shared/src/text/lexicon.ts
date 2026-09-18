@@ -1,6 +1,6 @@
 import { newId } from '../ids';
 import type { Lexeme, Lexicon, LexemeContext, WordType } from '../types/text';
-import { inflect } from './inflect';
+import { formIn, inflects, type Variations } from './forms';
 
 export interface LexiconIndex {
   byId: Map<string, Lexeme>;
@@ -181,20 +181,28 @@ export function setContextWeight(lexeme: Lexeme, id: string, weight: number): Le
  * ------------------------------------------------------------------ */
 
 /**
- * Every spelling a lexeme takes, keyed by form.
+ * Every spelling a lexeme takes, keyed by form — or nothing.
  *
- * Normally these were worked out when the database was built and stored on the
- * entry; a database written before variations existed, or one hand-edited, may
- * not have them, so they are worked out on the spot instead. Returns nothing
- * when the word's type does not inflect — a determiner has no other forms.
+ * Nothing means one of two quite different things, which `formsState` below tells
+ * apart: either the word's type has no other forms, or no morphology dataset has
+ * been asked about it yet. It deliberately does not fall back to working the
+ * forms out from the spelling; that is what `variationsOf` used to do, and it
+ * produced `forgived` and `cactu`.
  */
-export function variationsOf(lexeme: Lexeme): Record<string, string> | undefined {
-  return lexeme.variations ?? inflect(lexeme.spelling, lexeme.type);
+export function variationsOf(lexeme: Lexeme): Variations | undefined {
+  const variations = lexeme.variations as Variations | undefined;
+  return variations && Object.keys(variations).length > 0 ? variations : undefined;
 }
 
 /** Which of its own forms a lexeme's spelling is: `cats` is a `plural`. */
 export function formOfLexeme(lexeme: Lexeme): string | undefined {
-  const variations = variationsOf(lexeme);
-  if (!variations) return undefined;
-  return Object.entries(variations).find(([, spelling]) => spelling === lexeme.spelling)?.[0];
+  return lexeme.form ?? formIn(variationsOf(lexeme), lexeme.spelling);
+}
+
+/** Why an entry has no forms to show, which is not the same as having none. */
+export type FormsState = 'known' | 'does-not-inflect' | 'not-looked-up';
+
+export function formsState(lexeme: Lexeme): FormsState {
+  if (variationsOf(lexeme)) return 'known';
+  return inflects(lexeme.type) ? 'not-looked-up' : 'does-not-inflect';
 }

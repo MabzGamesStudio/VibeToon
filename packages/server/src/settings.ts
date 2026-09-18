@@ -14,6 +14,8 @@ import { DATA_ROOT } from './paths';
  */
 export interface Settings {
   dictionaryProvider?: string;
+  /** Which morphology dataset the forms of a word come from. No key needed. */
+  morphologySource?: string;
   /**
    * A key per dictionary service, entered in the studio.
    *

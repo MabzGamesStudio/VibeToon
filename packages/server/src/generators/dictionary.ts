@@ -7,8 +7,9 @@ import {
   type Lexicon,
 } from '@vibetoon/shared';
 import { activeProvider } from '../text/dictionary';
+import { morphologyStatus } from '../text/morphology';
 import { writeArtifact } from '../storage';
-import type { GenerationContext, GenerationResult } from './types';
+import { readsWhole, type GenerationContext, type GenerationResult } from './types';
 
 const READ_LIMIT = 16_000_000;
 
@@ -31,8 +32,15 @@ export async function generateDictionary(ctx: GenerationContext): Promise<Genera
   }
 
   let lexicon: Lexicon;
+  const body = await ctx.readUpstream(input, READ_LIMIT);
+  if (!readsWhole(body)) {
+    ctx.warn(
+      `The word database from ${input.sourceNode.name} is larger than this flow will read, so it was cut short and could not be used.`,
+    );
+    return { outputs: [] };
+  }
   try {
-    const parsed = JSON.parse((await ctx.readUpstream(input, READ_LIMIT)) ?? '') as Lexicon;
+    const parsed = JSON.parse(body ?? '') as Lexicon;
     if (!Array.isArray(parsed.lexemes)) throw new Error('no `lexemes` array');
     lexicon = parsed;
   } catch (error) {
@@ -46,13 +54,23 @@ export async function generateDictionary(ctx: GenerationContext): Promise<Genera
   const summary = summariseDictionary(data);
   const outstanding = wordsToLookUp(applied.lexicon, data);
   const service = activeProvider(data.providerId);
+  const forms = await morphologyStatus(data.morphologyId);
   const stats = lexiconStats(applied.lexicon);
 
   if (summary.known === 0) {
     ctx.warn('Nothing has been looked up yet — press “Look up” in this flow’s editor.');
   } else if (outstanding.length > 0) {
     ctx.warn(
-      `${outstanding.length} word(s) have never been asked about, so their type is still a guess.`,
+      `${outstanding.length} word(s) have never been asked about, so their type is “not looked up”.`,
+    );
+  }
+  if (!forms.ready) {
+    ctx.warn(
+      `The ${forms.sources.find((source) => source.id === forms.activeId)?.label ?? 'forms'} dataset has not been built on this machine, so no word has its forms. Press “Get the forms dataset” in this flow’s editor.`,
+    );
+  } else if (applied.formless > 0) {
+    ctx.warn(
+      `${applied.formless} word(s) that should have other forms are not in the forms dataset, so theirs are unknown rather than guessed.`,
     );
   }
 
@@ -64,11 +82,21 @@ export async function generateDictionary(ctx: GenerationContext): Promise<Genera
   const report = [
     `# ${ctx.node.name} — dictionary`,
     '',
-    `- Service: **${service.provider.label}** (${service.reason})`,
+    `- Dictionary: **${service.provider.label}** (${service.reason})`,
+    `- Forms: **${forms.sources.find((source) => source.id === forms.activeId)?.label ?? forms.activeId}** (${forms.reason}) — ${
+      forms.ready
+        ? `${forms.paradigms.toLocaleString()} paradigms indexed, ${forms.spellings.toLocaleString()} spellings`
+        : '**not built on this machine**'
+    }`,
     `- Words in: ${lexicon.lexemes.length}`,
-    `- Answers held: ${summary.known} (${summary.fromDictionary} from the dictionary, ${summary.guessed} guessed)`,
-    `- Types changed by this run: **${applied.retyped}**`,
+    `- Words out: **${applied.lexicon.lexemes.length}**`,
+    `- Answers held: ${summary.known} spelling(s), ${summary.senses} sense(s); ${summary.fromDictionary} from the dictionary, ${summary.absent} with no entry`,
+    `- Extra entries from words with several meanings: **${applied.split}**`,
+    `- Extra entries that are a form of another word: **${applied.variants}**`,
+    `- Words already counted that were joined to their forms: ${applied.linkedVariants}`,
+    `- Types changed by this run: ${applied.retyped}`,
     `- Descriptions filled in: ${applied.described}`,
+    `- Should have forms but the dataset has none: ${applied.formless}`,
     `- Still never asked about: ${outstanding.length}`,
     '',
     '## Word types now',
@@ -115,7 +143,7 @@ export async function generateDictionary(ctx: GenerationContext): Promise<Genera
   ];
 
   ctx.log(
-    `${applied.retyped} word(s) retyped, ${applied.described} described, ${stats.total} out.`,
+    `${applied.retyped} word(s) retyped, ${applied.described} described, ${applied.split} split by meaning, ${applied.variants} form(s) added, ${stats.total} out.`,
   );
   return { outputs };
 }

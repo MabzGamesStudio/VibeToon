@@ -11,6 +11,9 @@ export type FollowFrom = WordType | 'start';
 const DEFAULT_FOLLOW = 0.08;
 
 const FOLLOW: Record<FollowFrom, Partial<Record<WordType, number>>> = {
+  // Nothing is known about what follows a word nobody has looked up, so every
+  // type gets the default weight rather than a made-up preference.
+  unknown: {},
   start: {
     determiner: 0.9,
     pronoun: 0.8,

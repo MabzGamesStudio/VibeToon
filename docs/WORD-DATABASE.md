@@ -21,11 +21,51 @@ Two neighbouring flows do the jobs either side of it:
 | Field | Where it comes from |
 | --- | --- |
 | `spelling` | A token counted in the corpus: a word, a number, or a mark like `.` or `,`. |
-| `type` | The dictionary's part of speech, mapped onto a word type. Guessed when the dictionary has no entry or cannot be reached. |
-| `description` | The dictionary's first definition. |
+| `type` | The dictionary's part of speech, mapped onto a word type. `unknown` until something has said, and never guessed. |
+| `description` | The definition for this sense of the word. |
 | `frequency` | How often the token appears in the corpora you included. |
 | `contexts` | Which words follow it, and how strongly — counted from the text. |
-| `variations` | The other spellings the word takes, keyed by form. |
+| `variations` | The other spellings the word takes, keyed by form, from a morphology dataset. |
+| `variantOf` | Set when this row is a form of another row: `cats` carries the id of `cat`. |
+| `form` | Which of `variations` this row's spelling is: `plural`, `past`, and so on. |
+
+## One spelling, several rows
+
+A spelling is not a word, and the database does not pretend otherwise. `light` is
+a noun, a verb and an adjective, and it means something different in each, so it
+gets three rows — each with its own type, its own description and its own forms.
+Holding only the first of them is why a grammar flow would confidently put
+`light` where nothing but a noun fits.
+
+The commonest sense keeps the plain id (`lex_light`), because the context links
+counted out of the corpus point at it and know nothing about senses. The others
+take `lex_light~verb` and so on. All of them carry the same `frequency` and the
+same `contexts`: the counting saw `light` four hundred times without recording
+which `light` it was, and it does not invent a split it never measured.
+
+Each *form* gets a row too. `cat` puts `cats` in the database, sharing its type
+and its description, with `variantOf` pointing back at `cat`. A form the corpus
+counted in its own right keeps its own count and its own links and is only joined
+up to its family; a form the corpus never contained is added with a count of
+nought, because that is what it had. Both behaviours are settings on the
+Dictionary flow (**An entry per meaning**, **An entry per form**) and both are on
+by default.
+
+## Nothing is guessed
+
+A word nobody has looked up has the type `unknown`, and the studio says so
+everywhere it shows one. There used to be a function that read a type off a
+word's ending — `-ly` is an adverb, `-ness` is a noun, everything else is a noun —
+and it is gone, along with its hand-written table of function words.
+
+The reason is that the grammar flow trusts `type` completely and has no way to
+tell a guess from an answer. A database of plausible-looking wrong types produces
+writing that is subtly wrong for reasons nothing can point at; a database that
+says which words it has nothing on produces a list of words to look up.
+
+Marks and numbers are the exception, and are not a guess: `.` *is* punctuation and
+`42` *is* a number, read off the token itself. Those carry `source: "token"` so
+nothing claims a dictionary said it.
 
 ### Variations
 
@@ -56,15 +96,46 @@ asking a preposition for its plural:
 }
 ```
 
-The forms are worked out from spelling rules plus tables of the irregulars —
-`go → went`, `knife → knives`, `good → better` — and a modal simply has no
-progressive, so `can` carries `could` and nothing else. The form names follow
-the convention used by [english-inflection](https://github.com/BryanKoo/english-inflection);
-the rules and tables here are this project's own.
+The forms come from a **morphology dataset**, downloaded once and answered from
+disk after that. They are never worked out from the spelling. There used to be a
+rule engine that did work them out, and it produced `forgived`, `understanded`,
+and — through a plural-stripping rule that could not tell `cactus` from `bonus` —
+the non-word `cactu`. It was removed rather than improved, because a generator
+that confidently writes a non-word is a bug, and looked like one.
+
+Two datasets are offered, both free and neither needing a key:
+
+| Dataset | Words | Character |
+| --- | --- | --- |
+| [AGID](http://wordlist.aspell.net/other) (the default) | 112,000 | Broad. Generated from a large word list, so it lists a form wherever one was found — including `beautifuler`, which nobody writes. Forms it marks as doubtful are not taken. |
+| [NIH SPECIALIST](https://lhncbc.nlm.nih.gov/LSG/Projects/lexicon/current/web/index.html) | 40,000 | Careful. A curated lexicon: where a word has no genuinely inflected comparative it says so rather than coining one. |
+
+Pick one in the Dictionary flow's editor and press **Get the forms dataset**. It
+is a few megabytes, once; after that every word's forms are a local read. Until
+it is built, words have no forms, and the flow's report says so rather than
+quietly filling them in.
+
+Every spelling in a dataset is a way in, not just the base word — a corpus hands
+you `children` and `forgave`, and nothing is allowed to strip letters off the end
+to find `child` and `forgive`. Where a form is claimed by more than one word
+(`crises` is listed under `crisis` and also under `cris`, which is not a word) the
+dataset's own confidence marker decides, not the order the index happened to be
+built in.
 
 Variations are what let a [grammar database](GRAMMAR-DATABASE.md) say *which
 form* of a word a sentence used, and what let the generator write `walked` into
-a slot that asks for a past tense.
+a slot that asks for a past tense. A word with no forms on it goes into a slot as
+it stands rather than being bent into shape.
+
+### The sample corpus is answered for by hand
+
+A Random Text flow you have only just added has to write something, and with no
+types at all it would write word soup. So the bundled sample corpus ships with
+all 215 of its words typed and described by hand, in
+`packages/shared/src/text/sampleMeanings.ts`, marked `manual` because that is
+what they are — authored data, not a rule applied to a spelling. Their forms come
+from AGID, like everything else. A dictionary lookup over the same words replaces
+the lot.
 
 ## Corpora, and the master
 
@@ -146,10 +217,20 @@ freely):
 
 ## The dictionary
 
-**Look up words** asks a dictionary service for each word's part of speech and
-first definition, and caches every answer on disk — a word is only ever fetched
-once, and the cache survives restarts. Punctuation and numbers are not sent
-anywhere; they are labelled locally.
+**Look up words** asks a dictionary service what each word is, and caches every
+answer on disk — a word is only ever fetched once, and the cache survives
+restarts. Punctuation and numbers are not sent anywhere; they are labelled locally.
+
+One request gets *every* sense the service has, not the first: the reply is read
+for each part of speech it reports, and each becomes a row. Reading only the first
+is what made `light` a noun and nothing else. Where a service lists ten noun
+senses it is describing one word ten ways, so the first description wins and the
+rest are dropped.
+
+The **forms** of a word are a separate question, answered from a local dataset
+rather than a service — no dictionary API returns inflections. See **Variations**
+above. The two caches are independent, so switching forms dataset costs a rebuild
+and no re-asking of the dictionary.
 
 A database counted from a book runs to thousands of words, and no free
 dictionary will answer thousands of requests in a row, so the lookup runs **in
@@ -171,12 +252,24 @@ Failures are handled rather than hidden:
   firing hundreds of doomed requests. Whatever was learned is kept, the rest come
   back as still-to-ask, and the editor says what happened and how far it got.
 
-Words the dictionary has never heard of, and every word when the service cannot
-be reached, fall back to a **guess**: a table of function words plus suffix rules
-(`-ly` is an adverb, `-ness` a noun). The editor shows which is which — `dictionary`,
-`inferred`, or `manual` if you corrected it yourself — so nothing guessed is ever
-presented as something a dictionary said. Corrections you make are kept against
-the spelling, so they survive rebuilding the database from different corpora.
+Words the dictionary has never heard of stay `unknown`, and are recorded as having
+no entry so they are not asked about twice. Every word stays `unknown` when the
+service cannot be reached. Nothing falls back to a guess — see **Nothing is
+guessed** above.
+
+The editor shows where each answer came from: `dictionary`, `token` for a mark or a
+number, `manual` if you corrected it yourself, or `not asked`. Corrections you
+make are kept against the spelling, so they survive rebuilding the database from
+different corpora.
+
+A word can come back defined but untyped — a service returns a definition under a
+part of speech nothing here recognises. That is kept as one sense with the
+definition and a type of `unknown`, because knowing what a word means without
+knowing what kind of word it is is a real state to be in.
+
+Running the Dictionary flow with only some words answered leaves every other row
+exactly as it was. It improves a database; it does not reset the parts it was told
+nothing about.
 
 ### Which dictionary
 
@@ -208,6 +301,8 @@ Configured from the environment when you would rather not click:
 | `VIBETOON_DICTIONARY` | A service id: `free-dictionary`, `wiktionary`, `datamuse`, `merriam-webster`, `wordnik`. |
 | `VIBETOON_DICTIONARY_KEY` | The key, for a service that needs one. Read on the server only — never written to a project, never sent to the browser, and masked out of the [API log](API-LOG.md). |
 | `VIBETOON_DICTIONARY_URL` | Any other service, with `{word}` where the word goes. Wins over everything else, and the reply is read for whichever common shape it turns out to be in. |
+| `VIBETOON_MORPHOLOGY` | Which forms dataset: `agid` or `specialist`. |
+| `VIBETOON_MORPHOLOGY_FILE` | A local copy of a dataset to index instead of downloading one. For working offline, and for tests. |
 
 A service whose key is missing cannot be selected at all, rather than being used
 to fire a few hundred requests that can only come back 401.
@@ -221,5 +316,10 @@ and the reason — see [API-LOG.md](API-LOG.md).
 
 | Port | File | What it is |
 | --- | --- | --- |
-| Word database | `lexicon.json` | Every word with its type, description, frequency, count and weighted contexts. |
-| Report | `report.md` | Which corpora went in, which were held back, the settings used, and the most common words. |
+| Word database | `lexicon.json` | Every row: spelling, type, description, frequency, count, weighted contexts, forms, and what it is a form of. |
+| Report | `report.md` | Which corpora went in, which were held back, the settings used, how many rows are forms of other rows, and the most common words. |
+
+A database with its forms filled in is several times the size of the text it came
+from — the bundled sample alone passes 200KB. Flows that read one read it whole
+and say so if they cannot, because half a database is not a smaller database, it
+is a syntax error.

@@ -1,17 +1,24 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
-  inferWordType,
   isLookupCandidate,
   meaningForToken,
   wordTypeFromPartOfSpeech,
   type DictionaryResult,
   type LogOutcome,
+  type WordMeaning,
+  type WordSense,
 } from '@vibetoon/shared';
+import { lookupForms } from './morphology';
 import { recordApiCall } from '../logs';
 import { DATA_ROOT } from '../paths';
 import { dictionaryKeyFor, getSettings } from '../settings';
-import { CUSTOM_PROVIDER, providerById, type DictionaryProvider } from './dictionaryProviders';
+import {
+  CUSTOM_PROVIDER,
+  providerById,
+  type DictionaryProvider,
+  type ProviderReading,
+} from './dictionaryProviders';
 
 /**
  * Point at another service, or at a stub in tests. Setting this wins over every
@@ -108,6 +115,8 @@ export interface LookupOptions {
   onProgress?: (done: number, total: number) => void;
   /** Ask this service rather than whatever the studio is set to. */
   provider: string;
+  /** Take the forms of a word from this dataset rather than the studio's choice. */
+  morphology: string;
 }
 
 /**
@@ -125,12 +134,26 @@ export const DEFAULT_LOOKUP_OPTIONS: LookupOptions = {
   maxFailures: 3,
   fetchImpl: fetch,
   provider: '',
+  morphology: '',
 };
 
+/**
+ * What one word's answer looks like on disk.
+ *
+ * The senses are cached; the *forms* are not, because they come from a separate
+ * dataset which can be swapped without any of this becoming wrong. Switching
+ * morphology dataset therefore costs a re-index and no re-asking of the
+ * dictionary.
+ */
 interface CachedLookup {
   word: string;
   fetchedAt: string;
   found: boolean;
+  senses: Array<{ partOfSpeech?: string; definition?: string }>;
+}
+
+/** An answer written by an older version, before a word could have several senses. */
+interface LegacyCachedLookup extends Partial<CachedLookup> {
   partOfSpeech?: string;
   definition?: string;
 }
@@ -142,11 +165,29 @@ function cachePath(word: string): string {
 }
 
 async function readCache(word: string): Promise<CachedLookup | undefined> {
+  let stored: LegacyCachedLookup;
   try {
-    return JSON.parse(await readFile(cachePath(word), 'utf8')) as CachedLookup;
+    stored = JSON.parse(await readFile(cachePath(word), 'utf8')) as LegacyCachedLookup;
   } catch {
     return undefined;
   }
+  if (Array.isArray(stored.senses)) return stored as CachedLookup;
+  // One sense, from before there could be more. Worth reading rather than
+  // discarding: it is a real answer, just an incomplete one.
+  return {
+    word: stored.word ?? word,
+    fetchedAt: stored.fetchedAt ?? new Date().toISOString(),
+    found: stored.found ?? false,
+    senses:
+      stored.partOfSpeech || stored.definition
+        ? [
+            {
+              ...(stored.partOfSpeech ? { partOfSpeech: stored.partOfSpeech } : {}),
+              ...(stored.definition ? { definition: stored.definition } : {}),
+            },
+          ]
+        : [],
+  };
 }
 
 async function writeCache(entry: CachedLookup): Promise<void> {
@@ -154,22 +195,50 @@ async function writeCache(entry: CachedLookup): Promise<void> {
   await writeFile(cachePath(entry.word), `${JSON.stringify(entry)}\n`, 'utf8');
 }
 
-/** Pull the first part of speech and definition out of whatever the service sent. */
-export function readDictionaryResponse(
-  payload: unknown,
-  prefer = '',
-): { partOfSpeech?: string; definition?: string } {
+/** Pull every sense out of whatever the service sent. */
+export function readDictionaryResponse(payload: unknown, prefer = ''): ProviderReading {
   return activeProvider(prefer).provider.read(payload);
 }
 
-function meaningFrom(cached: CachedLookup): DictionaryResult['meanings'][string] {
-  const type = wordTypeFromPartOfSpeech(cached.partOfSpeech) ?? inferWordType(cached.word);
-  return {
-    type,
-    description: (cached.definition ?? '').trim(),
-    source: cached.found && cached.partOfSpeech ? 'dictionary' : 'inferred',
-  };
+/**
+ * Turn a cached answer into senses, and fill in each one's forms.
+ *
+ * A sense whose part of speech means nothing to us is dropped — except when none
+ * of them do, in which case one sense is kept with the definition and a type of
+ * `unknown`. Knowing what a word means without knowing what kind of word it is is
+ * a real state to be in, and pretending otherwise by guessing a type from the
+ * spelling is exactly what this no longer does.
+ */
+async function meaningFrom(cached: CachedLookup, morphology: string): Promise<WordMeaning> {
+  const typed: WordSense[] = [];
+  for (const sense of cached.senses) {
+    const type = wordTypeFromPartOfSpeech(sense.partOfSpeech);
+    if (!type) continue;
+    const variations = await lookupForms(cached.word, type, morphology);
+    typed.push({
+      type,
+      description: (sense.definition ?? '').trim(),
+      ...(variations ? { variations } : {}),
+    });
+  }
+
+  if (typed.length === 0) {
+    const described = cached.senses.find((sense) => sense.definition?.trim());
+    if (described) {
+      return {
+        senses: [{ type: 'unknown', description: described.definition!.trim() }],
+        source: 'dictionary',
+        fetchedAt: cached.fetchedAt,
+      };
+    }
+    return { senses: [], source: 'none', fetchedAt: cached.fetchedAt };
+  }
+
+  return { senses: typed, source: 'dictionary', fetchedAt: cached.fetchedAt };
 }
+
+/** The types that have other forms, so a missing paradigm is worth counting. */
+const INFLECTING = new Set(['noun', 'verb', 'adjective', 'adverb', 'number']);
 
 function sleep(ms: number): Promise<void> {
   return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
@@ -264,15 +333,14 @@ async function attempt(word: string, options: LookupOptions, tries: number): Pro
     const parsed = readDictionaryResponse(await response.json(), options.provider);
     // Some services answer 200 with an empty list, or with spelling suggestions,
     // for a word they do not have. Nothing useful came back either way.
-    if (!parsed.partOfSpeech && !parsed.definition) return record({ kind: 'missing' });
+    if (parsed.senses.length === 0) return record({ kind: 'missing' });
     return record({
       kind: 'entry',
       entry: {
         word,
         fetchedAt: new Date().toISOString(),
         found: true,
-        ...(parsed.partOfSpeech ? { partOfSpeech: parsed.partOfSpeech } : {}),
-        ...(parsed.definition ? { definition: parsed.definition } : {}),
+        senses: parsed.senses,
       },
     });
   } catch (error) {
@@ -308,6 +376,8 @@ export async function lookupWords(
     rateLimited: 0,
     cached: 0,
     requested: 0,
+    withForms: 0,
+    formless: 0,
   };
 
   // Marks and numbers need no dictionary, and a word already on disk needs no
@@ -319,13 +389,12 @@ export async function lookupWords(
       result.meanings[word] = token;
       continue;
     }
-    if (!isLookupCandidate(word)) {
-      result.meanings[word] = { type: inferWordType(word), description: '', source: 'inferred' };
-      continue;
-    }
+    // A token no dictionary could know and that is not a mark or a number gets
+    // no entry at all. It stays unlooked-up, which is what it is.
+    if (!isLookupCandidate(word)) continue;
     const cached = await readCache(word);
     if (cached) {
-      result.meanings[word] = meaningFrom(cached);
+      result.meanings[word] = await meaningFrom(cached, options.morphology);
       result.cached += 1;
       (cached.found ? result.found : result.missing).push(word);
       continue;
@@ -375,9 +444,9 @@ export async function lookupWords(
           const entry: CachedLookup =
             outcome.kind === 'entry'
               ? outcome.entry
-              : { word, fetchedAt: new Date().toISOString(), found: false };
+              : { word, fetchedAt: new Date().toISOString(), found: false, senses: [] };
           await writeCache(entry);
-          result.meanings[word] = meaningFrom(entry);
+          result.meanings[word] = await meaningFrom(entry, options.morphology);
           (entry.found ? result.found : result.missing).push(word);
           settle();
           break;
@@ -419,6 +488,17 @@ export async function lookupWords(
   await Promise.all(
     Array.from({ length: Math.min(Math.max(1, options.concurrency), Math.max(1, total)) }, worker),
   );
+
+  // Whether the forms dataset knew a word is worth reporting separately: the
+  // dictionary can answer perfectly while the morphology index is not built.
+  for (const meaning of Object.values(result.meanings)) {
+    if (meaning.senses.length === 0) continue;
+    const any = meaning.senses.some(
+      (sense) => sense.variations && Object.keys(sense.variations).length > 0,
+    );
+    if (any) result.withForms += 1;
+    else if (meaning.senses.some((sense) => INFLECTING.has(sense.type))) result.formless += 1;
+  }
 
   if (abandoned) {
     result.unreachable = abandoned;

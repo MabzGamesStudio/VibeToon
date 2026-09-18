@@ -434,16 +434,20 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               /* TEMPORARY: the type/variant view. See text/tokenGloss.ts. */
               <>
                 <div className="vt-gloss-legend">
-                  <span className="vt-gloss has-variants">type:form</span> has variants ·{' '}
-                  <span className="vt-gloss no-variants">type</span> no variants for this word type ·{' '}
+                  <span className="vt-gloss has-variants">type:form</span> forms known ·{' '}
+                  <span className="vt-gloss no-variants">type</span> this kind of word has none ·{' '}
+                  <span className="vt-gloss not-looked-up">unknown</span> never looked up ·{' '}
+                  <span className="vt-gloss forms-missing">type</span> forms not in the dataset ·{' '}
                   <span className="vt-gloss is-unknown">?:word</span> not in the database
                   <span className="vt-spacer" />
                   <strong>
                     {glossStats.withVariants} of {glossStats.words}
                   </strong>{' '}
-                  word(s) have variants
-                  {glossStats.withoutVariants > 0 ? `, ${glossStats.withoutVariants} cannot` : ''}
-                  {glossStats.unknown > 0 ? `, ${glossStats.unknown} unknown` : ''}
+                  word(s) have their forms
+                  {glossStats.withoutVariants > 0 ? `, ${glossStats.withoutVariants} never have any` : ''}
+                  {glossStats.notLookedUp > 0 ? `, ${glossStats.notLookedUp} not looked up` : ''}
+                  {glossStats.formsMissing > 0 ? `, ${glossStats.formsMissing} missing from the dataset` : ''}
+                  {glossStats.unknown > 0 ? `, ${glossStats.unknown} not in the database` : ''}
                 </div>
                 <div className="vt-text-output is-gloss">
                   {glosses.map((item, position) =>
@@ -453,7 +457,15 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                       <span
                         key={position}
                         className={`vt-gloss ${
-                          item.unknown ? 'is-unknown' : item.hasVariants ? 'has-variants' : 'no-variants'
+                          item.unknown
+                            ? 'is-unknown'
+                            : item.notLookedUp
+                              ? 'not-looked-up'
+                              : item.formsMissing
+                                ? 'forms-missing'
+                                : item.hasVariants
+                                  ? 'has-variants'
+                                  : 'no-variants'
                         }`}
                         title={
                           item.variations
@@ -462,7 +474,11 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                                 .join(', ')}`
                             : item.unknown
                               ? `${result.tokens[position]?.text} — not in the word database`
-                              : `${result.tokens[position]?.text} — a ${item.type} has no variants`
+                              : item.notLookedUp
+                                ? `${result.tokens[position]?.text} — in the database, but nobody has looked it up`
+                                : item.formsMissing
+                                  ? `${result.tokens[position]?.text} — a ${item.type} has other forms, but this one is not in the forms dataset`
+                                  : `${result.tokens[position]?.text} — a ${item.type} has no other forms`
                         }
                       >
                         {item.label}

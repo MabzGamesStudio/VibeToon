@@ -8,9 +8,20 @@ import {
   type TextRunSource,
 } from '@vibetoon/shared';
 import { writeArtifact } from '../storage';
-import type { GenerationContext, GenerationResult } from './types';
+import { readsWhole, type GenerationContext, type GenerationResult } from './types';
 
-const INPUT_LIMIT = 200_000;
+/** A wired text input is prose, and 200KB of it is already a small book. */
+const TEXT_LIMIT = 200_000;
+
+/**
+ * A wired database is data, so it is read whole or not at all.
+ *
+ * It is also routinely far bigger than any prose input: a word database with
+ * every word's forms on it, and a row per form, passes 200KB for the bundled
+ * sample corpus alone. The limit here is only to stop something absurd being
+ * pulled into memory.
+ */
+const DATABASE_LIMIT = 64_000_000;
 
 function percent(value: number): string {
   const rounded = Math.round(value * 10) / 10;
@@ -30,7 +41,13 @@ export async function generateText(ctx: GenerationContext): Promise<GenerationRe
     const port = input.connection.to.portId;
     if (port !== 'text' && port !== 'lexicon' && port !== 'grammar') continue;
     const label = `${input.sourceNode.name} → ${input.targetPort?.label ?? port}`;
-    const body = await ctx.readUpstream(input, INPUT_LIMIT);
+    const body = await ctx.readUpstream(input, port === 'text' ? TEXT_LIMIT : DATABASE_LIMIT);
+    if (!readsWhole(body)) {
+      ctx.warn(
+        `${input.sourceNode.name} sent more than this flow will read on the ${port} input, so it was cut short and could not be used.`,
+      );
+      continue;
+    }
 
     if (port === 'text') {
       sources.push({ port, label, rules: input.connection.rules, ...(body ? { text: body } : {}) });

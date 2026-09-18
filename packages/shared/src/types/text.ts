@@ -18,7 +18,14 @@ export type WordType =
   | 'conjunction'
   | 'interjection'
   | 'number'
-  | 'punctuation';
+  | 'punctuation'
+  /**
+   * Nobody has looked this word up yet, so what kind of word it is is not known.
+   * It is deliberately not a guess: a database full of plausible-looking wrong
+   * types is worse than one that says which words it has nothing on, because the
+   * grammar flow trusts the type completely.
+   */
+  | 'unknown';
 
 export const WORD_TYPES: readonly WordType[] = [
   'noun',
@@ -32,6 +39,7 @@ export const WORD_TYPES: readonly WordType[] = [
   'interjection',
   'number',
   'punctuation',
+  'unknown',
 ];
 
 export const WORD_TYPE_LABEL: Record<WordType, string> = {
@@ -46,6 +54,7 @@ export const WORD_TYPE_LABEL: Record<WordType, string> = {
   interjection: 'Interjection',
   number: 'Number',
   punctuation: 'Punctuation',
+  unknown: 'Not looked up',
 };
 
 /** A weighted reference from one lexeme to another. */
@@ -66,11 +75,23 @@ export interface Lexeme {
   description: string;
   contexts: LexemeContext[];
   /**
-   * The other spellings this word takes, keyed by form. Which keys are present
-   * depends on the word type: a verb has five, a noun two, an adjective three,
-   * and a preposition none at all.
+   * The other spellings this word takes, keyed by form — `{singular: 'cat',
+   * plural: 'cats'}`. Which keys are present depends on the word type: a verb has
+   * five, a noun two, an adjective three, and a preposition none at all.
+   *
+   * Absent means no morphology dataset has been asked about this word yet, which
+   * is not the same as the word having no other forms. Nothing here is ever
+   * worked out from the spelling.
    */
   variations?: Record<string, string>;
+  /**
+   * Set when this entry is one of another entry's forms rather than a word the
+   * corpus was counted for: `cats` carries the id of `cat`. The two share a type,
+   * a description and a paradigm.
+   */
+  variantOf?: string;
+  /** Which of `variations` this entry's spelling is: `plural`, `past`, and so on. */
+  form?: string;
   /** Set when the entry was counted out of a corpus rather than written by hand. */
   stats?: {
     /** Times the token appears in the corpus behind this lexicon. */

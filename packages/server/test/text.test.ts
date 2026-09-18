@@ -178,7 +178,7 @@ test('a word database arriving over a wire is merged in', async () => {
   assert.equal(run.ok, true);
   assert.ok(
     run.log.some((line) => /Merged \d+ word\(s\) from Random Text/.test(line)),
-    `expected a merge line: ${run.log.join(' | ')}`,
+    `expected a merge line: log=${run.log.join(' | ')} warnings=${run.warnings.join(' | ')}`,
   );
 
   const merged = (await (

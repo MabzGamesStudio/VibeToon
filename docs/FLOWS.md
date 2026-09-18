@@ -59,7 +59,7 @@ Counts words out of a corpus into a database other flows can write from.
 
 `text.dictionary` · **bespoke editor**
 
-Takes a word database and asks a dictionary what each word is, so its types are known rather than guessed.
+Takes a word database and asks a dictionary what each word is and a dataset what forms it takes, so nothing is guessed.
 
 - **In:** Word database *(required)*
 - **Out:** Word database `lexicon.json`, Report `report.md`

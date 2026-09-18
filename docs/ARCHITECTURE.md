@@ -164,10 +164,14 @@ needs. The consequence is that the *counting* settings apply when a corpus is
 added — a dataset cannot be re-pruned upwards later without counting the text
 again.
 
-The two network calls live on the server because the browser cannot make them:
-book sites do not allow cross-origin reads, and the dictionary cache belongs on
-disk. Both degrade rather than fail — a blocked dictionary leaves every word with
-a guessed type and says so.
+The three network calls live on the server because the browser cannot make them:
+book sites do not allow cross-origin reads, and the dictionary cache and the
+morphology index belong on disk. All of them degrade rather than fail — a blocked
+dictionary leaves every word's type `unknown` and says so, and an unbuilt
+morphology index leaves every word's forms unknown and says that too. Nothing
+substitutes a guess for a missing answer: there used to be a rule engine for word
+forms and a suffix table for word types, and both are gone, because the grammar
+flow trusts what it is told and cannot tell a guess from a fact.
 
 ## Drawings
 
