@@ -148,6 +148,9 @@ const IRREGULAR_VERBS: Record<string, IrregularVerb> = {
   wake: ['wake', 'wakes', 'waking', 'woke', 'woken'],
   blow: ['blow', 'blows', 'blowing', 'blew', 'blown'],
   freeze: ['freeze', 'freezes', 'freezing', 'froze', 'frozen'],
+  beat: ['beat', 'beats', 'beating', 'beat', 'beaten'],
+  forbid: ['forbid', 'forbids', 'forbidding', 'forbade', 'forbidden'],
+  forsake: ['forsake', 'forsakes', 'forsaking', 'forsook', 'forsaken'],
   hit: ['hit', 'hits', 'hitting', 'hit', 'hit'],
   hurt: ['hurt', 'hurts', 'hurting', 'hurt', 'hurt'],
   sleep: ['sleep', 'sleeps', 'sleeping', 'slept', 'slept'],
@@ -161,9 +164,67 @@ const IRREGULAR_VERBS: Record<string, IrregularVerb> = {
   must: ['must', 'must', null, null, null],
 };
 
+/**
+ * Prefixes that leave the verb underneath them intact: `forgive` conjugates like
+ * `give`, `understand` like `stand`, `rewrite` like `write`. Listing the
+ * prefixes is a great deal shorter, and more complete, than listing every
+ * prefixed form of every irregular verb.
+ */
+const VERB_PREFIXES = [
+  'be',
+  'dis',
+  'fore',
+  'for',
+  'mis',
+  'out',
+  'over',
+  're',
+  'un',
+  'under',
+  'up',
+  'with',
+];
+
+/** `forgave` back to `forgive`: the stem is reversed, then the prefix restored. */
+function prefixedLemma(word: string): string | undefined {
+  for (const prefix of VERB_PREFIXES) {
+    if (!word.startsWith(prefix)) continue;
+    const stem = word.slice(prefix.length);
+    if (stem.length < 2) continue;
+    const base = REVERSE_VERBS.get(stem);
+    // Only when the prefixed form really is irregular, so `rendered` is not read
+    // as `re` + `ndered`.
+    if (base && prefixedIrregular(`${prefix}${base}`)) return `${prefix}${base}`;
+  }
+  return undefined;
+}
+
+/** The irregular pattern a prefixed verb inherits, if it inherits one. */
+function prefixedIrregular(verb: string): IrregularVerb | undefined {
+  for (const prefix of VERB_PREFIXES) {
+    if (!verb.startsWith(prefix)) continue;
+    const stem = verb.slice(prefix.length);
+    // `do` and `go` are two letters, so two is the floor. Anything shorter has
+    // no verb in it; anything that decomposes wrongly — `forbid` into `bid` —
+    // is listed above, and the table is consulted first.
+    if (stem.length < 2) continue;
+    const base = IRREGULAR_VERBS[stem];
+    if (!base) continue;
+    const [, third, progressive, past, participle] = base;
+    return [
+      verb,
+      `${prefix}${third}`,
+      progressive ? `${prefix}${progressive}` : null,
+      past ? `${prefix}${past}` : null,
+      participle ? `${prefix}${participle}` : null,
+    ];
+  }
+  return undefined;
+}
+
 export function conjugate(infinitive: string): Variations {
   const verb = infinitive.toLowerCase();
-  const irregular = IRREGULAR_VERBS[verb];
+  const irregular = IRREGULAR_VERBS[verb] ?? prefixedIrregular(verb);
   if (irregular) {
     const [base, third, progressive, past, participle] = irregular;
     return {
@@ -261,6 +322,39 @@ const UNCHANGING_NOUNS = new Set([
   'scissors',
   'trousers',
 ]);
+
+/**
+ * Singular nouns that end in `s`.
+ *
+ * `cactus` is not the plural of `cactu`, but stripping the `s` produces a stem
+ * that pluralises straight back to `cactus`, so the guard that normally catches
+ * a bad de-pluralisation waves it through. The `-us`, `-is` and `-ss` endings
+ * are a reliable rule; the rest are common enough to be worth naming.
+ */
+const SINGULAR_IN_S = new Set([
+  'lens',
+  'gas',
+  'atlas',
+  'bias',
+  'canvas',
+  'alias',
+  'iris',
+  'bus',
+  'plus',
+  'yes',
+  'gallows',
+  'lens',
+]);
+
+/** True when a word ending in `s` is already singular and must not be stripped. */
+function isSingularInS(word: string): boolean {
+  if (!word.endsWith('s')) return false;
+  // A known singular whose plural is irregular: `cactus`, `analysis`, `focus`.
+  if (IRREGULAR_PLURALS[word] !== undefined) return true;
+  if (SINGULAR_IN_S.has(word)) return true;
+  // `-ss` is never a plural ending; `-us` and `-is` almost never are.
+  return word.endsWith('ss') || word.endsWith('us') || word.endsWith('is');
+}
 
 /** `-f` words that just take an s. */
 const F_KEEPERS = new Set(['roof', 'chief', 'belief', 'chef', 'cliff', 'proof', 'reef', 'safe', 'grief']);
@@ -401,6 +495,8 @@ export function lemmaOf(spelling: string, type: WordType): string {
   if (type === 'verb') {
     const irregular = REVERSE_VERBS.get(word);
     if (irregular) return irregular;
+    const prefixed = prefixedLemma(word);
+    if (prefixed) return prefixed;
     for (const candidate of undoVerbSuffix(word)) {
       if (conjugateContains(candidate, word)) return candidate;
     }
@@ -411,6 +507,9 @@ export function lemmaOf(spelling: string, type: WordType): string {
     if (UNCHANGING_NOUNS.has(word)) return word;
     const irregular = REVERSE_PLURALS.get(word);
     if (irregular) return irregular;
+    // Checked after the reverse table, so a real plural like `crises` still
+    // resolves to `crisis` rather than being mistaken for a singular.
+    if (isSingularInS(word)) return word;
     for (const candidate of undoPluralSuffix(word)) {
       if (pluralize(candidate) === word) return candidate;
     }

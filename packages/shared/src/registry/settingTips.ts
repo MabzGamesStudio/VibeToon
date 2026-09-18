@@ -299,6 +299,16 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'Set it yourself to correct a guess — a wrong type is the commonest cause of odd writing.',
     ],
   },
+  'lexicon.variations': {
+    what: 'The other spellings this word takes, worked out from its type. They are what lets the generator write a past tense where a sentence shape asks for one.',
+    examples: [
+      'A verb has five: infinitive, third person singular, present progressive, past, past participle.',
+      'A noun has two: singular and plural.',
+      'An adjective or adverb has three: positive, comparative, superlative.',
+      'Everything else \u2014 determiners, prepositions, pronouns \u2014 has none.',
+    ],
+    note: 'Worked out by rule, with tables for the irregulars. Correct the word type above and the forms are worked out again for the type it now is.',
+  },
   'lexicon.description': {
     what: 'What the word means. It is for you, not for the generator: nothing in the writing reads it.',
     examples: ['Filled in from the dictionary.', 'Yours to correct or replace.'],

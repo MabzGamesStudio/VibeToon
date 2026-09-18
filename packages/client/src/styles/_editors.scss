@@ -937,3 +937,81 @@
     gap: 3px;
   }
 }
+
+/**
+ * TEMPORARY — the Random Text flow's type/variant view of its own output.
+ * Remove alongside text/tokenGloss.ts.
+ */
+.vt-text-output.is-gloss {
+  line-height: 2;
+}
+
+.vt-gloss {
+  display: inline-block;
+  margin: 0 3px 3px 0;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: $radius-sm;
+  font-family: $mono;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: help;
+
+  &.has-variants {
+    color: $ok;
+    border-color: rgba(86, 194, 113, 0.35);
+    background: rgba(86, 194, 113, 0.1);
+  }
+
+  &.no-variants {
+    color: $text-faint;
+    border-color: $line;
+    background: $bg-1;
+  }
+
+  &.is-unknown {
+    color: $err;
+    border-color: rgba(232, 112, 90, 0.4);
+    background: rgba(232, 112, 90, 0.1);
+  }
+}
+
+.vt-gloss-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: $text-faint;
+
+  .vt-gloss {
+    cursor: default;
+  }
+}
+
+/** The forms a word takes, in the word database's detail panel. */
+.vt-variations {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 4px 0 2px;
+  font-size: 11.5px;
+
+  dt {
+    font-family: $mono;
+    font-size: 10.5px;
+    color: $text-faint;
+    white-space: nowrap;
+  }
+
+  dd {
+    margin: 0;
+    color: $text-dim;
+  }
+
+  .is-current {
+    color: $accent;
+    font-weight: 500;
+  }
+}

@@ -3,9 +3,11 @@ import {
   DEFAULT_RANDOM_TEXT_OPTIONS,
   LENGTH_MODES,
   LENGTH_MODE_LABEL,
+  glossTokens,
   renderParts,
   resolveTextRun,
   runRandomText,
+  summariseGloss,
   type FlowNode,
   type LengthMode,
   type Project,
@@ -28,6 +30,8 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
   const data = node.data as TextFlowData;
   const { view: prefs } = useView();
   const [tab, setTab] = useState<'text' | 'lexicon'>('text');
+  // TEMPORARY: the type/variant view of the output. See text/tokenGloss.ts.
+  const [gloss, setGloss] = useState(false);
   // Rerunning the generator on every keystroke is the most expensive thing the
   // studio does, so whether it starts on is a preference.
   const [live, setLive] = useState(prefs.livePreview);
@@ -75,6 +79,13 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
 
   const result = preview && !('error' in preview) ? preview : null;
   const parts = useMemo(() => (result ? renderParts(result.tokens) : []), [result]);
+  // TEMPORARY: what each written token actually is, read back against the
+  // database the run wrote from.
+  const glosses = useMemo(
+    () => (result && gloss ? glossTokens(result.tokens, resolved.lexicon) : []),
+    [gloss, resolved.lexicon, result],
+  );
+  const glossStats = useMemo(() => summariseGloss(glosses), [glosses]);
   const upstreamText = upstream.sources.find((source) => source.port === 'text' && source.text);
   const upstreamGrammar = upstream.sources.find((source) => source.port === 'grammar' && source.grammar)?.label;
   const stats = result?.stats;
@@ -385,6 +396,16 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                 />
                 <span className="vt-faint">live preview</span>
               </label>
+              {/* TEMPORARY: see text/tokenGloss.ts for how to remove this. */}
+              <button
+                type="button"
+                className={`vt-btn is-small${gloss ? ' is-active' : ''}`}
+                disabled={!result}
+                title="Show what each word is — noun:plural instead of cats — and whether it has variants at all"
+                onClick={() => setGloss((current) => !current)}
+              >
+                {gloss ? 'Words' : 'Types'}
+              </button>
               <button
                 type="button"
                 className="vt-btn is-small"
@@ -409,7 +430,48 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               </div>
             ) : null}
 
-            {result ? (
+            {result && gloss ? (
+              /* TEMPORARY: the type/variant view. See text/tokenGloss.ts. */
+              <>
+                <div className="vt-gloss-legend">
+                  <span className="vt-gloss has-variants">type:form</span> has variants ·{' '}
+                  <span className="vt-gloss no-variants">type</span> no variants for this word type ·{' '}
+                  <span className="vt-gloss is-unknown">?:word</span> not in the database
+                  <span className="vt-spacer" />
+                  <strong>
+                    {glossStats.withVariants} of {glossStats.words}
+                  </strong>{' '}
+                  word(s) have variants
+                  {glossStats.withoutVariants > 0 ? `, ${glossStats.withoutVariants} cannot` : ''}
+                  {glossStats.unknown > 0 ? `, ${glossStats.unknown} unknown` : ''}
+                </div>
+                <div className="vt-text-output is-gloss">
+                  {glosses.map((item, position) =>
+                    item.label === '\n' || item.label === '\n\n' ? (
+                      <br key={position} />
+                    ) : (
+                      <span
+                        key={position}
+                        className={`vt-gloss ${
+                          item.unknown ? 'is-unknown' : item.hasVariants ? 'has-variants' : 'no-variants'
+                        }`}
+                        title={
+                          item.variations
+                            ? `${result.tokens[position]?.text} — ${Object.entries(item.variations)
+                                .map(([form, spelling]) => `${form}: ${spelling}`)
+                                .join(', ')}`
+                            : item.unknown
+                              ? `${result.tokens[position]?.text} — not in the word database`
+                              : `${result.tokens[position]?.text} — a ${item.type} has no variants`
+                        }
+                      >
+                        {item.label}
+                      </span>
+                    ),
+                  )}
+                </div>
+              </>
+            ) : result ? (
               <div className="vt-text-output">
                 {parts.map((part, position) => (
                   <span
