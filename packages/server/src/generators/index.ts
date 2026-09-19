@@ -6,6 +6,8 @@ import { generateDesign } from './design';
 import { generateDictionary } from './dictionary';
 import { generateGrammar } from './grammar';
 import { generateLexicon } from './lexicon';
+import { generatePalette } from './palette';
+import { generateRig } from './rig';
 import { generateDialog } from './dialog';
 import { generateStoryboard } from './storyboard';
 import { generateText } from './text';
@@ -28,6 +30,8 @@ const GENERATORS: Record<string, Generator> = {
   'animation.set.design': generateDesign,
   'animation.prop.design': generateDesign,
   'animation.animatic': generateAnimatic,
+  'animation.rig': generateRig,
+  'art.palette': generatePalette,
   'production.edit': generateAssembly,
   'production.render': generateAssembly,
 };

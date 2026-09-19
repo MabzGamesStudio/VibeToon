@@ -466,6 +466,143 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     ],
     note: 'Rules on the incoming wire can clamp every shot to a shortest and longest hold.',
   },
+
+  /* ---------------------------------------------------------------- *
+   * Colour palette
+   * ---------------------------------------------------------------- */
+  'palette.count': {
+    what: 'How many colours the palette has.',
+    examples: [
+      '3 to 5 — a scheme you could paint a whole shot with.',
+      '8 to 12 — enough to describe a photograph.',
+      'The image may not have that many far enough apart, and the flow says so rather than padding the palette.',
+    ],
+  },
+  'palette.minDistance': {
+    what: 'How far apart two palette colours must look. Anything closer joins the group of the colour already chosen instead of becoming an entry of its own.',
+    examples: [
+      '0 — the raw top counts. A photo of a sky gives you five near-identical blues.',
+      '2 — the point at which a person can see a difference at all.',
+      '12 — the default. Navy against royal blue is about 20.',
+      '35 — only genuinely different colours, so a palette of six needs a busy picture.',
+    ],
+    note: 'Measured in OKLab, where equal numbers look equally different, times 100 so black to white is about 100. Plain RGB cannot do this: it puts navy/blue and green/mint the same distance apart.',
+  },
+  'palette.temperature': {
+    what: 'How far each entry may wander from its group\u2019s commonest colour.',
+    examples: [
+      '0 — every entry is the exact modal colour of its group.',
+      '0.5 — halfway towards another colour from the same group.',
+      '1 — any colour from the group, weighted by how often it appears.',
+    ],
+    note: 'It moves towards another member of the same group and never out of it, so a palette colour is always a colour the image actually contains.',
+  },
+  'palette.seed': {
+    what: 'Same seed, same palette. Rerolling is an edit you can see rather than a result that changes under you.',
+    examples: ['Only does anything above temperature 0 \u2014 at 0 there is nothing to choose.'],
+  },
+  'palette.precision': {
+    what: 'How finely colours are rounded together before they are counted.',
+    examples: [
+      '5 bits \u2014 32 levels a channel. The default.',
+      '8 bits \u2014 no rounding, so a photograph has almost no repeated colours and the mode means nothing.',
+      '3 bits \u2014 very coarse, for finding the broad blocks of a painting.',
+    ],
+    note: 'Without rounding, a photograph of a red wall holds a hundred thousand slightly different reds seen once each. Read the image again for a change here to take effect.',
+  },
+  'palette.alphaFloor': {
+    what: 'Pixels this transparent are not counted.',
+    examples: [
+      '8 \u2014 the default. Skips a cut-out background.',
+      '0 \u2014 counts every pixel, so a transparent PNG\u2019s commonest colour is the hole in the middle.',
+      '255 \u2014 only fully opaque pixels.',
+    ],
+  },
+  'palette.minShare': {
+    what: 'Leaves out a colour group that accounts for less than this much of the image.',
+    examples: ['0% \u2014 keep everything.', '2% \u2014 drops the odd stray highlight.'],
+    note: 'The commonest group is always kept, so the palette is never empty.',
+  },
+  'palette.pinned': {
+    what: 'A colour you chose by hand, used as it is whatever the settings do.',
+    examples: ['For a brand colour, or when the count found something almost right.'],
+    note: 'Pinned by position, so it survives changing the count or the distance. Clear it to go back to what was counted.',
+  },
+
+  /* ---------------------------------------------------------------- *
+   * Skeletal rig
+   * ---------------------------------------------------------------- */
+  'rig.kind': {
+    what: 'What kind of skeleton the character has. The type *is* the structure: how many bones, and how they connect.',
+    examples: [
+      'Human \u2014 two arms, two legs, a spine of three.',
+      'Octopus \u2014 eight arms of five bones, each arm its own chain.',
+      'Snake \u2014 a head and fourteen body joints, all one chain.',
+    ],
+    note: 'Swapping type keeps the limits of any bone that exists in both skeletons, matched by id. A head stays the head you tuned; an arm does not become a foreleg.',
+  },
+  'rig.angleRange': {
+    what: 'How far the joint may turn from its rest pose, in degrees. A hard stop, not a preference.',
+    examples: [
+      'An elbow: 0\u00b0 to 145\u00b0 \u2014 it bends one way and cannot go the other.',
+      'A knee: -140\u00b0 to 0\u00b0 \u2014 the same thing the other way round.',
+      'Both ends at 0\u00b0 welds the joint.',
+    ],
+    note: 'Getting this wrong is what makes a rig look broken. A range that does not include 0 means the character starts the shot already out of bounds.',
+  },
+  'rig.angleStiffness': {
+    what: 'How hard the joint pulls back towards its rest angle. A cost rather than a stop \u2014 the range is the stop.',
+    examples: [
+      '0.2 \u2014 a shoulder: it goes where it is put.',
+      '0.7 \u2014 a chest: it resists.',
+      '1 \u2014 it always returns to rest.',
+    ],
+    note: 'A shoulder and a neck have similar ranges and very different stiffness, and that is most of what makes one character move like a person and another like a puppet.',
+  },
+  'rig.stretchRange': {
+    what: 'How much the bone may change length, as a multiple of its rest length.',
+    examples: [
+      '\u00d71 to \u00d71 \u2014 rigid bone.',
+      '\u00d70.95 to \u00d71.08 \u2014 a limb with a little give.',
+      '\u00d70.7 to \u00d71.4 \u2014 cartoon rubber.',
+    ],
+  },
+  'rig.stretchStiffness': {
+    what: 'How hard the bone pulls back to its rest length.',
+    examples: ['1 \u2014 bone.', '0.4 \u2014 flesh.', '0 \u2014 chewing gum.'],
+  },
+  'rig.floppiness': {
+    what: 'How loose a whole chain of bones is. One number for the lot, because a tentacle is one behaviour rather than eight decisions.',
+    examples: [
+      '0 \u2014 the chain is welded solid.',
+      '0.35 \u2014 a spider\u2019s leg.',
+      '0.9 \u2014 an octopus arm.',
+    ],
+    note: 'Any single joint in the chain can still be given its own angles, and told to follow the chain again afterwards.',
+  },
+  'rig.taper': {
+    what: 'How much of the chain\u2019s floppiness the base gives up. The tip always keeps all of it.',
+    examples: [
+      '0 \u2014 every joint in the chain is equally floppy.',
+      '0.5 \u2014 the base moves half as far as the tip.',
+      '1 \u2014 the base does not move at all.',
+    ],
+    note: 'This is what makes a tentacle read as a tentacle rather than a hinge: a real arm is anchored at the body and loose at the end.',
+  },
+  'rig.span': {
+    what: 'How far a fully floppy joint in this chain may turn, either way.',
+    examples: ['\u00b120\u00b0 \u2014 a segmented abdomen.', '\u00b155\u00b0 \u2014 an octopus arm that can curl.'],
+    note: 'Floppiness scales this. A span of \u00b155\u00b0 at floppiness 0.5 gives \u00b127.5\u00b0.',
+  },
+  'rig.squashAndStretch': {
+    what: 'Multiplies every bone\u2019s length range at once, so a whole character can be made rubbery without touching each bone.',
+    examples: ['\u00d71 \u2014 whatever the character type says.', '\u00d70 \u2014 nothing stretches at all.', '\u00d73 \u2014 broad cartoon.'],
+  },
+  'rig.looseness': {
+    what: 'Multiplies every angle range at once.',
+    examples: ['\u00d71 \u2014 the type\u2019s own limits.', '\u00d70.5 \u2014 a tighter, more controlled character.'],
+    note: 'It scales the range without changing which way a joint bends, so an elbow at any looseness still only bends one way.',
+  },
 };
 
 /** The tip for a setting, or nothing when none has been written yet. */

@@ -1030,3 +1030,157 @@
     font-weight: 500;
   }
 }
+
+/* Colour palette ------------------------------------------------------ */
+
+.vt-palette-source {
+  border: 1px solid $line;
+  border-radius: $radius;
+  overflow: hidden;
+  background: $bg-0;
+  // A checkerboard, so a transparent image reads as transparent rather than as
+  // whatever the panel behind it happens to be.
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.05) 25%, transparent 25% 75%, rgba(255, 255, 255, 0.05) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.05) 25%, transparent 25% 75%, rgba(255, 255, 255, 0.05) 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 6px 6px;
+
+  img {
+    display: block;
+    width: 100%;
+    max-height: 160px;
+    object-fit: contain;
+  }
+}
+
+/**
+ * The palette as a strip. Each band is as wide as the share of the image its
+ * colour accounts for, so the picture's own proportions are readable at a glance
+ * rather than being a column of numbers.
+ */
+.vt-swatches {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 180px;
+  margin-bottom: 12px;
+}
+
+.vt-swatch {
+  flex: 1 1 0;
+  min-width: 40px;
+  border: 1px solid $line;
+  border-radius: $radius-sm;
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+
+  &.is-selected {
+    outline: 2px solid $accent;
+    outline-offset: 1px;
+  }
+
+  &.is-pinned::after {
+    content: '📌';
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    font-size: 11px;
+  }
+}
+
+.vt-swatch-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 6px;
+  font-family: $mono;
+  font-size: 10px;
+  // The label has to be legible on any colour, which a translucent dark bar does
+  // and a fixed text colour does not.
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  text-align: left;
+}
+
+/* Skeletal rig -------------------------------------------------------- */
+
+.vt-rig-stage {
+  position: relative;
+  flex: 1;
+  min-height: 260px;
+  border: 1px solid $line;
+  border-radius: $radius;
+  background: $bg-0;
+  overflow: hidden;
+}
+
+/** The design, behind the bones, so a skeleton can be laid over a drawing. */
+.vt-rig-reference {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.vt-rig {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.vt-rig-bone {
+  stroke: $text-faint;
+  stroke-linecap: round;
+  pointer-events: none;
+
+  // A chained bone reads its angles off its chain rather than one at a time, and
+  // it is worth seeing which those are before clicking one.
+  &.is-chained {
+    stroke: rgba(110, 168, 254, 0.55);
+  }
+
+  &.is-selected {
+    stroke: $accent;
+  }
+
+  &.is-twin {
+    stroke: $ok;
+    stroke-dasharray: 3 2;
+  }
+}
+
+.vt-rig-hit {
+  stroke: transparent;
+  cursor: pointer;
+}
+
+.vt-rig-joint {
+  fill: $bg-2;
+  stroke: $text-faint;
+  stroke-width: 0.5;
+  pointer-events: none;
+
+  &.is-selected {
+    fill: $accent;
+    stroke: $accent;
+  }
+}
+
+/** The wedge the selected joint can turn through, drawn at the joint itself. */
+.vt-rig-arc {
+  fill: rgba(110, 168, 254, 0.18);
+  stroke: rgba(110, 168, 254, 0.5);
+  stroke-width: 0.4;
+  pointer-events: none;
+}

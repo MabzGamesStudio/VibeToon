@@ -480,23 +480,18 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
   {
     kind: 'animation.rig',
     category: 'animation',
-    label: 'Rig / Puppet',
-    summary: 'The character as a puppet: parts, pivots, swaps, mouth set.',
+    label: 'Skeletal Rig',
+    summary: 'A skeleton for the character: what bones it has, and how far each joint may move.',
     inputs: [
-      input('design', 'Design', ['image', 'imageSet'], 'Character design.'),
-      input('spec', 'Spec', ['markdown'], 'Design spec.'),
+      input('design', 'Design', ['image', 'imageSet'], 'A drawing to lay the skeleton over.'),
+      input('spec', 'Spec', ['markdown'], 'Design spec, for reference while rigging.'),
     ],
     outputs: [
-      output('rig', 'Rig', ['json'], 'rig.json', 'Parts, pivots and swap sets.'),
-      output('doc', 'Rig notes', ['markdown'], 'rig.md', 'How to animate this puppet.'),
+      output('rig', 'Rig', ['json'], 'rig.json', 'Every bone with its parent, its length and its limits.'),
+      output('doc', 'Rig notes', ['markdown'], 'rig.md', 'The skeleton as a table, and what the limits mean.'),
     ],
-    editor: 'brief',
-    maturity: 'brief',
-    fields: [
-      field('parts', 'Parts', 'list', 'One per line: `part — parent — pivot`.'),
-      field('swaps', 'Swaps', 'list', 'Hand sets, mouth shapes, eye sets.'),
-      field('limits', 'Limits', 'text', 'What the rig cannot do, so boards avoid it.'),
-    ],
+    editor: 'rig',
+    maturity: 'editor',
   },
   {
     kind: 'animation.animatic',
@@ -566,6 +561,24 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
   /* ---------------------------------------------------------------- *
    * Art
    * ---------------------------------------------------------------- */
+  {
+    kind: 'art.palette',
+    category: 'art',
+    label: 'Colour Palette',
+    summary: 'Counts the colours in an image and takes the commonest that are far enough apart.',
+    inputs: [
+      input('image', 'Image', ['image', 'imageSet'], 'The picture to take the colours from.', {
+        required: true,
+      }),
+    ],
+    outputs: [
+      output('palette', 'Palette', ['json'], 'palette.json', 'The colours, with how much of the image each accounts for.'),
+      output('report', 'Report', ['markdown'], 'report.md', 'What was counted, what was bucketed together, and why.'),
+    ],
+    editor: 'palette',
+    maturity: 'editor',
+    defaultOutgoingRules: { palette: 'keep: hex values, shares\nignore: pixel counts' },
+  },
   {
     kind: 'art.colorscript',
     category: 'art',

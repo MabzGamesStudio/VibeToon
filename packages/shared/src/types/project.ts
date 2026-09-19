@@ -5,6 +5,8 @@ import type { CorpusFlowData } from '../flows/corpusFlow';
 import type { DictionaryFlowData } from '../flows/dictionary';
 import type { GrammarFlowData } from '../flows/grammar';
 import type { LexiconFlowData } from '../flows/lexicon';
+import type { PaletteFlowData } from '../flows/palette';
+import type { RigFlowData } from '../flows/rig';
 import type { TextFlowData } from './text';
 
 export interface Vec2 {
@@ -179,7 +181,9 @@ export type FlowData =
   | LexiconFlowData
   | GrammarFlowData
   | CorpusFlowData
-  | DictionaryFlowData;
+  | DictionaryFlowData
+  | PaletteFlowData
+  | RigFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph

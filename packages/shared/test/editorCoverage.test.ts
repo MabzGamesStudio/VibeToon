@@ -81,7 +81,17 @@ test('the flows that write files are tested against a running server too', async
   const present = await files(SERVER_TEST);
   // These have a generator that writes artifacts, so what they write is worth
   // checking end to end and not only as a pure function.
-  const withGenerators = ['corpus', 'dictionary', 'grammar', 'lexicon', 'text', 'animatic', 'design'];
+  const withGenerators = [
+    'corpus',
+    'dictionary',
+    'grammar',
+    'lexicon',
+    'text',
+    'animatic',
+    'design',
+    'palette',
+    'rig',
+  ];
   const missing = withGenerators.filter(
     (editor) => !candidates(editor).some((name) => present.includes(name)),
   );

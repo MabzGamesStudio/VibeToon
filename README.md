@@ -45,7 +45,7 @@ Set `VIBETOON_DATA` to keep them somewhere else.
 
 ## What you can do today
 
-- **Graph overview.** Add flows from a catalogue of 37 kinds, drag a port to
+- **Graph overview.** Add flows from a catalogue of 40 kinds, drag a port to
   another port to connect them, and see at a glance what is up to date, what is
   stale and what failed. Port types are checked and loops are refused.
 - **A View menu.** Everything the studio draws costs something on a big project:
@@ -111,6 +111,20 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   vector tools as the board, alongside the written spec. Generating writes the
   first plate as the flow's key image — `character.png` — and every plate as its
   model sheet, so the picture and the words that describe it stay together.
+- **Colour palette.** An image in, the colours it actually uses most out —
+  *counted*, not averaged, which is how palettes avoid coming out as five
+  shades of mud. A minimum distance measured in OKLab stops a gradient of near
+  neighbours taking every slot: anything closer joins a group, and the palette
+  is one colour picked out of each group. A temperature moves that pick around
+  inside its group, so a palette colour is always a colour the image contains.
+  See [docs/COLOUR-PALETTE.md](docs/COLOUR-PALETTE.md).
+- **Skeletal rig.** A character type is a skeleton, not a label: `octopus` is
+  forty-two bones in eight chains and `human` is nineteen in a different shape.
+  The editor draws it over the character design and edits limits — range of
+  motion, stiffness, and how far a bone may squash or stretch. A run of small
+  bones is a chain with one floppiness, so a tentacle is one slider rather than
+  eight, and editing a left bone writes its right twin.
+  See [docs/SKELETAL-RIG.md](docs/SKELETAL-RIG.md).
 - **Animatic.** The board laid out in time: hold a shot longer, cut one out, aim
   at a runtime and fit the whole cut to it — none of which touches the board. It
   plays in the browser, and **Export video** records the same cut to a real video
@@ -132,13 +146,16 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   exists. There is no model wired in; every generator is deterministic and local
   — including the random text flow, which walks a word database you can edit
   rather than predicting anything.
-- Bespoke editors exist for eight flow kinds so far (dialog, storyboard, word
-  database, random text, animatic, and the three design sheets). The rest
-  are real and usable through the brief editor, but they are text and uploads,
-  not purpose-built tools.
+- Bespoke editors exist for thirteen flow kinds so far (corpus, word database,
+  dictionary, grammar database, random text, dialog, storyboard, the three
+  design sheets, colour palette, skeletal rig and animatic). The rest are real
+  and usable through the brief editor, but they are text and uploads, not
+  purpose-built tools.
 - Building a word database from a book needs the network: one download for the
   text, and one dictionary request per word (cached afterwards). Without it the
-  bundled sample corpus still works, and word types fall back to a guess.
+  bundled sample corpus still works, because the words in it ship with their
+  meanings — but a word nothing has answered for stays `unknown` rather than
+  falling back to a guess.
 - Rendering an mp4 on the server needs ffmpeg installed separately. The
   in-browser export writes WebM, recorded in real time — a 30 second animatic
   takes 30 seconds — and the file it produces carries no duration in its header,

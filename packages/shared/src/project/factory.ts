@@ -7,6 +7,8 @@ import { emptyCorpusFlowData } from '../flows/corpusFlow';
 import { emptyDictionaryFlowData } from '../flows/dictionary';
 import { emptyGrammarFlowData } from '../flows/grammar';
 import { emptyLexiconFlowData } from '../flows/lexicon';
+import { emptyPaletteFlowData } from '../flows/palette';
+import { emptyRigFlowData } from '../flows/rig';
 import { emptyTextData } from '../flows/text';
 import { newId } from '../ids';
 import { getFlowKind, requireFlowKind } from '../registry/flowKinds';
@@ -51,6 +53,10 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyCorpusFlowData();
     case 'dictionary':
       return emptyDictionaryFlowData();
+    case 'palette':
+      return emptyPaletteFlowData();
+    case 'rig':
+      return emptyRigFlowData();
     default:
       return emptyBriefData(def);
   }

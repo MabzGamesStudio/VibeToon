@@ -24,6 +24,8 @@ export * from './flows/dictionary';
 export * from './flows/grammar';
 export * from './flows/animatic';
 export * from './flows/design';
+export * from './flows/palette';
+export * from './flows/rig';
 
 export * from './text/tokenize';
 export * from './text/lexicon';
