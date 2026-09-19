@@ -1,0 +1,472 @@
+import { useCallback, useMemo, useState } from 'react';
+import {
+  DEFAULT_PALETTE_OPTIONS,
+  applyPinned,
+  derivePalette,
+  fromHex,
+  histogramState,
+  inputsForPort,
+  quantise,
+  summarisePalette,
+  toHex,
+  type ColorCount,
+  type FlowNode,
+  type ImageHistogram,
+  type PaletteFlowData,
+  type Project,
+} from '@vibetoon/shared';
+import { api } from '../../api/client';
+import { useStudio } from '../../state/store';
+import { Field } from '../common/Field';
+import { Slider } from '../common/Slider';
+import { formatWhen } from '../common/format';
+import { EditorShell } from './EditorShell';
+
+/**
+ * Roughly how many pixels to look at.
+ *
+ * A photograph off a phone is a few million pixels and counting all of them in
+ * JavaScript takes long enough to notice. Every Nth pixel is taken instead, which
+ * is a sample of the real colours rather than a resize — downscaling would
+ * interpolate, and interpolation invents colours that are not in the picture,
+ * which is exactly what a palette must not contain.
+ */
+const SAMPLE_TARGET = 400_000;
+
+/**
+ * Colours out of an image.
+ *
+ * Reading happens here because this is where an image can be decoded: the browser
+ * already knows how to read a PNG, a JPEG, a WebP or a GIF, and the alternative is
+ * this project carrying a decoder for each. What is kept in the flow is the tally,
+ * so generating is instant and needs neither the picture nor a network.
+ */
+export function PaletteFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
+  const { setFlowData, generateFlow, notify } = useStudio();
+  const data = node.data as PaletteFlowData;
+  const [reading, setReading] = useState(false);
+  const [selected, setSelected] = useState<number | null>(null);
+
+  const patch = useCallback((next: PaletteFlowData) => setFlowData(node.id, next), [node.id, setFlowData]);
+  const options = { ...DEFAULT_PALETTE_OPTIONS, ...data.options };
+  const setOption = <K extends keyof typeof options>(key: K, value: (typeof options)[K]) =>
+    patch({ ...data, options: { ...options, [key]: value } });
+
+  const imageInput = inputsForPort(project, node.id, 'image')[0];
+  const artifact = imageInput?.artifact;
+  const state = histogramState(data, artifact?.hash);
+
+  /** An `imageSet` port carries a folder; the first image in it is the one read. */
+  const imagePath = useMemo(() => {
+    if (!artifact) return '';
+    const entry = artifact.entries?.[0];
+    return entry ? `${artifact.path}/${entry}` : artifact.path;
+  }, [artifact]);
+
+  const palette = useMemo(
+    () => (data.histogram ? applyPinned(derivePalette(data.histogram, options), data.pinned) : null),
+    [data.histogram, data.pinned, options],
+  );
+  const summary = useMemo(
+    () => (palette ? summarisePalette(palette, data) : null),
+    [data, palette],
+  );
+
+  /**
+   * Decode the image and count its colours.
+   *
+   * The canvas is the decoder. Pixels too transparent to have a colour are
+   * skipped rather than counted as black, which is what a naive read of a PNG
+   * with a cut-out background gives you: a palette whose commonest colour is the
+   * hole in the middle.
+   */
+  const readImage = useCallback(async () => {
+    if (!artifact) return;
+    setReading(true);
+    try {
+      const url = api.artifactUrl(project.id, imagePath);
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const element = new Image();
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error('the browser could not decode this image'));
+        element.src = url;
+      });
+
+      const width = image.naturalWidth;
+      const height = image.naturalHeight;
+      if (width === 0 || height === 0) throw new Error('the image has no size');
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (!context) throw new Error('this browser gave no 2D canvas');
+      context.drawImage(image, 0, 0);
+      const pixels = context.getImageData(0, 0, width, height).data;
+
+      const total = width * height;
+      const stride = Math.max(1, Math.floor(total / SAMPLE_TARGET));
+      const tally = new Map<number, number>();
+      let counted = 0;
+      let transparent = 0;
+
+      for (let index = 0; index < total; index += stride) {
+        const at = index * 4;
+        if (pixels[at + 3]! < options.alphaFloor) {
+          transparent += 1;
+          continue;
+        }
+        const r = quantise(pixels[at]!, options.precision);
+        const g = quantise(pixels[at + 1]!, options.precision);
+        const b = quantise(pixels[at + 2]!, options.precision);
+        const key = (r << 16) | (g << 8) | b;
+        tally.set(key, (tally.get(key) ?? 0) + 1);
+        counted += 1;
+      }
+
+      const colors: ColorCount[] = [...tally.entries()]
+        .map(([key, count]) => ({ r: (key >> 16) & 255, g: (key >> 8) & 255, b: key & 255, count }))
+        .sort((a, b) => b.count - a.count);
+
+      const histogram: ImageHistogram = {
+        source: imagePath.split('/').pop() ?? imagePath,
+        hash: artifact.hash,
+        width,
+        height,
+        pixels: counted,
+        transparent,
+        precision: options.precision,
+        colors,
+        readAt: new Date().toISOString(),
+      };
+      patch({ ...data, histogram });
+      notify(
+        'success',
+        `Counted ${counted.toLocaleString()} pixel(s) of ${width}×${height} as ${colors.length.toLocaleString()} distinct colour(s)${
+          stride > 1 ? `, sampling every ${stride}${stride === 2 ? 'nd' : stride === 3 ? 'rd' : 'th'} pixel` : ''
+        }.`,
+      );
+    } catch (error) {
+      notify('error', `Could not read the image: ${(error as Error).message}`);
+    } finally {
+      setReading(false);
+    }
+  }, [artifact, data, imagePath, notify, options.alphaFloor, options.precision, patch, project.id]);
+
+  const pin = (index: number, hex: string) => {
+    const next = { ...data.pinned };
+    if (fromHex(hex)) next[String(index)] = toHex(fromHex(hex)!);
+    else delete next[String(index)];
+    patch({ ...data, pinned: next });
+  };
+
+  const unpin = (index: number) => {
+    const next = { ...data.pinned };
+    delete next[String(index)];
+    patch({ ...data, pinned: next });
+  };
+
+  const blocked = !imageInput
+    ? 'Wire an image into the Image input first.'
+    : !artifact
+      ? `Press Generate on ${imageInput.sourceNode.name} first — it has not produced an image yet.`
+      : null;
+
+  return (
+    <EditorShell
+      project={project}
+      node={node}
+      onGenerate={async () => {
+        await generateFlow(node.id);
+      }}
+      banner={
+        blocked ? (
+          <div className="vt-sync-banner">
+            <span>{blocked} This flow takes the colours out of a picture; it does not make one.</span>
+          </div>
+        ) : state === 'stale' ? (
+          <div className="vt-sync-banner">
+            <span>
+              The image has changed since it was counted, so the palette below still describes the old one. Read
+              it again.
+            </span>
+          </div>
+        ) : state === 'none' ? (
+          <div className="vt-sync-banner">
+            <span>The image has not been counted yet. Press “Read the image”.</span>
+          </div>
+        ) : undefined
+      }
+    >
+      <aside className="vt-editor-side">
+        <div className="vt-section">
+          <h3>The image</h3>
+          {artifact ? (
+            <>
+              <div className="vt-palette-source">
+                <img src={api.artifactUrl(project.id, imagePath)} alt="" />
+              </div>
+              <dl className="vt-kv">
+                <dt>From</dt>
+                <dd>{imageInput?.sourceNode.name}</dd>
+                <dt>File</dt>
+                <dd>{imagePath.split('/').pop()}</dd>
+                {data.histogram ? (
+                  <>
+                    <dt>Counted</dt>
+                    <dd>
+                      {data.histogram.width}×{data.histogram.height} ·{' '}
+                      {data.histogram.pixels.toLocaleString()} pixel(s)
+                    </dd>
+                    <dt>Distinct colours</dt>
+                    <dd>{data.histogram.colors.length.toLocaleString()}</dd>
+                    <dt>Read</dt>
+                    <dd>
+                      {formatWhen(data.histogram.readAt)}
+                      {state === 'stale' ? ' — stale' : ''}
+                    </dd>
+                  </>
+                ) : null}
+              </dl>
+            </>
+          ) : (
+            <div className="vt-hint">{blocked}</div>
+          )}
+
+          <div className="vt-row" style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              className="vt-btn is-small"
+              disabled={!artifact || reading}
+              title={blocked ?? undefined}
+              onClick={() => void readImage()}
+            >
+              {reading ? 'Counting…' : data.histogram ? 'Read the image again' : 'Read the image'}
+            </button>
+          </div>
+          <div className="vt-hint">
+            The browser does the decoding, so any format it can show works. Only the tally is kept, which is
+            why generating afterwards is instant and needs nothing.
+          </div>
+        </div>
+
+        <div className="vt-section">
+          <h3>The palette</h3>
+          <Slider
+            label="Colours"
+            tip="palette.count"
+            min={1}
+            max={24}
+            step={1}
+            value={options.count}
+            format={(value) => String(Math.round(value))}
+            onChange={(value) => setOption('count', Math.round(value))}
+          />
+          <Slider
+            label="Minimum distance"
+            tip="palette.minDistance"
+            min={0}
+            max={60}
+            step={1}
+            value={options.minDistance}
+            format={(value) => value.toFixed(0)}
+            onChange={(value) => setOption('minDistance', value)}
+            hint="How far apart two entries must look. Under 2 is a difference you cannot see; 20 is navy against royal blue."
+          />
+          <Slider
+            label="Temperature"
+            tip="palette.temperature"
+            min={0}
+            max={1}
+            step={0.05}
+            value={options.temperature}
+            onChange={(value) => setOption('temperature', value)}
+            hint="How far each entry may wander from its group's commonest colour — towards another colour in the same group, never out of it."
+          />
+          <Field
+            label="Seed"
+            tip="palette.seed"
+            hint="Same seed, same palette. Only matters above temperature 0."
+          >
+            <div className="vt-row">
+              <input
+                value={options.seed}
+                aria-label="Seed"
+                onChange={(event) => setOption('seed', event.target.value)}
+              />
+              <button
+                type="button"
+                className="vt-btn is-small"
+                onClick={() => setOption('seed', Math.random().toString(36).slice(2, 8))}
+              >
+                Reroll
+              </button>
+            </div>
+          </Field>
+        </div>
+
+        <div className="vt-section">
+          <h3>Counting</h3>
+          <Slider
+            label="Colour precision"
+            tip="palette.precision"
+            min={2}
+            max={8}
+            step={1}
+            value={options.precision}
+            format={(value) => `${Math.round(value)} bits · ${2 ** Math.round(value)} levels`}
+            onChange={(value) => setOption('precision', Math.round(value))}
+            hint="How finely colours are rounded together before counting. Read the image again for a change here to take effect."
+          />
+          {data.histogram && data.histogram.precision !== options.precision ? (
+            <div className="vt-hint">
+              Counted at {data.histogram.precision} bits. Read the image again to use {options.precision}.
+            </div>
+          ) : null}
+          <Slider
+            label="Ignore pixels more transparent than"
+            tip="palette.alphaFloor"
+            min={0}
+            max={255}
+            step={1}
+            value={options.alphaFloor}
+            format={(value) => value.toFixed(0)}
+            onChange={(value) => setOption('alphaFloor', value)}
+            hint="A cut-out background is not a colour. 0 counts every pixel, transparent ones included."
+          />
+          <Slider
+            label="Drop groups under"
+            tip="palette.minShare"
+            min={0}
+            max={0.2}
+            step={0.005}
+            value={options.minShare}
+            format={(value) => `${(value * 100).toFixed(1)}% of the image`}
+            onChange={(value) => setOption('minShare', value)}
+            hint="Leaves out a colour that barely appears. The commonest is always kept."
+          />
+        </div>
+
+        {summary ? (
+          <div className="vt-section">
+            <h3>What came out</h3>
+            <dl className="vt-kv">
+              <dt>Colours</dt>
+              <dd>
+                {summary.colors} of {options.count} asked for
+              </dd>
+              <dt>Closest pair</dt>
+              <dd>
+                {summary.closest.toFixed(1)}
+                {summary.closest > 0 && summary.closest < options.minDistance - 0.5
+                  ? ' — under the minimum, because the palette ran out of room'
+                  : ''}
+              </dd>
+              <dt>Covers</dt>
+              <dd>{(summary.covered * 100).toFixed(1)}% of the image</dd>
+              {summary.pinned > 0 ? (
+                <>
+                  <dt>Pinned</dt>
+                  <dd>{summary.pinned}</dd>
+                </>
+              ) : null}
+            </dl>
+            {palette?.shortfall ? <div className="vt-hint">{palette.shortfall}</div> : null}
+          </div>
+        ) : null}
+      </aside>
+
+      <div className="vt-editor-main">
+        {!palette || palette.entries.length === 0 ? (
+          <div className="vt-empty">
+            {blocked ?? 'Read the image and the palette appears here.'}
+          </div>
+        ) : (
+          <>
+            <div className="vt-swatches">
+              {palette.entries.map((entry, index) => (
+                <button
+                  type="button"
+                  key={`${entry.hex}-${index}`}
+                  className={`vt-swatch${selected === index ? ' is-selected' : ''}${
+                    data.pinned[String(index)] ? ' is-pinned' : ''
+                  }`}
+                  style={{ background: entry.hex, flexGrow: Math.max(0.35, entry.share * palette.entries.length) }}
+                  title={`${entry.hex} — ${(entry.share * 100).toFixed(1)}% of the image, ${entry.members} colour(s) in its group, nearest other entry ${entry.nearest.toFixed(1)} away`}
+                  aria-label={`Colour ${index + 1}, ${entry.hex}`}
+                  onClick={() => setSelected(selected === index ? null : index)}
+                >
+                  <span className="vt-swatch-label">
+                    <strong>{entry.hex}</strong>
+                    <span>{(entry.share * 100).toFixed(1)}%</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {selected !== null && palette.entries[selected] ? (
+              <div className="vt-section">
+                <h3>
+                  <span>Colour {selected + 1}</span>
+                  <span className="vt-faint">{palette.entries[selected]!.hex}</span>
+                </h3>
+                <dl className="vt-kv">
+                  <dt>Share of the image</dt>
+                  <dd>
+                    {(palette.entries[selected]!.share * 100).toFixed(1)}% ·{' '}
+                    {palette.entries[selected]!.count.toLocaleString()} pixel(s)
+                  </dd>
+                  <dt>Colours in its group</dt>
+                  <dd>{palette.entries[selected]!.members}</dd>
+                  <dt>The group's commonest</dt>
+                  <dd>
+                    <code>{palette.entries[selected]!.modeHex}</code>
+                    {palette.entries[selected]!.shifted > 0
+                      ? ` — this entry is ${palette.entries[selected]!.shifted.toFixed(1)} away from it`
+                      : ' — which is this entry exactly'}
+                  </dd>
+                  <dt>Nearest other entry</dt>
+                  <dd>{palette.entries[selected]!.nearest.toFixed(1)} away</dd>
+                </dl>
+                <Field
+                  label="Pin this colour"
+                  tip="palette.pinned"
+                  hint="A pinned colour is used as it is, whatever the settings do. Clear it to go back to what was counted."
+                >
+                  <div className="vt-row">
+                    <input
+                      type="color"
+                      aria-label="Pin this colour"
+                      value={palette.entries[selected]!.hex}
+                      onChange={(event) => pin(selected, event.target.value)}
+                    />
+                    <input
+                      value={data.pinned[String(selected)] ?? ''}
+                      placeholder={palette.entries[selected]!.modeHex}
+                      aria-label="Pinned hex"
+                      onChange={(event) => pin(selected, event.target.value)}
+                    />
+                    {data.pinned[String(selected)] ? (
+                      <button
+                        type="button"
+                        className="vt-btn is-ghost is-small"
+                        onClick={() => unpin(selected)}
+                      >
+                        Clear
+                      </button>
+                    ) : null}
+                  </div>
+                </Field>
+              </div>
+            ) : (
+              <div className="vt-hint">
+                Each band is one colour, as wide as the share of the image it accounts for. Click one to see
+                where it came from, or to pin it.
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </EditorShell>
+  );
+}

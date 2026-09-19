@@ -47,6 +47,8 @@ export type EditorId =
   | 'grammar'
   | 'animatic'
   | 'design'
+  | 'palette'
+  | 'rig'
   | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */

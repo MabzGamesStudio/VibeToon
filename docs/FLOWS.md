@@ -263,15 +263,14 @@ Staging and camera per shot: where everything sits in frame.
 - **Out:** Layout `layout.json`, Layout doc `layout.md`
 - **Fields:** Shots, Screen direction, Depth
 
-### Rig / Puppet
+### Skeletal Rig
 
-`animation.rig` · brief editor
+`animation.rig` · **bespoke editor**
 
-The character as a puppet: parts, pivots, swaps, mouth set.
+A skeleton for the character: what bones it has, and how far each joint may move.
 
 - **In:** Design, Spec
 - **Out:** Rig `rig.json`, Rig notes `rig.md`
-- **Fields:** Parts, Swaps, Limits
 
 ### Animatic
 
@@ -308,6 +307,21 @@ Effects animation: smoke, water, sparks, screens, weather.
 - **Fields:** Effects, Method
 
 ## Art
+
+### Colour Palette
+
+`art.palette` · **bespoke editor**
+
+Counts the colours in an image and takes the commonest that are far enough apart.
+
+- **In:** Image *(required)*
+- **Out:** Palette `palette.json`, Report `report.md`
+- **Rules a new wire leaving `palette` starts with:**
+
+  ```
+  keep: hex values, shares
+  ignore: pixel counts
+  ```
 
 ### Colour Script
 
@@ -467,4 +481,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-39 flow kinds.
+40 flow kinds.

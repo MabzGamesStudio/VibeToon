@@ -7,6 +7,8 @@ import { CorpusFlowEditor } from './CorpusFlowEditor';
 import { DictionaryFlowEditor } from './DictionaryFlowEditor';
 import { GrammarFlowEditor } from './GrammarFlowEditor';
 import { LexiconFlowEditor } from './LexiconFlowEditor';
+import { PaletteFlowEditor } from './PaletteFlowEditor';
+import { RigFlowEditor } from './RigFlowEditor';
 import { DialogEditor } from './DialogEditor';
 import { EditorShell } from './EditorShell';
 import { StoryboardEditor } from './StoryboardEditor';
@@ -40,6 +42,10 @@ export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
       return <CorpusFlowEditor project={project} node={node} />;
     case 'dictionary':
       return <DictionaryFlowEditor project={project} node={node} />;
+    case 'palette':
+      return <PaletteFlowEditor project={project} node={node} />;
+    case 'rig':
+      return <RigFlowEditor project={project} node={node} />;
     default:
       return <BriefEditor project={project} node={node} />;
   }
