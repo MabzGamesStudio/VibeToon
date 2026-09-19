@@ -3,7 +3,7 @@ import {
   fillTokenMeanings,
   includedDatasets,
   masterDataset,
-  masterLexicon,
+  masterLexiconParts,
   replaceDatasetFor,
   summarise,
   type LexiconFlowData,
@@ -42,14 +42,15 @@ export async function generateLexicon(ctx: GenerationContext): Promise<Generatio
   data = fillTokenMeanings(data);
 
   const master = masterDataset(data);
-  const lexicon = masterLexicon(data, master);
+  const parts = masterLexiconParts(data, master);
+  const lexicon = parts.lexicon;
   const summary = summarise(data, lexicon, master);
   const included = includedDatasets(data);
 
   if (included.length === 0) ctx.warn('No corpus is included, so the database is empty.');
   if (summary.undefined > 0) {
     ctx.warn(
-      `${summary.undefined} word(s) have no dictionary entry yet — their type is a guess. Use “Look up words” in the editor.`,
+      `${summary.undefined} word(s) have no dictionary entry yet, so their type is “not looked up” rather than a guess. Wire this into a Dictionary flow, or use “Look up words” in the editor.`,
     );
   }
 
@@ -57,9 +58,10 @@ export async function generateLexicon(ctx: GenerationContext): Promise<Generatio
     `# ${ctx.node.name} — word database`,
     '',
     `- Words: **${summary.words}** from ${summary.tokens} counted token(s)`,
+    `- Of those, forms of another word: ${summary.variants} (added: ${parts.added}, already counted: ${parts.linked})`,
     `- Context links: ${summary.links}`,
     `- Corpora included: ${included.length} of ${data.datasets.length}`,
-    `- Definitions: ${summary.defined} from the dictionary, ${summary.undefined} still guessed`,
+    `- Definitions: ${summary.defined} from the dictionary, ${summary.undefined} not looked up`,
     '',
     '## What went into it',
     '',

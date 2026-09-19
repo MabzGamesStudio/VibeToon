@@ -263,7 +263,14 @@ test('a word is spelled the way the slot asks for', () => {
   assert.equal(spellForSlot(is, { type: 'verb', form: 'infinitive' }), 'be');
 });
 
-test('a word without variations is inflected from its own spelling', () => {
+/**
+ * This used to say the opposite: a word with no stored forms was run through a
+ * rule engine, so `walks` came back as `walked`. The engine also turned `forgive`
+ * into `forgived`, and a generator confidently writing a non-word is worse than
+ * one leaving a verb in the wrong tense — the second reads as a rough draft, the
+ * first reads as a bug, because it is one.
+ */
+test('a word with no forms of its own goes in as it is, rather than being guessed at', () => {
   const walks: Lexeme = {
     id: 'lex_walks',
     spelling: 'walks',
@@ -272,8 +279,16 @@ test('a word without variations is inflected from its own spelling', () => {
     description: '',
     contexts: [],
   };
-  assert.equal(spellForSlot(walks, { type: 'verb', form: 'past' }), 'walked');
-  assert.equal(spellForSlot(walks, { type: 'verb', form: 'present_progressive' }), 'walking');
+  assert.equal(spellForSlot(walks, { type: 'verb', form: 'past' }), 'walks');
+  assert.equal(spellForSlot(walks, { type: 'verb', form: 'present_progressive' }), 'walks');
+
+  // Give it the paradigm a dataset would have supplied, and it inflects.
+  const known: Lexeme = {
+    ...walks,
+    variations: { infinitive: 'walk', past: 'walked', present_progressive: 'walking' },
+  };
+  assert.equal(spellForSlot(known, { type: 'verb', form: 'past' }), 'walked');
+  assert.equal(spellForSlot(known, { type: 'verb', form: 'present_progressive' }), 'walking');
 });
 
 test('a form the word does not have leaves the spelling alone', () => {

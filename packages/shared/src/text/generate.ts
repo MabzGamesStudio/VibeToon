@@ -11,7 +11,7 @@ import {
   type GrammarModel,
   type GrammarSlot,
 } from './grammarDatabase';
-import { formOf } from './inflect';
+import { formIn } from './forms';
 import { buildLexiconIndex, type LexiconIndex } from './lexicon';
 import {
   SENTENCE_END,
@@ -577,8 +577,10 @@ function alterTokens(
     const current = resolve(token, index);
     const nextType = typeAt(tokens, i + 1, index);
     // Whatever form the word being replaced was in, the new word takes it: a
-    // past tense verb comes back as a past tense verb.
-    const form = current ? formOf(token.key, current.type) : undefined;
+    // past tense verb comes back as a past tense verb. Which form it was in is
+    // read off the entry's own paradigm, so a database whose variants have never
+    // been looked up simply replaces the word without changing its shape.
+    const form = current ? formIn(current.variations, token.key) : undefined;
     const slot: GrammarSlot | undefined = current
       ? { type: current.type, ...(form ? { form } : {}) }
       : undefined;
@@ -616,6 +618,9 @@ const DELETION_APPETITE: Record<WordType, number> = {
   determiner: 0.15,
   pronoun: 0.15,
   punctuation: 0,
+  // A word nothing is known about sits between the content words: dropping it
+  // is the least likely to break a pattern the flow does understand.
+  unknown: 0.5,
 };
 
 function fitLength(

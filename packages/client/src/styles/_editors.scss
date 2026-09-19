@@ -969,6 +969,21 @@
     background: $bg-1;
   }
 
+  // Nobody has looked the word up, so its type is not known either.
+  &.not-looked-up {
+    color: $warn;
+    border-color: rgba(230, 180, 80, 0.4);
+    background: rgba(230, 180, 80, 0.1);
+  }
+
+  // The type is known and has forms; the dataset just has none for this word.
+  &.forms-missing {
+    color: $text-faint;
+    border-color: rgba(230, 180, 80, 0.35);
+    background: $bg-1;
+    border-style: dashed;
+  }
+
   &.is-unknown {
     color: $err;
     border-color: rgba(232, 112, 90, 0.4);

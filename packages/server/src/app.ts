@@ -26,6 +26,8 @@ import {
   DICTIONARY_URL_OVERRIDE,
 } from './text/dictionary';
 import { DICTIONARY_PROVIDERS, providerById } from './text/dictionaryProviders';
+import { buildMorphologyIndex, morphologyStatus } from './text/morphology';
+import { morphologySourceById } from './text/morphologySources';
 import { patchSettings, setDictionaryKey } from './settings';
 import { clearLogs, readLogFile, readLogs } from './logs';
 import { hasFfmpeg } from './render/video';
@@ -146,14 +148,23 @@ export function createApp(): express.Express {
   app.post(
     '/api/text/dictionary',
     asyncRoute(async (req, res) => {
-      const body = (req.body ?? {}) as { words?: string[]; limit?: number; provider?: string };
+      const body = (req.body ?? {}) as {
+        words?: string[];
+        limit?: number;
+        provider?: string;
+        morphology?: string;
+      };
       const words = Array.isArray(body.words) ? body.words.slice(0, 2000) : [];
       if (words.length === 0) throw new HttpError(400, 'No words to look up.');
       const limit = Number.isFinite(body.limit)
         ? Math.max(1, Math.min(500, Math.floor(body.limit as number)))
         : DEFAULT_LOOKUP_OPTIONS.limit;
       const provider = typeof body.provider === 'string' && providerById(body.provider) ? body.provider : '';
-      res.json(await lookupWords(words, { limit, provider }));
+      const morphology =
+        typeof body.morphology === 'string' && morphologySourceById(body.morphology)
+          ? body.morphology
+          : '';
+      res.json(await lookupWords(words, { limit, provider, morphology }));
     }),
   );
 
@@ -199,6 +210,51 @@ export function createApp(): express.Express {
       }
       await patchSettings({ dictionaryProvider: provider.id });
       res.json(describeProviders());
+    }),
+  );
+
+  /**
+   * Which morphology datasets exist, which one is in use, and whether it has been
+   * built on this machine.
+   */
+  app.get(
+    '/api/text/morphology',
+    asyncRoute(async (req, res) => {
+      const prefer = typeof req.query.source === 'string' ? req.query.source : '';
+      res.json(await morphologyStatus(morphologySourceById(prefer) ? prefer : ''));
+    }),
+  );
+
+  /**
+   * Download the dataset and index it. One call, a few seconds, and thereafter
+   * every word's forms are answered from disk without a network request.
+   */
+  app.post(
+    '/api/text/morphology/build',
+    asyncRoute(async (req, res) => {
+      const body = (req.body ?? {}) as { id?: string };
+      const prefer = body.id && morphologySourceById(body.id) ? body.id : '';
+      try {
+        const built = await buildMorphologyIndex(prefer);
+        res.json({ ...(await morphologyStatus(prefer)), built });
+      } catch (error) {
+        throw new HttpError(
+          502,
+          `Could not build the forms index: ${(error as Error).message}. The dataset is a plain file on raw.githubusercontent.com, so this is usually a blocked or offline connection.`,
+        );
+      }
+    }),
+  );
+
+  /** Take the forms of a word from a different dataset, and remember the choice. */
+  app.post(
+    '/api/text/morphology/source',
+    asyncRoute(async (req, res) => {
+      const body = (req.body ?? {}) as { id?: string };
+      const source = body.id ? morphologySourceById(body.id) : undefined;
+      if (!source) throw new HttpError(400, `No such forms dataset: ${body.id ?? '(none)'}`);
+      await patchSettings({ morphologySource: source.id });
+      res.json(await morphologyStatus());
     }),
   );
 

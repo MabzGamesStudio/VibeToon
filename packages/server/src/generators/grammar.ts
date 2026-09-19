@@ -9,9 +9,15 @@ import {
   type Lexicon,
 } from '@vibetoon/shared';
 import { writeArtifact } from '../storage';
-import type { GenerationContext, GenerationResult } from './types';
+import { readsWhole, type GenerationContext, type GenerationResult } from './types';
 
 const CORPUS_READ_LIMIT = 4_000_000;
+
+/**
+ * A word database is data and is read whole: with a row per form of every word
+ * and a paradigm on each, it is several times the size of the text it came from.
+ */
+const DATABASE_READ_LIMIT = 64_000_000;
 
 /**
  * Reads corpora against a word database and counts the shapes their sentences
@@ -26,18 +32,24 @@ export async function generateGrammar(ctx: GenerationContext): Promise<Generatio
   );
   let lexicon: Lexicon | null = null;
   if (lexiconInput?.artifact) {
-    const body = await ctx.readUpstream(lexiconInput, CORPUS_READ_LIMIT);
-    try {
-      const parsed = JSON.parse(body ?? '') as Lexicon;
-      if (!Array.isArray(parsed.lexemes)) throw new Error('no `lexemes` array');
-      lexicon = parsed;
-      ctx.log(`Read ${parsed.lexemes.length} word(s) from ${lexiconInput.sourceNode.name}.`);
-    } catch (error) {
-      ctx.warn(`Could not read the word database from ${lexiconInput.sourceNode.name}: ${String(error)}`);
+    const body = await ctx.readUpstream(lexiconInput, DATABASE_READ_LIMIT);
+    if (!readsWhole(body)) {
+      ctx.warn(
+        `The word database from ${lexiconInput.sourceNode.name} is larger than this flow will read, so it was cut short and could not be used.`,
+      );
+    } else {
+      try {
+        const parsed = JSON.parse(body ?? '') as Lexicon;
+        if (!Array.isArray(parsed.lexemes)) throw new Error('no `lexemes` array');
+        lexicon = parsed;
+        ctx.log(`Read ${parsed.lexemes.length} word(s) from ${lexiconInput.sourceNode.name}.`);
+      } catch (error) {
+        ctx.warn(`Could not read the word database from ${lexiconInput.sourceNode.name}: ${String(error)}`);
+      }
     }
   } else {
     ctx.warn(
-      'No word database wired in, so word types would all be guesses — wire one into the Word database input.',
+      'No word database wired in, so no word has a type — wire one into the Word database input.',
     );
   }
 

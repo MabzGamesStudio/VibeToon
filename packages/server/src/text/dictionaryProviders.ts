@@ -11,9 +11,38 @@
  * built from a book asks about thousands of words, which is exactly the shape of
  * traffic a free tier is metered against.
  */
-export interface ProviderReading {
+
+/**
+ * One of the things a service says a spelling can be.
+ *
+ * A service is asked once per word and answers with several of these, because a
+ * spelling is not a word: Free Dictionary returns `light` as a noun, a verb and
+ * an adjective in one response. Reading only the first, which is what this used
+ * to do, is how `light` ended up in a word database as a noun and nothing else.
+ */
+export interface ProviderSense {
   partOfSpeech?: string;
   definition?: string;
+}
+
+export interface ProviderReading {
+  senses: ProviderSense[];
+}
+
+/** Keep one sense per part of speech, in the order the service gave them. */
+function distinct(senses: ProviderSense[]): ProviderReading {
+  const seen = new Set<string>();
+  const kept: ProviderSense[] = [];
+  for (const sense of senses) {
+    if (!sense.partOfSpeech && !sense.definition) continue;
+    const key = (sense.partOfSpeech ?? '').trim().toLowerCase();
+    // A service that lists ten noun senses is offering ten descriptions of one
+    // word, not ten words. The first is the one that goes in.
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    kept.push(sense);
+  }
+  return { senses: kept };
 }
 
 export interface DictionaryProvider {
@@ -26,7 +55,7 @@ export interface DictionaryProvider {
   keyUrl?: string;
   /** `{word}` and `{key}` are filled in. */
   url: string;
-  /** Pull a part of speech and a definition out of whatever came back. */
+  /** Pull every sense — part of speech and definition — out of whatever came back. */
   read(payload: unknown): ProviderReading;
 }
 
@@ -67,19 +96,18 @@ export const DICTIONARY_PROVIDERS: DictionaryProvider[] = [
     read(payload) {
       // A word it does not have comes back as `{ title: 'No Definitions Found' }`
       // rather than a list, so this cannot assume it got one.
-      if (!Array.isArray(payload)) return {};
+      if (!Array.isArray(payload)) return { senses: [] };
+      const senses: ProviderSense[] = [];
       for (const entry of payload as Array<{ meanings?: Array<{ partOfSpeech?: string; definitions?: Array<{ definition?: string }> }> }>) {
         for (const meaning of entry?.meanings ?? []) {
           const definition = meaning.definitions?.find((candidate) => candidate.definition)?.definition;
-          if (meaning.partOfSpeech || definition) {
-            return {
-              ...(meaning.partOfSpeech ? { partOfSpeech: meaning.partOfSpeech } : {}),
-              ...(definition ? { definition } : {}),
-            };
-          }
+          senses.push({
+            ...(meaning.partOfSpeech ? { partOfSpeech: meaning.partOfSpeech } : {}),
+            ...(definition ? { definition } : {}),
+          });
         }
       }
-      return {};
+      return distinct(senses);
     },
   },
 
@@ -91,38 +119,39 @@ export const DICTIONARY_PROVIDERS: DictionaryProvider[] = [
     url: 'https://en.wiktionary.org/api/rest_v1/page/definition/{word}',
     read(payload) {
       const english = (payload as { en?: Array<{ partOfSpeech?: string; definitions?: Array<{ definition?: string }> }> })?.en;
-      for (const sense of english ?? []) {
-        const raw = sense.definitions?.find((candidate) => candidate.definition)?.definition;
-        const definition = raw ? stripHtml(raw) : undefined;
-        if (sense.partOfSpeech || definition) {
+      return distinct(
+        (english ?? []).map((sense) => {
+          const raw = sense.definitions?.find((candidate) => candidate.definition)?.definition;
+          const definition = raw ? stripHtml(raw) : undefined;
           return {
             ...(sense.partOfSpeech ? { partOfSpeech: sense.partOfSpeech.toLowerCase() } : {}),
             ...(definition ? { definition } : {}),
           };
-        }
-      }
-      return {};
+        }),
+      );
     },
   },
 
   {
     id: 'datamuse',
     label: 'Datamuse',
-    note: 'No key, and by far the most tolerant of a few thousand words in a row. Definitions are terse, and it only knows four parts of speech — but a type is what the grammar flow actually needs.',
+    note: 'No key, and by far the most tolerant of a few thousand words in a row. Definitions are terse, and it only knows four parts of speech — but a type is what the grammar flow actually needs, and it gives one definition per part of speech, so a word with several meanings comes back with all of them.',
     needsKey: false,
     url: 'https://api.datamuse.com/words?sp={word}&md=dp&max=1',
     read(payload) {
       const match = first<{ word?: string; defs?: string[] }>(payload);
-      const raw = match?.defs?.[0];
-      if (!raw) return {};
-      // `n\ta source of light` — the letter before the tab is the part of speech.
-      const [tag, ...rest] = raw.split('\t');
-      const definition = rest.join('\t').trim();
-      const partOfSpeech = DATAMUSE_POS[(tag ?? '').trim()] ?? '';
-      return {
-        ...(partOfSpeech ? { partOfSpeech } : {}),
-        ...(definition ? { definition } : {}),
-      };
+      return distinct(
+        (match?.defs ?? []).map((raw) => {
+          // `n\ta source of light` — the letter before the tab is the part of speech.
+          const [tag, ...rest] = raw.split('\t');
+          const definition = rest.join('\t').trim();
+          const partOfSpeech = DATAMUSE_POS[(tag ?? '').trim()] ?? '';
+          return {
+            ...(partOfSpeech ? { partOfSpeech } : {}),
+            ...(definition ? { definition } : {}),
+          };
+        }),
+      );
     },
   },
 
@@ -136,13 +165,18 @@ export const DICTIONARY_PROVIDERS: DictionaryProvider[] = [
     read(payload) {
       // A word it does not know comes back as a list of spelling suggestions,
       // which are strings rather than entries — that is a miss, not an answer.
-      const entry = first<{ fl?: string; shortdef?: string[] }>(payload);
-      if (!entry || typeof entry !== 'object') return {};
-      const definition = entry.shortdef?.find((candidate) => candidate?.trim());
-      return {
-        ...(entry.fl ? { partOfSpeech: entry.fl } : {}),
-        ...(definition ? { definition } : {}),
-      };
+      if (!Array.isArray(payload)) return { senses: [] };
+      return distinct(
+        (payload as Array<{ fl?: string; shortdef?: string[] }>)
+          .filter((entry) => entry && typeof entry === 'object')
+          .map((entry) => {
+            const definition = entry.shortdef?.find((candidate) => candidate?.trim());
+            return {
+              ...(entry.fl ? { partOfSpeech: entry.fl } : {}),
+              ...(definition ? { definition } : {}),
+            };
+          }),
+      );
     },
   },
 
@@ -152,15 +186,18 @@ export const DICTIONARY_PROVIDERS: DictionaryProvider[] = [
     note: 'A free key for non-commercial use. Pulls definitions from several published dictionaries at once, so coverage of unusual words is good.',
     needsKey: true,
     keyUrl: 'https://developer.wordnik.com/',
-    url: 'https://api.wordnik.com/v4/word.json/{word}/definitions?limit=1&includeRelated=false&api_key={key}',
+    url: 'https://api.wordnik.com/v4/word.json/{word}/definitions?limit=12&includeRelated=false&api_key={key}',
     read(payload) {
-      const entry = first<{ partOfSpeech?: string; text?: string }>(payload);
-      if (!entry) return {};
-      const definition = entry.text ? stripHtml(entry.text) : undefined;
-      return {
-        ...(entry.partOfSpeech ? { partOfSpeech: entry.partOfSpeech } : {}),
-        ...(definition ? { definition } : {}),
-      };
+      if (!Array.isArray(payload)) return { senses: [] };
+      return distinct(
+        (payload as Array<{ partOfSpeech?: string; text?: string }>).map((entry) => {
+          const definition = entry?.text ? stripHtml(entry.text) : undefined;
+          return {
+            ...(entry?.partOfSpeech ? { partOfSpeech: entry.partOfSpeech } : {}),
+            ...(definition ? { definition } : {}),
+          };
+        }),
+      );
     },
   },
 ];
@@ -179,9 +216,9 @@ export const CUSTOM_PROVIDER: DictionaryProvider = {
   read(payload) {
     for (const provider of DICTIONARY_PROVIDERS) {
       const reading = provider.read(payload);
-      if (reading.partOfSpeech || reading.definition) return reading;
+      if (reading.senses.length > 0) return reading;
     }
-    return {};
+    return { senses: [] };
   },
 };
 

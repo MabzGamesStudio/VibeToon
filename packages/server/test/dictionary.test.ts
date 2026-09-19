@@ -14,7 +14,7 @@ process.env.VIBETOON_DATA = dataRoot;
  * batching, pacing, retrying and giving-up paths are all exercised without
  * depending on anything outside this machine.
  */
-type Mode = 'ok' | 'limited' | 'flaky' | 'down' | 'forbidden' | 'slow';
+type Mode = 'ok' | 'limited' | 'flaky' | 'down' | 'forbidden' | 'slow' | 'several' | 'odd-pos' | 'absent';
 let mode: Mode = 'ok';
 let calls: string[] = [];
 /** How many times each word has been asked about, for the flaky and limited modes. */
@@ -38,6 +38,29 @@ stub.get('/entries/en/:word', (req, res) => {
   }
   if (mode === 'slow') {
     // Never answers, so the per-request timeout is what ends it.
+    return;
+  }
+  if (mode === 'absent') {
+    res.status(404).json({ title: 'No Definitions Found' });
+    return;
+  }
+  if (mode === 'several') {
+    res.json([
+      {
+        word,
+        meanings: [
+          { partOfSpeech: 'noun', definitions: [{ definition: 'What lets you see.' }] },
+          { partOfSpeech: 'verb', definitions: [{ definition: 'To set burning.' }] },
+          { partOfSpeech: 'adjective', definitions: [{ definition: 'Not heavy.' }] },
+        ],
+      },
+    ]);
+    return;
+  }
+  if (mode === 'odd-pos') {
+    res.json([
+      { word, meanings: [{ partOfSpeech: 'gerund', definitions: [{ definition: 'Something a gerund does.' }] }] },
+    ]);
     return;
   }
   if ((mode === 'limited' || mode === 'flaky') && seen === 1) {
@@ -103,7 +126,53 @@ test('a word already on disk costs no request in a later batch', async () => {
   assert.equal(result.cached, 2, 'both came out of the cache from the batching test');
   assert.equal(result.requested, 0);
   assert.equal(calls.length, 0);
-  assert.match(result.meanings.alpha!.description, /A definition of alpha/);
+  assert.match(result.meanings.alpha!.senses[0]!.description, /A definition of alpha/);
+  assert.equal(result.meanings.alpha!.senses[0]!.type, 'noun');
+});
+
+/**
+ * The service is asked once and answers with everything it has, so a word with
+ * three meanings is one request and three senses.
+ */
+test('a word with several meanings comes back as several senses, from one request', async () => {
+  reset('several');
+  const result = await lookupWords(['light'], { ...FAST, limit: 50 });
+
+  assert.equal(calls.length, 1, 'one request');
+  assert.deepEqual(
+    result.meanings.light!.senses.map((sense) => sense.type),
+    ['noun', 'verb', 'adjective'],
+  );
+  assert.equal(result.meanings.light!.source, 'dictionary');
+  assert.deepEqual(result.found, ['light']);
+});
+
+test('a definition with a part of speech nothing recognises keeps the definition', async () => {
+  reset('odd-pos');
+  const result = await lookupWords(['gerundy'], { ...FAST, limit: 50 });
+  const meaning = result.meanings.gerundy!;
+
+  assert.equal(meaning.senses.length, 1);
+  assert.equal(meaning.senses[0]!.type, 'unknown', 'because that is what is known about its type');
+  assert.equal(meaning.senses[0]!.description, 'Something a gerund does.');
+  assert.equal(meaning.source, 'dictionary', 'the service did answer, and what it said is kept');
+});
+
+test('a word the service has no entry for is recorded so it is not asked twice', async () => {
+  reset('absent');
+  const result = await lookupWords(['zzzznoword'], { ...FAST, limit: 50 });
+
+  assert.deepEqual(result.missing, ['zzzznoword']);
+  assert.deepEqual(result.meanings.zzzznoword, {
+    senses: [],
+    source: 'none',
+    fetchedAt: result.meanings.zzzznoword!.fetchedAt,
+  });
+
+  reset('absent');
+  const again = await lookupWords(['zzzznoword'], { ...FAST, limit: 50 });
+  assert.equal(calls.length, 0, 'the second time it is answered from the cache');
+  assert.equal(again.meanings.zzzznoword!.source, 'none');
 });
 
 test('being asked to slow down is waited out, not treated as an answer', async () => {
@@ -164,9 +233,22 @@ test('marks and numbers are typed without asking anyone', async () => {
   reset();
   const result = await lookupWords(['.', '42', "'"], { ...FAST, limit: 50 });
   assert.equal(calls.length, 0);
-  assert.equal(result.meanings['.']!.type, 'punctuation');
-  assert.equal(result.meanings['42']!.type, 'number');
+  assert.equal(result.meanings['.']!.senses[0]!.type, 'punctuation');
+  assert.equal(result.meanings['.']!.source, 'token', 'read off the token, not claimed as a dictionary answer');
+  assert.equal(result.meanings['42']!.senses[0]!.type, 'number');
   assert.equal(result.requested, 0);
+});
+
+test('a token no dictionary could know gets no entry rather than a guessed one', async () => {
+  reset();
+  // Not `—`, which is a mark the studio does describe. A section sign is not.
+  const result = await lookupWords(['§'], { ...FAST, limit: 50 });
+  assert.equal(calls.length, 0, 'no dictionary has an entry for it, so none is asked');
+  assert.equal(
+    result.meanings['§'],
+    undefined,
+    'nothing invents a type for it; it stays unlooked-up, which is what it is',
+  );
 });
 
 test('Retry-After is read as seconds or as a date', () => {

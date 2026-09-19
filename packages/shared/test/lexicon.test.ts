@@ -7,6 +7,7 @@ import {
   includedDatasets,
   masterDataset,
   masterLexicon,
+  masterLexiconParts,
   removeDataset,
   replaceDatasetFor,
   sampleDataset,
@@ -16,6 +17,12 @@ import {
   wordsNeedingLookup,
 } from '../src/flows/lexicon';
 import { DEFAULT_EXTRACT_OPTIONS, extractCorpus, type CorpusDataset } from '../src/text/corpus';
+import type { WordMeaning, WordType } from '../src/index';
+
+/** One answer from a dictionary, for a word with a single meaning. */
+function defined(type: WordType, description: string): WordMeaning {
+  return { senses: [{ type, description }], source: 'dictionary' };
+}
 
 const OPTIONS = { ...DEFAULT_EXTRACT_OPTIONS, minPairCount: 1 };
 
@@ -28,8 +35,13 @@ function corpus(text: string, name: string, reference?: string): CorpusDataset {
   );
 }
 
+/**
+ * A flow with nothing in it — no corpus and, importantly, no answers either. A
+ * fresh flow ships with the sample corpus's words already answered for, so a test
+ * about what still needs looking up has to start from a genuine blank.
+ */
 function empty() {
-  return { ...emptyLexiconFlowData(), datasets: [], included: [] };
+  return { ...emptyLexiconFlowData(), datasets: [], included: [], meanings: {} };
 }
 
 function countOf(dataset: CorpusDataset, spelling: string): number {
@@ -118,8 +130,9 @@ test('two wires keep two datasets of their own', () => {
 test('marks and numbers are typed without a dictionary', () => {
   const data = fillTokenMeanings(addDataset(empty(), corpus('The lamp is 42 old.', 'One')));
 
-  assert.equal(data.meanings['.']?.type, 'punctuation');
-  assert.equal(data.meanings['42']?.type, 'number');
+  assert.equal(data.meanings['.']?.senses[0]?.type, 'punctuation');
+  assert.equal(data.meanings['.']?.source, 'token', 'read off the token itself, not from a dictionary');
+  assert.equal(data.meanings['42']?.senses[0]?.type, 'number');
   assert.equal(data.meanings.lamp, undefined, 'a real word still needs asking about');
 });
 
@@ -135,19 +148,16 @@ test('what needs looking up is the real words with no answer yet', () => {
   assert.ok(needed.includes('lamp'));
   assert.ok(!needed.includes('.'), 'a full stop needs no dictionary');
 
-  const answered = {
-    ...data,
-    meanings: { lamp: { type: 'noun' as const, description: 'A light.', source: 'dictionary' as const } },
-  };
+  const answered = { ...data, meanings: { lamp: defined('noun', 'A light.') } };
   assert.ok(!wordsNeedingLookup(answered).includes('lamp'), 'and one that has been answered drops out');
 });
 
 /* ---------------- the summary the editor shows ---------------- */
 
-test('the summary counts what is there and what is still guessed', () => {
+test('the summary counts what is answered for and what is not', () => {
   const data = {
     ...addDataset(empty(), corpus('The lamp is old.', 'One')),
-    meanings: { lamp: { type: 'noun' as const, description: 'A light.', source: 'dictionary' as const } },
+    meanings: { lamp: defined('noun', 'A light.') },
   };
   const master = masterDataset(data);
   const summary = summarise(data, masterLexicon(data, master), master);
@@ -160,13 +170,38 @@ test('the summary counts what is there and what is still guessed', () => {
   assert.equal(summary.undefined, wordsNeedingLookup(data, master).length);
 });
 
-test('a guessed answer is not counted as defined', () => {
+test('a word the dictionary had no entry for is not counted as defined', () => {
   const data = {
     ...addDataset(empty(), corpus('The lamp is old.', 'One')),
-    meanings: { lamp: { type: 'noun' as const, description: '', source: 'inferred' as const } },
+    meanings: { lamp: { senses: [], source: 'none' as const } },
   };
   const master = masterDataset(data);
   assert.equal(summarise(data, masterLexicon(data, master), master).defined, 0);
+  const lamp = masterLexicon(data, master).lexemes.find((lexeme) => lexeme.spelling === 'lamp')!;
+  assert.equal(lamp.type, 'unknown', 'and it is left unknown rather than guessed at');
+});
+
+test('the master gives every form of a word a row of its own', () => {
+  const data = {
+    ...addDataset(empty(), corpus('The lamp is old.', 'One')),
+    meanings: {
+      lamp: {
+        senses: [
+          { type: 'noun' as const, description: 'A light.', variations: { singular: 'lamp', plural: 'lamps' } },
+        ],
+        source: 'dictionary' as const,
+      },
+    },
+  };
+  const parts = masterLexiconParts(data);
+  const lamps = parts.lexicon.lexemes.find((lexeme) => lexeme.spelling === 'lamps');
+
+  assert.ok(lamps, 'the plural is in the database even though the corpus never said it');
+  assert.equal(lamps!.type, 'noun');
+  assert.equal(lamps!.description, 'A light.', 'sharing the description of the word it is a form of');
+  assert.equal(lamps!.form, 'plural');
+  assert.equal(lamps!.stats?.count, 0, 'with the count it actually had: none');
+  assert.equal(parts.added, 1);
 });
 
 test('a database with nothing ticked is empty rather than broken', () => {

@@ -1,6 +1,6 @@
 import { newId } from '../ids';
 import type { Lexeme, Lexicon, WordType } from '../types/text';
-import { inflect } from './inflect';
+import { expandSenses, lexemeIdFor, type WordMeaning } from './senses';
 import { tokenize, type TextToken } from './tokenize';
 
 /**
@@ -251,21 +251,6 @@ export const DEFAULT_DERIVE_OPTIONS: DeriveLexiconOptions = {
   maxContexts: 12,
 };
 
-/** Type and description for a spelling, from the dictionary or inferred. */
-export interface WordMeaning {
-  type: WordType;
-  description: string;
-  /** Where it came from, so the editor can show what still needs looking up. */
-  source: 'dictionary' | 'inferred' | 'manual';
-}
-
-export function lexemeIdFor(spelling: string): string {
-  const slug = /[a-z0-9]/i.test(spelling)
-    ? spelling.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-    : `p${[...spelling].map((character) => character.charCodeAt(0).toString(16)).join('')}`;
-  return `lex_${slug}`;
-}
-
 /**
  * Counts in, lexicon out.
  *
@@ -286,9 +271,11 @@ export function deriveLexicon(
   const maxCount = dataset.entries.reduce((max, entry) => Math.max(max, entry.count), 1);
   const countOf = new Map(dataset.entries.map((entry) => [entry.spelling, entry.count]));
   const ceiling = Math.max(1.0001, options.liftCeiling);
+  // Ids are handed out in count order so the commonest sense of a spelling keeps
+  // the plain id that this corpus's own context links point at.
+  const taken = new Set<string>();
 
-  const lexemes: Lexeme[] = dataset.entries.map((entry) => {
-    const meaning = meanings[entry.spelling];
+  const lexemes: Lexeme[] = dataset.entries.flatMap((entry) => {
     const contexts = entry.next
       .map(([target, pairCount]) => {
         const targetCount = countOf.get(target) ?? 0;
@@ -305,83 +292,22 @@ export function deriveLexicon(
       .sort((a, b) => b.weight - a.weight)
       .slice(0, options.maxContexts);
 
-    const type = meaning?.type ?? inferWordType(entry.spelling);
-    const variations = inflect(entry.spelling, type);
-
-    return {
-      id: lexemeIdFor(entry.spelling),
-      spelling: entry.spelling,
-      type,
-      frequency: Math.round((Math.log1p(entry.count) / Math.log1p(maxCount)) * 100) / 100,
-      description: meaning?.description ?? '',
-      contexts,
-      ...(variations ? { variations } : {}),
-      stats: {
-        count: entry.count,
-        perMillion: Math.round((entry.count / total) * 1_000_000),
+    return expandSenses(
+      {
+        spelling: entry.spelling,
+        frequency: Math.round((Math.log1p(entry.count) / Math.log1p(maxCount)) * 100) / 100,
+        contexts,
+        stats: {
+          count: entry.count,
+          perMillion: Math.round((entry.count / total) * 1_000_000),
+        },
       },
-    };
+      meanings[entry.spelling],
+      taken,
+    );
   });
 
   return { lexemes };
-}
-
-/* ------------------------------------------------------------------ *
- * Guessing a word type without a dictionary
- * ------------------------------------------------------------------ */
-
-const FUNCTION_WORDS: Record<string, WordType> = {
-  the: 'determiner', a: 'determiner', an: 'determiner', this: 'determiner', that: 'determiner',
-  these: 'determiner', those: 'determiner', my: 'determiner', your: 'determiner', his: 'determiner',
-  her: 'determiner', its: 'determiner', our: 'determiner', their: 'determiner', some: 'determiner',
-  any: 'determiner', no: 'determiner', every: 'determiner', each: 'determiner', another: 'determiner',
-  i: 'pronoun', you: 'pronoun', he: 'pronoun', she: 'pronoun', it: 'pronoun', we: 'pronoun',
-  they: 'pronoun', me: 'pronoun', him: 'pronoun', us: 'pronoun', them: 'pronoun', who: 'pronoun',
-  whom: 'pronoun', which: 'pronoun', what: 'pronoun', myself: 'pronoun', himself: 'pronoun',
-  herself: 'pronoun', itself: 'pronoun', themselves: 'pronoun', something: 'pronoun', nothing: 'pronoun',
-  anything: 'pronoun', everything: 'pronoun', someone: 'pronoun', nobody: 'pronoun', everyone: 'pronoun',
-  of: 'preposition', in: 'preposition', on: 'preposition', at: 'preposition', to: 'preposition',
-  from: 'preposition', with: 'preposition', without: 'preposition', by: 'preposition', for: 'preposition',
-  about: 'preposition', into: 'preposition', onto: 'preposition', over: 'preposition', under: 'preposition',
-  through: 'preposition', between: 'preposition', against: 'preposition', across: 'preposition',
-  behind: 'preposition', before: 'preposition', after: 'preposition', during: 'preposition',
-  above: 'preposition', below: 'preposition', beside: 'preposition', within: 'preposition',
-  upon: 'preposition', toward: 'preposition', towards: 'preposition', among: 'preposition',
-  and: 'conjunction', but: 'conjunction', or: 'conjunction', nor: 'conjunction', so: 'conjunction',
-  yet: 'conjunction', because: 'conjunction', although: 'conjunction', though: 'conjunction',
-  while: 'conjunction', if: 'conjunction', unless: 'conjunction', until: 'conjunction',
-  when: 'conjunction', where: 'conjunction', as: 'conjunction', than: 'conjunction',
-  is: 'verb', am: 'verb', are: 'verb', was: 'verb', were: 'verb', be: 'verb', been: 'verb',
-  being: 'verb', have: 'verb', has: 'verb', had: 'verb', do: 'verb', does: 'verb', did: 'verb',
-  will: 'verb', would: 'verb', can: 'verb', could: 'verb', shall: 'verb', should: 'verb',
-  may: 'verb', might: 'verb', must: 'verb',
-  not: 'adverb', very: 'adverb', too: 'adverb', also: 'adverb', only: 'adverb', just: 'adverb',
-  still: 'adverb', again: 'adverb', never: 'adverb', always: 'adverb', often: 'adverb',
-  here: 'adverb', there: 'adverb', now: 'adverb', then: 'adverb', once: 'adverb', how: 'adverb',
-  why: 'adverb', well: 'adverb', more: 'adverb', most: 'adverb', much: 'adverb',
-  oh: 'interjection', ah: 'interjection', yes: 'interjection', hello: 'interjection',
-};
-
-/**
- * The fallback when the dictionary cannot be reached or has never heard of a
- * word. It is a guess, and the editor says so, so nothing here pretends to be
- * something a dictionary said.
- */
-export function inferWordType(spelling: string): WordType {
-  const word = spelling.toLowerCase();
-  if (!/[a-z0-9]/i.test(word)) return 'punctuation';
-  if (/^\d/.test(word)) return 'number';
-
-  const known = FUNCTION_WORDS[word];
-  if (known) return known;
-
-  if (/(ly)$/.test(word) && word.length > 4) return 'adverb';
-  if (/(ing|ed|ise|ize|ate|ify)$/.test(word) && word.length > 4) return 'verb';
-  if (/(ous|ful|ish|able|ible|ive|less|est|al)$/.test(word) && word.length > 4) return 'adjective';
-  if (/(ness|tion|sion|ment|ity|ship|hood|ance|ence|ism|er|or|ist)$/.test(word) && word.length > 4) {
-    return 'noun';
-  }
-  return 'noun';
 }
 
 /** Word types the dictionary API reports, mapped onto the ones a lexeme can be. */
@@ -423,11 +349,22 @@ export const PUNCTUATION_MEANINGS: Record<string, string> = {
   ')': 'Closes one.',
 };
 
+/**
+ * The meaning of a mark or a number, read off the token itself.
+ *
+ * This is the one thing that is settled without asking anything: `.` *is*
+ * punctuation and `42` *is* a number, and neither has other forms. It is marked
+ * `token` rather than `dictionary` so nothing here claims to be something a
+ * dictionary said.
+ */
 export function meaningForToken(spelling: string): WordMeaning | undefined {
   const mark = PUNCTUATION_MEANINGS[spelling];
-  if (mark) return { type: 'punctuation', description: mark, source: 'inferred' };
+  if (mark) return { senses: [{ type: 'punctuation', description: mark }], source: 'token' };
   if (/^\d/.test(spelling)) {
-    return { type: 'number', description: 'A number, kept as its own token.', source: 'inferred' };
+    return {
+      senses: [{ type: 'number', description: 'A number, kept as its own token.' }],
+      source: 'token',
+    };
   }
   return undefined;
 }

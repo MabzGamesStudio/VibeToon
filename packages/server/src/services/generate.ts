@@ -12,10 +12,11 @@ import {
   type ResolvedInput,
 } from '@vibetoon/shared';
 import { generatorFor } from '../generators';
-import type { Attachment, GenerationContext } from '../generators/types';
+import { TRUNCATION_MARK, type Attachment, type GenerationContext } from '../generators/types';
 import { HttpError, loadProject, readArtifactText, saveProjectUnchecked } from '../storage';
 
 const UPSTREAM_READ_LIMIT = 8000;
+
 
 /**
  * Outputs from ports this run did not write are kept. That matters for ports
@@ -64,7 +65,7 @@ async function runOne(
       }
       try {
         const text = await readArtifactText(project.id, artifact.path);
-        return text.length > limit ? `${text.slice(0, limit)}\n[truncated]` : text;
+        return text.length > limit ? `${text.slice(0, limit)}\n${TRUNCATION_MARK}` : text;
       } catch {
         return undefined;
       }

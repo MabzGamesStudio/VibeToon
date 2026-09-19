@@ -17,7 +17,7 @@ needs both:
 | Input | Why |
 | --- | --- |
 | Corpus | The text to read for its shapes. |
-| Word database | **Required.** Without it every word type would be a guess, and a database of guesses describes nothing. |
+| Word database | **Required.** Without it no word has a type, and a database of untyped slots describes nothing. |
 
 Wire its Grammar database output into a Random Text flow's Grammar database
 input, and turn that flow's **Grammar database** slider up.
@@ -31,9 +31,10 @@ Each token becomes one slot:
   the form is read off the word's [variations](WORD-DATABASE.md#variations).
 - A mark becomes `punctuation:` and the mark itself, so `punctuation:.` and
   `punctuation:?` are different slots.
-- A word the database has never seen is still tagged, by guess, so one unfamiliar
-  word does not throw away the sentence around it. The report says how many of
-  those there were.
+- A word the database has never seen, or has never had looked up, becomes
+  `unknown`. It still takes a place in the pattern, so one unfamiliar word does
+  not throw away the sentence around it — it simply does not pretend to be a noun.
+  The report says how many of those there were.
 
 Turn **Include word forms** off and a slot is just `verb` — far more shapes
 match, but nothing is said about tense or number.
@@ -85,10 +86,16 @@ hear what it is doing: same seed, same settings, slider at 0 and then at 0.7.
 ## Accuracy depends on the word types
 
 A grammar database is only as good as the types underneath it. If the dictionary
-has not been run — or could not be reached — most words are guessed, and guessed
-types produce shapes like `the bread workshops`. Run the lookup on the word
-database first, correct anything obviously wrong, then read the corpus into the
-grammar. It is the single biggest lever on the quality of what comes out.
+has not been run — or could not be reached — most words are `unknown`, and a
+corpus of `unknown unknown unknown` shapes teaches the generator nothing. Run the
+lookup on the word database first, correct anything obviously wrong, then read the
+corpus into the grammar. It is the single biggest lever on the quality of what
+comes out.
+
+Forms matter as much as types. A slot is only `verb:past` if the word database
+knows `walked` is the past of `walk`, which means the morphology dataset has to
+have been built — see [Variations](WORD-DATABASE.md#variations). Without it every
+verb is just `verb`, and the grammar cannot say anything about tense.
 
 Reading the **same** corpus into both flows helps for the same reason: every word
 in the text is then one the database has a type for.

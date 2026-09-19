@@ -6,12 +6,15 @@ import {
   addDataset,
   extractCorpus,
   fillTokenMeanings,
+  formFamily,
   formOfLexeme,
+  formsState,
   masterDataset,
   lookupProgress,
   masterLexicon,
   removeDataset,
   sampleDataset,
+  otherSenses,
   setIncluded,
   summarise,
   variationsOf,
@@ -19,8 +22,10 @@ import {
   type CorpusDataset,
   type DictionaryProviders,
   type FlowNode,
+  type Lexeme,
   type LexiconFlowData,
   type Project,
+  type WordSense,
   type WordType,
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
@@ -229,24 +234,49 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
 
   const current = selected ? lexicon.lexemes.find((lexeme) => lexeme.id === selected) : undefined;
   const currentEntry = current ? master.entries.find((entry) => entry.spelling === current.spelling) : undefined;
-  // The forms this word takes, and which of them its spelling is. Recomputed
-  // rather than read off the entry, so correcting the type updates them at once.
+  // The forms this entry takes, and which of them its own spelling is. Both come
+  // off the entry: nothing here works a form out from the spelling.
   const currentVariations = current ? variationsOf(current) : undefined;
   const currentForm = current ? formOfLexeme(current) : undefined;
+  const currentForms = current ? formsState(current) : 'not-looked-up';
+  const currentSenses = current ? otherSenses(lexicon, current) : [];
+  const currentFamily = current ? formFamily(lexicon, current) : [];
+  const currentRoot = current?.variantOf
+    ? lexicon.lexemes.find((lexeme) => lexeme.id === current.variantOf)
+    : undefined;
   const byId = useMemo(() => new Map(lexicon.lexemes.map((lexeme) => [lexeme.id, lexeme])), [lexicon.lexemes]);
 
-  const setMeaning = (spelling: string, change: { type?: WordType; description?: string }) => {
-    const existing = data.meanings[spelling];
+  /**
+   * Correct a word by hand.
+   *
+   * A hand-written type replaces the sense whose type is being changed, and
+   * clears the forms with it: the forms belonged to the old type, and the new one
+   * has whatever the forms dataset says on the next lookup. Guessing them here is
+   * exactly what the studio no longer does.
+   */
+  const setMeaning = (
+    lexeme: Lexeme,
+    change: { type?: WordType; description?: string },
+  ) => {
+    const existing = data.meanings[lexeme.spelling];
+    const senses = (existing?.senses ?? []).length > 0 ? [...existing!.senses] : [];
+    const at = senses.findIndex((sense) => sense.type === lexeme.type);
+    const base: WordSense =
+      at >= 0
+        ? senses[at]!
+        : { type: lexeme.type, description: lexeme.description, ...(lexeme.variations ? { variations: lexeme.variations } : {}) };
+    const type = change.type ?? base.type;
+    const next: WordSense = {
+      type,
+      description: change.description ?? base.description,
+      ...(type === base.type && base.variations ? { variations: base.variations } : {}),
+    };
+    if (at >= 0) senses[at] = next;
+    else senses.push(next);
+
     patch({
       ...data,
-      meanings: {
-        ...data.meanings,
-        [spelling]: {
-          type: change.type ?? existing?.type ?? 'noun',
-          description: change.description ?? existing?.description ?? '',
-          source: 'manual',
-        },
-      },
+      meanings: { ...data.meanings, [lexeme.spelling]: { senses, source: 'manual' } },
     });
   };
 
@@ -672,8 +702,14 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
                   <div className="vt-row" style={{ marginBottom: 8 }}>
                     <h2>{current.spelling}</h2>
                     <span className="vt-pill">
-                      {data.meanings[current.spelling]?.source ?? 'guessed'}
+                      {data.meanings[current.spelling]?.source ?? 'not looked up'}
                     </span>
+                    {current.variantOf ? (
+                      <span className="vt-pill" title="This row is a form of another word, not a word the corpus counted.">
+                        {currentForm ? currentForm.replace(/_/g, ' ') : 'a form'} of{' '}
+                        {currentRoot?.spelling ?? 'another word'}
+                      </span>
+                    ) : null}
                   </div>
                   <dl className="vt-kv">
                     <dt>Count</dt>
@@ -689,7 +725,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
                     <select
                       value={current.type}
                       onChange={(event) =>
-                        setMeaning(current.spelling, { type: event.target.value as WordType })
+                        setMeaning(current, { type: event.target.value as WordType })
                       }
                     >
                       {WORD_TYPES.map((type) => (
@@ -703,12 +739,12 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
                     label="Forms"
                     tip="lexicon.variations"
                     hint={
-                      currentVariations
-                        ? 'Worked out from the word\u2019s type. The one in blue is the spelling counted in the corpus.'
+                      currentForms === 'known'
+                        ? 'From the forms dataset. The one in blue is this row\u2019s own spelling; each of the others has a row of its own.'
                         : undefined
                     }
                   >
-                    {currentVariations ? (
+                    {currentForms === 'known' && currentVariations ? (
                       <dl className="vt-variations">
                         {Object.entries(currentVariations).map(([form, spelling]) => (
                           <Fragment key={form}>
@@ -719,22 +755,75 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
                           </Fragment>
                         ))}
                       </dl>
+                    ) : currentForms === 'does-not-inflect' ? (
+                      <div className="vt-hint" style={{ marginTop: 0 }}>
+                        {current.type === 'unknown'
+                          ? 'Nobody has looked this word up, so what kind of word it is — and therefore what forms it takes — is not known.'
+                          : `A ${WORD_TYPE_LABEL[current.type].toLowerCase()} has no other forms. Only nouns, verbs, adjectives and adverbs inflect.`}
+                      </div>
                     ) : (
                       <div className="vt-hint" style={{ marginTop: 0 }}>
-                        A {WORD_TYPE_LABEL[current.type].toLowerCase()} has no other forms. Only nouns, verbs,
-                        adjectives and adverbs inflect — change the type above and the forms appear.
+                        A {WORD_TYPE_LABEL[current.type].toLowerCase()} has other forms, but this one is not in
+                        the forms dataset — or the dataset has not been built yet. Wire this database into a
+                        Dictionary flow and press “Get the forms dataset” there. They are never guessed from the
+                        spelling.
                       </div>
                     )}
                   </Field>
+
+                  {currentSenses.length > 0 ? (
+                    <div className="vt-section">
+                      <h3>
+                        <span>Read another way</span>
+                        <span className="vt-faint">{currentSenses.length} other sense(s)</span>
+                      </h3>
+                      <div className="vt-hint">
+                        The same spelling, a different kind of word. Each is a row of its own, with its own
+                        forms and its own description.
+                      </div>
+                      {currentSenses.map((sense) => (
+                        <button
+                          key={sense.id}
+                          type="button"
+                          className="vt-context-row"
+                          onClick={() => setSelected(sense.id)}
+                        >
+                          <span className="vt-lexeme-word">{WORD_TYPE_LABEL[sense.type]}</span>
+                          <span className="vt-faint">{sense.description || 'no description'}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {currentFamily.length > 0 ? (
+                    <div className="vt-section">
+                      <h3>
+                        <span>Its other forms</span>
+                        <span className="vt-faint">{currentFamily.length} row(s)</span>
+                      </h3>
+                      {currentFamily.map((relative) => (
+                        <button
+                          key={relative.id}
+                          type="button"
+                          className="vt-context-row"
+                          onClick={() => setSelected(relative.id)}
+                        >
+                          <span className="vt-lexeme-word">{relative.spelling}</span>
+                          <span className="vt-faint">
+                            {formOfLexeme(relative)?.replace(/_/g, ' ') ?? 'base form'}
+                            {(relative.stats?.count ?? 0) === 0 ? ' · not in the corpus' : ` · ${relative.stats?.count}`}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
 
                   <Field label="Description" tip="lexicon.description">
                     <textarea
                       rows={3}
                       value={current.description}
                       placeholder="No definition yet."
-                      onChange={(event) =>
-                        setMeaning(current.spelling, { description: event.target.value })
-                      }
+                      onChange={(event) => setMeaning(current, { description: event.target.value })}
                     />
                   </Field>
 

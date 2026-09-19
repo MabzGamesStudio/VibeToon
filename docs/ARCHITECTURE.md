@@ -164,10 +164,14 @@ needs. The consequence is that the *counting* settings apply when a corpus is
 added — a dataset cannot be re-pruned upwards later without counting the text
 again.
 
-The two network calls live on the server because the browser cannot make them:
-book sites do not allow cross-origin reads, and the dictionary cache belongs on
-disk. Both degrade rather than fail — a blocked dictionary leaves every word with
-a guessed type and says so.
+The three network calls live on the server because the browser cannot make them:
+book sites do not allow cross-origin reads, and the dictionary cache and the
+morphology index belong on disk. All of them degrade rather than fail — a blocked
+dictionary leaves every word's type `unknown` and says so, and an unbuilt
+morphology index leaves every word's forms unknown and says that too. Nothing
+substitutes a guess for a missing answer: there used to be a rule engine for word
+forms and a suffix table for word types, and both are gone, because the grammar
+flow trusts what it is told and cannot tell a guess from a fact.
 
 ## Drawings
 
@@ -200,7 +204,29 @@ A single `StudioProvider` holds the project, autosaves 700ms after the last edit
 and coalesces edits made while a save is in flight. Generation, sync and upload
 flush pending saves first, then adopt the project the server returns.
 
-The graph canvas is plain React and SVG: nodes are absolutely positioned in a
-transformed world layer, edges are cubics between port anchors read from layout
-(so they stay attached without hard-coded card metrics), and each interaction —
-pan, node drag, wire drag — is a pointer capture that commits once on release.
+The graph canvas is plain React and SVG: cards sit in a transformed world layer,
+edges are cubics between port anchors, and each interaction — pan, node drag, wire
+drag — is a pointer capture that commits once on release.
+
+Four rules keep it at frame rate on a large graph, and breaking any one of them
+brings the lag back:
+
+- **Port anchors are arithmetic, not layout.** Where a port sits inside its card
+  is a property of the *flow kind*, so it is measured once per kind and cached;
+  a card's anchors are then its position plus that offset. Reading `offsetLeft`
+  off each dot instead forces the browser to lay the page out again on every
+  frame of a drag, which was the single largest cost.
+- **A gesture does not go through React.** Panning and zooming write the
+  transform straight onto the world layer and the background, and tell React
+  where they got to only on release (and, at 10Hz, so culling stays honest).
+  The transform is painted in a layout effect rather than written as an inline
+  style, so a commit cannot drag the canvas back to where the last commit was
+  queued.
+- **`NodeCard` is memoised and every prop it takes is stable.** That means
+  `useCallback` on every handler, a `dropPortId` for *this* card rather than a
+  freshly built object, and no `project` prop: whether a flow is up to date and
+  which of its ports are wired costs a walk of every connection, so the canvas
+  works that out once per project change and passes the answer down.
+- **Off-screen cards are not drawn** once a graph passes 24 flows, with a whole
+  viewport of slack around the edge. Below that everything is drawn, because a
+  small graph is never the one that is slow.

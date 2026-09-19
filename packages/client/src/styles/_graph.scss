@@ -48,6 +48,9 @@
   position: absolute;
   inset: 0;
   transform-origin: 0 0;
+  // One compositor layer for the whole graph, so panning it is a composite
+  // rather than a repaint of every card on it.
+  will-change: transform;
 }
 
 .vt-edges {
@@ -109,7 +112,11 @@
 /* Node cards --------------------------------------------------------- */
 
 .vt-node {
+  // Placed with a transform rather than `left`/`top`: dragging a card then
+  // costs a composite instead of laying out everything else on the canvas.
   position: absolute;
+  left: 0;
+  top: 0;
   width: 232px;
   background: $bg-2;
   border: 1px solid $line;

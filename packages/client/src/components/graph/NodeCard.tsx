@@ -1,12 +1,5 @@
 import { memo, useEffect, useRef } from 'react';
-import {
-  flowStatus,
-  getFlowKind,
-  inputsForPort,
-  missingRequiredInputs,
-  type FlowNode,
-  type Project,
-} from '@vibetoon/shared';
+import { getFlowKind, type FlowNode } from '@vibetoon/shared';
 
 export type PortSide = 'in' | 'out';
 
@@ -21,13 +14,31 @@ const STATUS_LABEL: Record<string, string> = {
   error: 'failed',
 };
 
+/**
+ * Everything about a card that has to be worked out from the whole project:
+ * whether the flow is up to date, which of its required inputs are unwired, and
+ * which ports have something on them.
+ *
+ * It is passed in rather than derived here because deriving it costs a walk of
+ * every connection in the project, and a card is re-rendered whenever the graph
+ * is panned. The canvas works it out once per project instead, which also means
+ * this object keeps its identity across a pan and `memo` below actually holds.
+ */
+export interface NodeChrome {
+  status: string;
+  /** Required input ports with nothing wired in. */
+  missing: readonly string[];
+  /** Input ports with something wired in. */
+  connected: readonly string[];
+}
+
 export interface NodeCardProps {
-  project: Project;
   node: FlowNode;
+  chrome: NodeChrome;
   selected: boolean;
   busy: boolean;
-  /** Port currently highlighted as a drop target. */
-  dropTarget: { nodeId: string; portId: string } | null;
+  /** The input port on *this* node currently highlighted as a drop target. */
+  dropPortId: string | null;
   /** Draw the name and ports only, for a graph too big to draw in full. */
   compact: boolean;
   registerAnchor(key: string, element: HTMLElement | null): void;
@@ -55,12 +66,12 @@ function PortDot({
 }
 
 export const NodeCard = memo(function NodeCard({
-  project,
   node,
+  chrome,
   selected,
   busy,
   compact,
-  dropTarget,
+  dropPortId,
   registerAnchor,
   onSelect,
   onOpen,
@@ -70,8 +81,6 @@ export const NodeCard = memo(function NodeCard({
   onPortPointerLeave,
 }: NodeCardProps): JSX.Element {
   const def = getFlowKind(node.kind);
-  const status = flowStatus(project, node);
-  const missing = new Set(missingRequiredInputs(project, node).map((port) => port.id));
   const warnings = node.lastRun?.warnings?.length ?? 0;
 
   return (
@@ -84,7 +93,9 @@ export const NodeCard = memo(function NodeCard({
       ]
         .filter(Boolean)
         .join(' ')}
-      style={{ left: node.position.x, top: node.position.y }}
+      // A transform rather than `left`/`top`: moving a card then costs a
+      // composite instead of a layout of everything on the canvas.
+      style={{ transform: `translate3d(${node.position.x}px, ${node.position.y}px, 0)` }}
       onPointerDown={() => onSelect(node.id)}
       onDoubleClick={() => onOpen(node.id)}
       role="group"
@@ -95,8 +106,14 @@ export const NodeCard = memo(function NodeCard({
         <div className="vt-node-kind">{def?.label ?? node.kind}</div>
         <div className="vt-node-name">
           <span>{node.name}</span>
-          <span className={`vt-pill is-${status}`} title={STATUS_LABEL[status]}>
-            {status === 'ready' ? '●' : status === 'stale' ? '◐' : status === 'error' ? '!' : '○'}
+          <span className={`vt-pill is-${chrome.status}`} title={STATUS_LABEL[chrome.status]}>
+            {chrome.status === 'ready'
+              ? '●'
+              : chrome.status === 'stale'
+                ? '◐'
+                : chrome.status === 'error'
+                  ? '!'
+                  : '○'}
           </span>
         </div>
       </div>
@@ -107,35 +124,31 @@ export const NodeCard = memo(function NodeCard({
 
       <div className="vt-node-ports">
         <div className="vt-port-col">
-          {(def?.inputs ?? []).map((port) => {
-            const connected = inputsForPort(project, node.id, port.id).length > 0;
-            const isTarget = dropTarget?.nodeId === node.id && dropTarget.portId === port.id;
-            return (
-              <button
-                key={port.id}
-                type="button"
-                className={[
-                  'vt-port',
-                  connected ? 'is-connected' : '',
-                  port.required ? 'is-required' : '',
-                  missing.has(port.id) ? 'is-missing' : '',
-                  isTarget ? 'is-target' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                data-node={node.id}
-                data-port={port.id}
-                data-side="in"
-                title={`${port.label} — accepts ${port.kinds.join(', ')}${port.required ? ' (required)' : ''}\n${port.description}`}
-                onPointerDown={(event) => onPortPointerDown(event, node.id, port.id, 'in')}
-                onPointerEnter={() => onPortPointerEnter(node.id, port.id, 'in')}
-                onPointerLeave={onPortPointerLeave}
-              >
-                <PortDot anchor={anchorKey(node.id, port.id, 'in')} registerAnchor={registerAnchor} />
-                <span>{port.label}</span>
-              </button>
-            );
-          })}
+          {(def?.inputs ?? []).map((port) => (
+            <button
+              key={port.id}
+              type="button"
+              className={[
+                'vt-port',
+                chrome.connected.includes(port.id) ? 'is-connected' : '',
+                port.required ? 'is-required' : '',
+                chrome.missing.includes(port.id) ? 'is-missing' : '',
+                dropPortId === port.id ? 'is-target' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              data-node={node.id}
+              data-port={port.id}
+              data-side="in"
+              title={`${port.label} — accepts ${port.kinds.join(', ')}${port.required ? ' (required)' : ''}\n${port.description}`}
+              onPointerDown={(event) => onPortPointerDown(event, node.id, port.id, 'in')}
+              onPointerEnter={() => onPortPointerEnter(node.id, port.id, 'in')}
+              onPointerLeave={onPortPointerLeave}
+            >
+              <PortDot anchor={anchorKey(node.id, port.id, 'in')} registerAnchor={registerAnchor} />
+              <span>{port.label}</span>
+            </button>
+          ))}
         </div>
 
         <div className="vt-port-col is-out">

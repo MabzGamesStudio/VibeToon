@@ -51,9 +51,30 @@ test('the starter database is counted out of the sample corpus and holds togethe
 
   const index = buildLexiconIndex(LEXICON);
   assert.ok(index.bySpelling.has('.'), 'punctuation is counted as a token of its own');
+  /*
+   * A row has a count if and only if the corpus contained its spelling. Two kinds
+   * of row have none: a form of a word the corpus never wrote out. `variantOf` is
+   * not the test for that — the corpus contained `hands` as well as `hand`, so
+   * `hands` is both a form of another row and a word with a real count.
+   */
+  const derived = LEXICON.lexemes.filter((lexeme) => (lexeme.stats?.count ?? 0) === 0);
+  const counted = LEXICON.lexemes.filter((lexeme) => (lexeme.stats?.count ?? 0) > 0);
+  assert.ok(counted.length > 120, `${counted.length} words the corpus actually contained`);
+  assert.ok(derived.length > 100, `${derived.length} forms it did not`);
   assert.ok(
-    LEXICON.lexemes.every((lexeme) => (lexeme.stats?.count ?? 0) > 0),
-    'every entry carries the count it came from',
+    derived.every((lexeme) => lexeme.variantOf !== undefined && lexeme.frequency === 0),
+    'every row with no count is a form of another word, and claims no frequency either',
+  );
+
+  const forms = LEXICON.lexemes.filter((lexeme) => lexeme.variantOf);
+  assert.ok(forms.length >= derived.length, `${forms.length} rows are a form of another row`);
+  assert.ok(
+    forms.some((lexeme) => (lexeme.stats?.count ?? 0) > 0),
+    'and some of those the corpus did contain, so they keep their own count',
+  );
+  assert.ok(
+    forms.every((lexeme) => LEXICON.lexemes.some((root) => root.id === lexeme.variantOf)),
+    'and each points at a row that is present',
   );
   const commonest = [...LEXICON.lexemes].sort((a, b) => b.frequency - a.frequency)[0]!;
   assert.equal(commonest.spelling, 'the', 'and frequency follows the corpus');

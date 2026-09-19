@@ -123,33 +123,68 @@ test('with nothing looked up, the database comes out as it went in, and it says 
   assert.ok((await outputLexicon()).lexemes.length > 100, 'and the words are all still there');
 });
 
+/** What a lookup would have stored for `lamp`: the senses, and their forms. */
+const LAMP_FORMS = {
+  infinitive: 'lamp',
+  third_person_singular: 'lamps',
+  present_progressive: 'lamping',
+  past: 'lamped',
+  past_participle: 'lamped',
+};
+
 test('what was looked up is applied to the database', async () => {
-  const before = (await outputLexicon()).lexemes.find((lexeme) => lexeme.spelling === 'lamp')!;
+  const words = await outputLexicon();
+  const before = words.lexemes.find((lexeme) => lexeme.spelling === 'lamp')!;
 
   await setDict({
     ...emptyDictionaryFlowData(),
     meanings: {
-      lamp: { type: 'verb', description: 'A made-up definition, to prove it lands.', source: 'dictionary' },
+      lamp: {
+        source: 'dictionary',
+        senses: [
+          {
+            type: 'verb',
+            description: 'A made-up definition, to prove it lands.',
+            variations: LAMP_FORMS,
+          },
+        ],
+      },
     },
   });
   const run = (await generate(DICT_ID)).runs[0]!;
   assert.equal(run.ok, true);
 
-  const after = (await outputLexicon()).lexemes.find((lexeme) => lexeme.spelling === 'lamp')!;
+  const out = await outputLexicon();
+  const after = out.lexemes.find((lexeme) => lexeme.spelling === 'lamp')!;
   assert.notEqual(after.type, before.type, 'the type changed');
   assert.equal(after.type, 'verb');
   assert.match(after.description, /prove it lands/);
-  assert.equal(after.variations?.past, 'lamped', 'and the forms follow the type it now is');
+  assert.equal(after.variations?.past, 'lamped', 'and the forms came with the answer');
   assert.equal(after.frequency, before.frequency, 'the counting is untouched — only the meaning changed');
+
+  // Each of its forms is a row of its own now, sharing the type and description.
+  const lamping = out.lexemes.find((lexeme) => lexeme.spelling === 'lamping')!;
+  assert.ok(lamping, 'a form the corpus never contained is in the database');
+  assert.equal(lamping.type, 'verb');
+  assert.match(lamping.description, /prove it lands/);
+  assert.equal(lamping.variantOf, after.id);
+  assert.equal(lamping.stats?.count, 0, 'with the count it had: none');
+
+  // And the words this flow was told nothing about are left exactly as they were.
+  const untouched = out.lexemes.find((lexeme) => lexeme.spelling === 'workshop')!;
+  const wasUntouched = words.lexemes.find((lexeme) => lexeme.spelling === 'workshop')!;
+  assert.deepEqual(untouched, wasUntouched, 'running one word does not reset the rest');
 });
 
 test('the report says what changed and what is still unknown', async () => {
   const response = await fetch(`${base}/api/projects/${project.id}/files/artifacts/${DICT_ID}/report.md`);
   const report = await response.text();
-  assert.match(report, /Types changed by this run: \*\*1\*\*/);
+  assert.match(report, /Types changed by this run: 1/);
+  assert.match(report, /Extra entries that are a form of another word/);
   assert.match(report, /Word types now/);
   assert.match(report, /never asked about/i);
-  assert.match(report, /Service:/, 'and which service it is set to ask');
+  assert.match(report, /Dictionary: /, 'which service it is set to ask');
+  assert.match(report, /Forms: /, 'and which dataset the forms come from');
 });
 
 test('a flow with no word database wired in warns, and clobbers nothing', async () => {

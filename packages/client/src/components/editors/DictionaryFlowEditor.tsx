@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_DICTIONARY_OPTIONS,
   applyMeaningsToLexicon,
+  formOfLexeme,
   inputsForPort,
   lookupProgress,
   summariseDictionary,
@@ -10,12 +11,14 @@ import {
   type DictionaryProviders,
   type FlowNode,
   type Lexicon,
+  type MorphologyStatus,
   type Project,
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { useView } from '../../state/view';
 import { Field } from '../common/Field';
+import { formatWhen } from '../common/format';
 import { EditorShell } from './EditorShell';
 
 /** Words per request: a batch comes back in seconds and is saved before the next. */
@@ -37,6 +40,8 @@ export function DictionaryFlowEditor({ project, node }: { project: Project; node
   const [lexicon, setLexicon] = useState<Lexicon | null>(null);
   const [lexiconError, setLexiconError] = useState<string | null>(null);
   const [providers, setProviders] = useState<DictionaryProviders | null>(null);
+  const [forms, setForms] = useState<MorphologyStatus | null>(null);
+  const [building, setBuilding] = useState(false);
   const [keyDraft, setKeyDraft] = useState('');
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [query, setQuery] = useState('');
@@ -76,6 +81,39 @@ export function DictionaryFlowEditor({ project, node }: { project: Project; node
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .morphology(data.morphologyId || undefined)
+      .then((found) => !cancelled && setForms(found))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [data.morphologyId]);
+
+  const formsSource = forms?.sources.find((source) => source.id === forms.activeId);
+
+  /**
+   * Download the dataset and index it. One press, a few seconds, and every
+   * word's forms are answered from disk from then on.
+   */
+  const buildForms = useCallback(async () => {
+    setBuilding(true);
+    try {
+      const built = await api.buildMorphology(data.morphologyId || undefined);
+      setForms(built);
+      notify(
+        'success',
+        `Indexed ${built.built.meta.paradigms.toLocaleString()} sets of forms covering ${built.built.meta.spellings.toLocaleString()} spellings, from ${(built.built.bytes / 1_000_000).toFixed(1)}MB, in ${(built.built.ms / 1000).toFixed(1)}s. Look the words up again to fill their forms in.`,
+      );
+    } catch (error) {
+      notify('error', (error as Error).message);
+    } finally {
+      setBuilding(false);
+    }
+  }, [data.morphologyId, notify]);
 
   const blocked = !lexiconInput
     ? 'Wire a Word Database into the Word database input first.'
@@ -128,7 +166,12 @@ export function DictionaryFlowEditor({ project, node }: { project: Project; node
         }
 
         const batch = queue.slice(0, BATCH_SIZE);
-        const result = await api.lookupWords(batch, BATCH_SIZE, data.providerId || undefined);
+        const result = await api.lookupWords(
+          batch,
+          BATCH_SIZE,
+          data.providerId || undefined,
+          data.morphologyId || undefined,
+        );
         meanings = { ...meanings, ...result.meanings };
         patch({ ...data, meanings });
 
@@ -208,13 +251,24 @@ export function DictionaryFlowEditor({ project, node }: { project: Project; node
             <dd>{lexicon ? lexicon.lexemes.length.toLocaleString() : '—'}</dd>
             <dt>Answers held</dt>
             <dd>
-              {summary.known.toLocaleString()}
-              {summary.guessed > 0 ? ` (${summary.guessed.toLocaleString()} guessed)` : ''}
+              {summary.known.toLocaleString()} spelling(s), {summary.senses.toLocaleString()} sense(s)
+              {summary.absent > 0 ? ` · ${summary.absent.toLocaleString()} with no entry` : ''}
             </dd>
+            <dt>With several meanings</dt>
+            <dd>{summary.multiSense.toLocaleString()}</dd>
+            <dt>With their forms</dt>
+            <dd>{summary.withForms.toLocaleString()}</dd>
             <dt>Never asked</dt>
             <dd>{pending.length.toLocaleString()}</dd>
             {applied ? (
               <>
+                <dt>Words out</dt>
+                <dd>
+                  <strong>{applied.lexicon.lexemes.length.toLocaleString()}</strong>
+                  {' — '}
+                  {applied.split.toLocaleString()} from several meanings,{' '}
+                  {applied.variants.toLocaleString()} forms
+                </dd>
                 <dt>Would change</dt>
                 <dd>
                   {applied.retyped.toLocaleString()} type(s), {applied.described.toLocaleString()} description(s)
@@ -343,6 +397,87 @@ export function DictionaryFlowEditor({ project, node }: { project: Project; node
         </div>
 
         <div className="vt-section">
+          <h3>Forms</h3>
+          <div className="vt-hint" style={{ marginTop: 0 }}>
+            No dictionary API returns inflections, so the forms of a word — <code>cat</code>/
+            <code>cats</code>, <code>forgive</code>/<code>forgave</code> — come from a dataset instead. It is
+            downloaded once and answered from disk after that. Nothing is ever worked out from the spelling.
+          </div>
+          <Field
+            label="Forms dataset"
+            tip="dictionary.morphology"
+            hint={
+              data.morphologyId
+                ? 'Set on this flow, whatever the studio is set to.'
+                : `Following the studio — ${forms?.reason ?? 'reading…'}.`
+            }
+          >
+            <select
+              value={data.morphologyId}
+              aria-label="Forms dataset"
+              disabled={!forms || building}
+              onChange={(event) => patch({ ...data, morphologyId: event.target.value })}
+            >
+              <option value="">Follow the studio{forms ? ` (${forms.activeId})` : ''}</option>
+              {(forms?.sources ?? []).map((source) => (
+                <option key={source.id} value={source.id}>
+                  {source.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {formsSource ? <div className="vt-hint">{formsSource.note}</div> : null}
+
+          <div className="vt-row" style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              className="vt-btn is-small"
+              disabled={building || !forms}
+              onClick={() => void buildForms()}
+            >
+              {building
+                ? 'Downloading and indexing…'
+                : forms?.ready
+                  ? 'Rebuild the forms dataset'
+                  : 'Get the forms dataset'}
+            </button>
+          </div>
+          {forms ? (
+            <dl className="vt-kv" style={{ marginTop: 8 }}>
+              <dt>Indexed here</dt>
+              <dd>
+                {forms.ready ? (
+                  `${forms.paradigms.toLocaleString()} sets of forms, ${forms.spellings.toLocaleString()} spellings`
+                ) : (
+                  <span className="vt-pill is-error">not yet</span>
+                )}
+              </dd>
+              {forms.builtAt ? (
+                <>
+                  <dt>Built</dt>
+                  <dd>{formatWhen(forms.builtAt)}</dd>
+                </>
+              ) : null}
+            </dl>
+          ) : null}
+          {forms && !forms.ready ? (
+            <div className="vt-hint">
+              Until this is built, no word gets its forms — they stay unknown rather than being guessed. The
+              download is about {Math.round((formsSource?.approxBytes ?? 0) / 100_000) / 10}MB, once.
+              {formsSource ? (
+                <>
+                  {' '}
+                  <a href={formsSource.homeUrl} target="_blank" rel="noreferrer">
+                    About this dataset
+                  </a>
+                  .
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="vt-section">
           <h3>What to ask about</h3>
           <Field
             label="Skip words rarer than"
@@ -391,6 +526,39 @@ export function DictionaryFlowEditor({ project, node }: { project: Project; node
             />
             <span>Replace the description the database had</span>
           </label>
+          <label className="vt-row" style={{ gap: 6, marginTop: 8 }}>
+            <input
+              type="checkbox"
+              style={{ width: 'auto' }}
+              checked={options.splitSenses}
+              onChange={(event) =>
+                patch({ ...data, options: { ...options, splitSenses: event.target.checked } })
+              }
+            />
+            <span>An entry per meaning</span>
+          </label>
+          <div className="vt-hint" style={{ marginTop: 0 }}>
+            <code>light</code> becomes a noun, a verb and an adjective, each with its own description and its
+            own forms. Off, only the first meaning the service reported is kept — which is what made the
+            grammar flow put <code>light</code> where only a noun fits.
+          </div>
+          <label className="vt-row" style={{ gap: 6, marginTop: 8 }}>
+            <input
+              type="checkbox"
+              style={{ width: 'auto' }}
+              checked={options.addVariants}
+              onChange={(event) =>
+                patch({ ...data, options: { ...options, addVariants: event.target.checked } })
+              }
+            />
+            <span>An entry per form</span>
+          </label>
+          <div className="vt-hint" style={{ marginTop: 0 }}>
+            <code>cat</code> also puts <code>cats</code> in the database, sharing its type and description. A
+            form the corpus already counted keeps its own count; one it never saw is added with a count of
+            nought, because that is what it had. Off, the forms are still stored on the word and still used
+            for spelling — they just do not get rows of their own.
+          </div>
         </div>
       </aside>
 
@@ -412,13 +580,41 @@ export function DictionaryFlowEditor({ project, node }: { project: Project; node
           ) : (
             rows.map((lexeme) => {
               const meaning = data.meanings[lexeme.spelling];
-              const source = meaning?.source ?? 'none';
+              const source = lexeme.variantOf ? 'a form' : (meaning?.source ?? 'not asked');
+              const variations = lexeme.variations;
+              const form = formOfLexeme(lexeme);
               return (
-                <div key={lexeme.id} className="vt-log-row" style={{ gridTemplateColumns: '130px 90px 90px minmax(0, 1fr)' }}>
+                <div
+                  key={lexeme.id}
+                  className="vt-log-row"
+                  style={{ gridTemplateColumns: '130px 90px 96px 90px minmax(0, 1fr)' }}
+                >
                   <span className="vt-log-subject">{lexeme.spelling}</span>
                   <span className="vt-log-service">{lexeme.type}</span>
-                  <span className={`vt-pill ${source === 'dictionary' ? 'is-ready' : source === 'none' ? 'is-error' : 'is-empty'}`}>
-                    {source === 'none' ? 'not asked' : source}
+                  <span
+                    className="vt-log-service"
+                    title={
+                      variations
+                        ? Object.entries(variations)
+                            .map(([key, spelling]) => `${key.replace(/_/g, ' ')}: ${spelling}`)
+                            .join('\n')
+                        : 'No forms — not in the dataset, or the word does not inflect.'
+                    }
+                  >
+                    {variations
+                      ? `${form ? `${form.replace(/_/g, ' ')} · ` : ''}${Object.keys(variations).length} forms`
+                      : '—'}
+                  </span>
+                  <span
+                    className={`vt-pill ${
+                      source === 'dictionary'
+                        ? 'is-ready'
+                        : source === 'not asked'
+                          ? 'is-error'
+                          : 'is-empty'
+                    }`}
+                  >
+                    {source}
                   </span>
                   <span className="vt-log-subject" title={lexeme.description}>
                     {lexeme.description || '—'}
