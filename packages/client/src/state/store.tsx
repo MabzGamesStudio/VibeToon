@@ -13,6 +13,7 @@ import {
   createNode,
   defaultRulesForConnection,
   validateConnection,
+  type ArtifactRef,
   type Connection,
   type FlowData,
   type FlowNode,
@@ -79,6 +80,15 @@ interface StudioValue {
   generateAll(): Promise<void>;
   acceptSync(nodeId: string, connectionId?: string): Promise<void>;
   uploadOutput(nodeId: string, portId: string, fileName: string, data: string): Promise<void>;
+  /** Fetch an image onto a port; resolves with what arrived, or undefined on failure. */
+  fetchOutput(
+    nodeId: string,
+    portId: string,
+    url: string,
+  ): Promise<
+    | { project: Project; artifact: ArtifactRef; source: { url: string; contentType: string; bytes: number } }
+    | undefined
+  >;
   clearArtifacts(nodeId: string): Promise<void>;
   flushSave(): Promise<void>;
 }
@@ -529,6 +539,32 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
     [applyProject, flushSave, notify, withBusy],
   );
 
+  /**
+   * Fetch an image onto a port. Returns the artifact so the caller can record what
+   * arrived — the image flow keeps the format, size and address in its own data,
+   * and only the fetch knows them.
+   */
+  const fetchOutput = useCallback(
+    async (nodeId: string, portId: string, url: string) => {
+      const current = projectRef.current;
+      if (!current) return undefined;
+      return withBusy([nodeId], async () => {
+        try {
+          await flushSave();
+          const result = await api.fetchOutput(current.id, nodeId, portId, url);
+          applyProject(result.project);
+          setSaveState('clean');
+          notify('success', `Fetched ${result.artifact.fileName}.`);
+          return result;
+        } catch (error) {
+          notify('error', `Could not fetch that image: ${(error as Error).message}`);
+          return undefined;
+        }
+      });
+    },
+    [applyProject, flushSave, notify, withBusy],
+  );
+
   const clearArtifacts = useCallback(
     async (nodeId: string) => {
       const current = projectRef.current;
@@ -603,6 +639,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
       generateAll,
       acceptSync,
       uploadOutput,
+      fetchOutput,
       clearArtifacts,
       flushSave,
     }),
@@ -636,6 +673,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
       generateAll,
       acceptSync,
       uploadOutput,
+      fetchOutput,
       clearArtifacts,
       flushSave,
     ],

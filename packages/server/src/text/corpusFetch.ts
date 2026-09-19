@@ -1,9 +1,9 @@
 import { nameFromUrl, stripGutenbergBoilerplate } from '@vibetoon/shared';
 import { recordApiCall } from '../logs';
+import { guardedUrl } from '../net/guardedUrl';
 import { HttpError } from '../storage';
 
 const MAX_BYTES = 8 * 1024 * 1024;
-const BLOCKED_HOSTS = /^(localhost|127\.|0\.|10\.|169\.254\.|192\.168\.|::1$|\[::1\])/i;
 
 export interface FetchedCorpus {
   name: string;
@@ -21,19 +21,7 @@ export interface FetchedCorpus {
  * end up counted as the author's vocabulary.
  */
 export async function fetchCorpus(url: string, fetchImpl: typeof fetch = fetch): Promise<FetchedCorpus> {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new HttpError(400, `That is not a URL: ${url}`);
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new HttpError(400, 'Only http and https addresses can be fetched.');
-  }
-  if (BLOCKED_HOSTS.test(parsed.hostname)) {
-    throw new HttpError(400, 'That address is on this machine, not the web.');
-  }
-
+  const parsed = guardedUrl(url);
   const started = Date.now();
   const log = (outcome: Parameters<typeof recordApiCall>[0]['outcome'], extra: { status?: number; bytes?: number; detail?: string }) =>
     recordApiCall({

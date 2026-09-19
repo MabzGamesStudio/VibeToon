@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { deflateSync } from 'node:zlib';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -11,6 +10,7 @@ process.env.VIBETOON_DATA = dataRoot;
 process.env.VIBETOON_LOG_FILE = 'off';
 
 const { createApp } = await import('../src/app');
+import { tinyPngBase64 } from './pngFixture';
 import {
   emptyDesignData,
   emptyPaletteFlowData,
@@ -47,51 +47,6 @@ let project: Project;
 /* ------------------------------------------------------------------ *
  * A real image to put on the port
  * ------------------------------------------------------------------ */
-
-function crc32(bytes: Buffer): number {
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? (crc >>> 1) ^ 0xedb88320 : crc >>> 1;
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function chunk(type: string, body: Buffer): Buffer {
-  const head = Buffer.alloc(4);
-  head.writeUInt32BE(body.length);
-  const typed = Buffer.concat([Buffer.from(type, 'ascii'), body]);
-  const tail = Buffer.alloc(4);
-  tail.writeUInt32BE(crc32(typed));
-  return Buffer.concat([head, typed, tail]);
-}
-
-/**
- * A 2×2 opaque PNG, written out by hand.
- *
- * The generator does not decode the image — the editor does that and stores the
- * tally — but the flow only runs when a real image artifact is on the port with a
- * real hash, so the test puts a real one there rather than bytes that happen to be
- * named `.png`.
- */
-function tinyPng(): string {
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(2, 0);
-  ihdr.writeUInt32BE(2, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 2; // colour type: truecolour
-  const raw = Buffer.from([
-    0, 0xcc, 0x33, 0x22, 0xcc, 0x33, 0x22, // row 1, filter 0, two reds
-    0, 0x4a, 0x6f, 0xd4, 0x4a, 0x6f, 0xd4, // row 2, two blues
-  ]);
-  const png = Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk('IHDR', ihdr),
-    chunk('IDAT', deflateSync(raw)),
-    chunk('IEND', Buffer.alloc(0)),
-  ]);
-  return png.toString('base64');
-}
 
 function counts(...rows: Array<[string, number]>): ColorCount[] {
   return rows.map(([hex, count]) => ({ ...fromHex(hex)!, count }));
@@ -173,7 +128,7 @@ before(async () => {
   const uploaded = await api<{ project: Project }>(
     'POST',
     `/api/projects/${project.id}/flows/${DESIGN_ID}/outputs/design`,
-    { fileName: 'character.png', data: tinyPng() },
+    { fileName: 'character.png', data: tinyPngBase64() },
   );
   project = uploaded.project;
 });

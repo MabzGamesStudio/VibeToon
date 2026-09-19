@@ -310,6 +310,50 @@
     border-bottom: 1px solid $line;
   }
 
+  .vt-palette-tools {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+  }
+
+  /* The filter panel. Kept inside the header so it never scrolls away from the
+     search box it belongs to, and the list below keeps its own scroll. */
+  .vt-facets {
+    margin-top: 8px;
+    padding: 8px;
+    background: $bg-2;
+    border: 1px solid $line;
+    border-radius: $radius-sm;
+  }
+
+  .vt-facet {
+    & + & {
+      margin-top: 8px;
+    }
+
+    > h4 {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: $text-faint;
+      margin-bottom: 4px;
+      cursor: help;
+    }
+  }
+
+  .vt-facet-values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+  }
+
+  .vt-facet-note {
+    font-size: 10px;
+    margin: 8px 0 0;
+    line-height: 1.35;
+  }
+
   .vt-palette-list {
     @include scroll;
     overflow: auto;

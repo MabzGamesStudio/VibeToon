@@ -16,14 +16,19 @@ function input(
   return { id, label, kinds, description, multiple: true, ...opts };
 }
 
+/**
+ * `fileName` is optional because a port that carries whatever file was uploaded
+ * onto it has no fixed name: an image source holds `hero.png` or `plate.jpg`
+ * depending on what arrived, and naming it in the registry would be a lie.
+ */
 function output(
   id: string,
   label: string,
   kinds: ArtifactKind[],
-  fileName: string,
+  fileName: string | undefined,
   description: string,
 ): PortSpec {
-  return { id, label, kinds, fileName, description };
+  return { id, label, kinds, ...(fileName === undefined ? {} : { fileName }), description };
 }
 
 function field(
@@ -561,6 +566,56 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
   /* ---------------------------------------------------------------- *
    * Art
    * ---------------------------------------------------------------- */
+  {
+    kind: 'art.image',
+    category: 'art',
+    label: 'Image Source',
+    summary: 'A picture from this machine or from a link, made into an artifact the graph can track.',
+    inputs: [],
+    outputs: [
+      output('image', 'Image', ['image'], undefined, 'The picture itself, exactly as it arrived.'),
+      output('source', 'Source notes', ['markdown'], 'source.md', 'Where it came from, what it is, and who to credit.'),
+    ],
+    editor: 'image',
+    maturity: 'editor',
+    defaultOutgoingRules: { image: 'keep: the pixels as they are' },
+  },
+  {
+    kind: 'art.cutout',
+    category: 'art',
+    label: 'Image Extraction',
+    summary: 'Cut a subject out of an image by clicking regions in and out, and cutting across them.',
+    inputs: [
+      input('image', 'Image', ['image', 'imageSet'], 'The picture to cut something out of.', {
+        required: true,
+      }),
+    ],
+    outputs: [
+      output('cutout', 'Cutout', ['image'], 'cutout.png', 'What was kept, with everything else transparent.'),
+      output('mask', 'Mask', ['image'], 'mask.png', 'The selection on its own, white on black.'),
+      output('notes', 'Cutout notes', ['markdown'], 'cutout.md', 'What was included, what was excluded, and where it was cut.'),
+    ],
+    editor: 'cutout',
+    maturity: 'editor',
+    defaultOutgoingRules: { cutout: 'keep: transparency' },
+  },
+  {
+    kind: 'art.palette.filter',
+    category: 'art',
+    label: 'Palette Filter',
+    summary: 'Filters an image against a palette: keep those colours, drop them, or snap every pixel to the nearest.',
+    inputs: [
+      input('image', 'Image', ['image', 'imageSet'], 'The picture to filter.', { required: true }),
+      input('palette', 'Palette', ['json'], 'The colours to filter against.', { required: true }),
+    ],
+    outputs: [
+      output('image', 'Filtered image', ['image'], 'filtered.png', 'The result, with transparency where pixels were dropped.'),
+      output('report', 'Report', ['markdown'], 'filter.md', 'What was kept, what went, and where each pixel landed.'),
+    ],
+    editor: 'paletteFilter',
+    maturity: 'editor',
+    defaultOutgoingRules: { image: 'keep: transparency, palette colours' },
+  },
   {
     kind: 'art.palette',
     category: 'art',

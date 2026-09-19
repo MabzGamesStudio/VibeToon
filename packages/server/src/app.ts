@@ -17,6 +17,7 @@ import {
   type StoryboardFlowData,
   type SyncResponse,
 } from '@vibetoon/shared';
+import { fetchImage } from './net/fetchImage';
 import { fetchCorpus } from './text/corpusFetch';
 import {
   DEFAULT_LOOKUP_OPTIONS,
@@ -134,6 +135,63 @@ export function createApp(): express.Express {
       const body = (req.body ?? {}) as { url?: string };
       if (!body.url) throw new HttpError(400, 'No address to fetch.');
       res.json(await fetchCorpus(body.url));
+    }),
+  );
+
+  /**
+   * Fetch an image by URL onto a flow's output port.
+   *
+   * The browser cannot do this itself: a site that serves an image will usually
+   * refuse a cross-origin read of its bytes, and even where it allows one the
+   * picture would live only in that tab. So the server fetches it and writes it
+   * as an artifact, which is what makes it survive the project being reopened.
+   *
+   * The address is checked before anything is requested — a URL in a project file
+   * is an instruction to this server to make a request, and this server can reach
+   * the loopback interface and the private network around it.
+   */
+  app.post(
+    '/api/projects/:id/flows/:flowId/outputs/:portId/fetch',
+    asyncRoute(async (req, res) => {
+      const body = (req.body ?? {}) as { url?: string };
+      if (!body.url) throw new HttpError(400, 'No address to fetch.');
+
+      const project = await loadProject(param(req, 'id'));
+      const node = nodeById(project, param(req, 'flowId'));
+      if (!node) throw new HttpError(404, `No flow ${param(req, 'flowId')}`);
+      const def = requireFlowKind(node.kind);
+      const port = def.outputs.find((candidate) => candidate.id === param(req, 'portId'));
+      if (!port) throw new HttpError(404, `No output port ${param(req, 'portId')} on ${def.label}`);
+      if (!port.kinds.includes('image')) {
+        throw new HttpError(400, `${port.label} does not carry an image.`);
+      }
+
+      const fetched = await fetchImage(body.url);
+      const artifact = await writeArtifact({
+        projectId: project.id,
+        flowId: node.id,
+        port: port.id,
+        kind: 'image',
+        fileName: fetched.fileName,
+        content: fetched.bytes,
+      });
+
+      const updated: Project = {
+        ...project,
+        nodes: project.nodes.map((candidate) =>
+          candidate.id === node.id
+            ? {
+                ...candidate,
+                outputs: [...candidate.outputs.filter((ref) => ref.port !== port.id), artifact],
+              }
+            : candidate,
+        ),
+      };
+      res.json({
+        project: await saveProjectUnchecked(updated),
+        artifact,
+        source: { url: fetched.url, contentType: fetched.contentType, bytes: fetched.bytes.byteLength },
+      });
     }),
   );
 

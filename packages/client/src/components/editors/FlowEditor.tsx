@@ -4,10 +4,13 @@ import { AnimaticEditor } from './AnimaticEditor';
 import { BriefEditor } from './BriefEditor';
 import { DesignEditor } from './DesignEditor';
 import { CorpusFlowEditor } from './CorpusFlowEditor';
+import { CutoutFlowEditor } from './CutoutFlowEditor';
 import { DictionaryFlowEditor } from './DictionaryFlowEditor';
 import { GrammarFlowEditor } from './GrammarFlowEditor';
+import { ImageFlowEditor } from './ImageFlowEditor';
 import { LexiconFlowEditor } from './LexiconFlowEditor';
 import { PaletteFlowEditor } from './PaletteFlowEditor';
+import { PaletteFilterFlowEditor } from './PaletteFilterFlowEditor';
 import { RigFlowEditor } from './RigFlowEditor';
 import { DialogEditor } from './DialogEditor';
 import { EditorShell } from './EditorShell';
@@ -44,6 +47,12 @@ export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
       return <DictionaryFlowEditor project={project} node={node} />;
     case 'palette':
       return <PaletteFlowEditor project={project} node={node} />;
+    case 'paletteFilter':
+      return <PaletteFilterFlowEditor project={project} node={node} />;
+    case 'image':
+      return <ImageFlowEditor project={project} node={node} />;
+    case 'cutout':
+      return <CutoutFlowEditor project={project} node={node} />;
     case 'rig':
       return <RigFlowEditor project={project} node={node} />;
     default:

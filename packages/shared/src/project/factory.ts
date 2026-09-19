@@ -7,7 +7,10 @@ import { emptyCorpusFlowData } from '../flows/corpusFlow';
 import { emptyDictionaryFlowData } from '../flows/dictionary';
 import { emptyGrammarFlowData } from '../flows/grammar';
 import { emptyLexiconFlowData } from '../flows/lexicon';
+import { emptyCutoutFlowData } from '../flows/cutout';
+import { emptyImageFlowData } from '../flows/image';
 import { emptyPaletteFlowData } from '../flows/palette';
+import { emptyPaletteFilterFlowData } from '../flows/paletteFilter';
 import { emptyRigFlowData } from '../flows/rig';
 import { emptyTextData } from '../flows/text';
 import { newId } from '../ids';
@@ -55,8 +58,14 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyDictionaryFlowData();
     case 'palette':
       return emptyPaletteFlowData();
+    case 'paletteFilter':
+      return emptyPaletteFilterFlowData();
     case 'rig':
       return emptyRigFlowData();
+    case 'image':
+      return emptyImageFlowData();
+    case 'cutout':
+      return emptyCutoutFlowData();
     default:
       return emptyBriefData(def);
   }
