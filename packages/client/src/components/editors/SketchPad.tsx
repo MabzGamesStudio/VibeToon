@@ -20,6 +20,11 @@ export interface SketchPadProps {
    * 16:9; a character sheet wants something taller.
    */
   box?: { width: number; height: number };
+  /**
+   * Offer a full-screen button on the tools strip. A thumbnail-sized pad is fine
+   * for a thumbnail-sized drawing and not for anything you mean to finish.
+   */
+  canExpand?: boolean;
 }
 
 /**
@@ -35,12 +40,25 @@ export function SketchPad({
   label,
   onActivate,
   box,
+  canExpand = false,
 }: SketchPadProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const liveStroke = useRef<Stroke | null>(null);
   const [ink, setInk] = useState(INKS[0]!);
   const [width, setWidth] = useState(BRUSHES[1]!);
   const [erasing, setErasing] = useState(false);
+  const [full, setFull] = useState(false);
+
+  useEffect(() => {
+    if (!full) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setFull(false);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [full]);
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -137,7 +155,7 @@ export function SketchPad({
   };
 
   return (
-    <>
+    <div className={`vt-sketch-wrap${full ? ' is-full' : ''}`}>
       {editable && showTools ? (
         <div className="vt-sketch-tools">
           {BRUSHES.map((size) => (
@@ -192,6 +210,17 @@ export function SketchPad({
           >
             Clear
           </button>
+          {canExpand ? (
+            <button
+              type="button"
+              className={`vt-btn is-small${full ? ' is-active' : ''}`}
+              aria-pressed={full}
+              title={full ? 'Shrink back into the editor (Esc)' : 'Draw at full screen'}
+              onClick={() => setFull((was) => !was)}
+            >
+              {full ? '⤡ Shrink' : '⤢ Full screen'}
+            </button>
+          ) : null}
         </div>
       ) : null}
       <div
@@ -203,6 +232,6 @@ export function SketchPad({
           <div className="vt-sketch-empty">{label ?? 'draw here'}</div>
         ) : null}
       </div>
-    </>
+    </div>
   );
 }

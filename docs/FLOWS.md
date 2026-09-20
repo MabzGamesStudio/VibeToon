@@ -308,6 +308,48 @@ Effects animation: smoke, water, sparks, screens, weather.
 
 ## Art
 
+### Image Source
+
+`art.image` · **bespoke editor**
+
+A picture from this machine or from a link, made into an artifact the graph can track.
+
+- **In:** —
+- **Out:** Image, Source notes `source.md`
+- **Rules a new wire leaving `image` starts with:**
+
+  ```
+  keep: the pixels as they are
+  ```
+
+### Image Extraction
+
+`art.cutout` · **bespoke editor**
+
+Cut a subject out of an image by clicking regions in and out, and cutting across them.
+
+- **In:** Image *(required)*
+- **Out:** Cutout `cutout.png`, Mask `mask.png`, Cutout notes `cutout.md`
+- **Rules a new wire leaving `cutout` starts with:**
+
+  ```
+  keep: transparency
+  ```
+
+### Palette Filter
+
+`art.palette.filter` · **bespoke editor**
+
+Filters an image against a palette: keep those colours, drop them, or snap every pixel to the nearest.
+
+- **In:** Image *(required)*, Palette *(required)*
+- **Out:** Filtered image `filtered.png`, Report `filter.md`
+- **Rules a new wire leaving `image` starts with:**
+
+  ```
+  keep: transparency, palette colours
+  ```
+
 ### Colour Palette
 
 `art.palette` · **bespoke editor**
@@ -481,4 +523,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-40 flow kinds.
+43 flow kinds.

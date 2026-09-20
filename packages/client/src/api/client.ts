@@ -83,6 +83,18 @@ export const api = {
       `/api/projects/${id}/flows/${flowId}/outputs/${portId}`,
       { fileName, data },
     ),
+  /**
+   * Fetch an image onto an output port. The server does the download because a
+   * site that serves an image usually refuses a cross-origin read of its bytes,
+   * and because the bytes have to be written where the project keeps them.
+   */
+  fetchOutput: (id: string, flowId: string, portId: string, url: string) =>
+    request<{
+      project: Project;
+      artifact: ArtifactRef;
+      source: { url: string; contentType: string; bytes: number };
+    }>('POST', `/api/projects/${id}/flows/${flowId}/outputs/${portId}/fetch`, { url }),
+
   clearArtifacts: (id: string, flowId: string) =>
     request<Project>('DELETE', `/api/projects/${id}/flows/${flowId}/artifacts`),
 

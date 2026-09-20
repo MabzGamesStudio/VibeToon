@@ -10,6 +10,7 @@ export * from './types/design';
 export * from './types/api';
 
 export * from './registry/flowKinds';
+export * from './registry/flowSearch';
 export * from './registry/settingTips';
 export * from './rules/parseRules';
 export * from './graph/graph';
@@ -25,6 +26,9 @@ export * from './flows/grammar';
 export * from './flows/animatic';
 export * from './flows/design';
 export * from './flows/palette';
+export * from './flows/paletteFilter';
+export * from './flows/image';
+export * from './flows/cutout';
 export * from './flows/rig';
 
 export * from './text/tokenize';

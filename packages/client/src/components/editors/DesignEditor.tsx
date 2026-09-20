@@ -223,6 +223,7 @@ export function DesignEditor({ project, node }: { project: Project; node: FlowNo
               <SketchPad
                 sketch={plate.sketch}
                 box={PLATE_BOX}
+                canExpand
                 showTools={activePlateId === plate.id}
                 onActivate={() => setActivePlateId(plate.id)}
                 label={`${plate.label} — draw here`}

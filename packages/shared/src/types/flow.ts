@@ -48,7 +48,10 @@ export type EditorId =
   | 'animatic'
   | 'design'
   | 'palette'
+  | 'paletteFilter'
   | 'rig'
+  | 'image'
+  | 'cutout'
   | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */

@@ -30,6 +30,25 @@ export const ARTIFACT_KINDS: readonly ArtifactKind[] = [
   'timeline',
 ];
 
+/**
+ * What to call an artifact kind in the studio. `imageSet` is a folder of images
+ * and `image` is one file, and a filter that offers both has to say which is
+ * which in words rather than in camel case.
+ */
+export const ARTIFACT_KIND_LABEL: Record<ArtifactKind, string> = {
+  text: 'Text',
+  markdown: 'Markdown',
+  json: 'JSON',
+  csv: 'CSV',
+  image: 'Image',
+  imageSet: 'Images (folder)',
+  audio: 'Audio',
+  audioSet: 'Audio (folder)',
+  midi: 'MIDI',
+  video: 'Video',
+  timeline: 'Timeline',
+};
+
 /** Extension used when a generator has to pick one for an artifact kind. */
 export const ARTIFACT_EXTENSION: Record<ArtifactKind, string> = {
   text: 'txt',

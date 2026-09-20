@@ -5,7 +5,10 @@ import type { CorpusFlowData } from '../flows/corpusFlow';
 import type { DictionaryFlowData } from '../flows/dictionary';
 import type { GrammarFlowData } from '../flows/grammar';
 import type { LexiconFlowData } from '../flows/lexicon';
+import type { CutoutFlowData } from '../flows/cutout';
+import type { ImageFlowData } from '../flows/image';
 import type { PaletteFlowData } from '../flows/palette';
+import type { PaletteFilterFlowData } from '../flows/paletteFilter';
 import type { RigFlowData } from '../flows/rig';
 import type { TextFlowData } from './text';
 
@@ -183,7 +186,10 @@ export type FlowData =
   | CorpusFlowData
   | DictionaryFlowData
   | PaletteFlowData
-  | RigFlowData;
+  | PaletteFilterFlowData
+  | RigFlowData
+  | ImageFlowData
+  | CutoutFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph

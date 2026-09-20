@@ -28,6 +28,7 @@ import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
 import { Slider } from '../common/Slider';
+import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
 
 /** Padding round the skeleton in the drawing, in rig units. */
@@ -252,80 +253,84 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
       </aside>
 
       <div className="vt-editor-main">
-        <div className="vt-row">
-          <span className="vt-faint">
-            {selected ? selected.name : 'Click a bone to edit its limits'}
-          </span>
-          <span className="vt-spacer" />
-          {design ? (
-            <button
-              type="button"
-              className={`vt-btn is-small${showReference ? ' is-active' : ''}`}
-              onClick={() => setShowReference(!showReference)}
+        <Stage
+          title={selected ? selected.name : 'The skeleton'}
+          tools={
+            <>
+              <span className="vt-faint" style={{ fontSize: 11 }}>
+                {selected ? 'Click a joint to edit it' : 'Click a bone to edit its limits'}
+              </span>
+              {design ? (
+                <button
+                  type="button"
+                  className={`vt-btn is-small${showReference ? ' is-active' : ''}`}
+                  onClick={() => setShowReference(!showReference)}
+                >
+                  Reference
+                </button>
+              ) : null}
+            </>
+          }
+        >
+          <div className="vt-rig-stage">
+            {design && showReference ? (
+              <img className="vt-rig-reference" src={api.artifactUrl(project.id, designPath)} alt="" />
+            ) : null}
+            <svg
+              className="vt-rig"
+              viewBox={`${box.minX} ${box.minY} ${box.width} ${box.height}`}
+              role="group"
+              aria-label={`${RIG_KIND_LABEL[data.kind]} skeleton, ${summary.bones} bones`}
             >
-              Reference
-            </button>
-          ) : null}
-        </div>
+              {arc ? <path className="vt-rig-arc" d={arc.path} /> : null}
 
-        <div className="vt-rig-stage">
-          {design && showReference ? (
-            <img className="vt-rig-reference" src={api.artifactUrl(project.id, designPath)} alt="" />
-          ) : null}
-          <svg
-            className="vt-rig"
-            viewBox={`${box.minX} ${box.minY} ${box.width} ${box.height}`}
-            role="group"
-            aria-label={`${RIG_KIND_LABEL[data.kind]} skeleton, ${summary.bones} bones`}
-          >
-            {arc ? <path className="vt-rig-arc" d={arc.path} /> : null}
-
-            {data.bones.map((bone) => {
-              const place = posed.get(bone.id);
-              if (!place) return null;
-              const isSelected = bone.id === selectedId;
-              const isTwin = bone.id === twin;
-              return (
-                <g key={bone.id}>
-                  <line
-                    className={[
-                      'vt-rig-bone',
-                      bone.chain ? 'is-chained' : '',
-                      isSelected ? 'is-selected' : '',
-                      isTwin ? 'is-twin' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    x1={place.from.x}
-                    y1={place.from.y}
-                    x2={place.to.x}
-                    y2={place.to.y}
-                    strokeWidth={stroke * (isSelected ? 3 : 2)}
-                  />
-                  {/* A wide transparent copy takes the clicks, so a thin bone is
-                      still easy to hit. */}
-                  <line
-                    className="vt-rig-hit"
-                    x1={place.from.x}
-                    y1={place.from.y}
-                    x2={place.to.x}
-                    y2={place.to.y}
-                    strokeWidth={stroke * 8}
-                    onClick={() => setSelectedId(bone.id === selectedId ? null : bone.id)}
-                  >
-                    <title>{`${bone.name} — ${boneLength(bone).toFixed(1)} units`}</title>
-                  </line>
-                  <circle
-                    className={`vt-rig-joint${isSelected ? ' is-selected' : ''}`}
-                    cx={place.from.x}
-                    cy={place.from.y}
-                    r={stroke * (isSelected ? 3 : 2)}
-                  />
-                </g>
-              );
-            })}
-          </svg>
-        </div>
+              {data.bones.map((bone) => {
+                const place = posed.get(bone.id);
+                if (!place) return null;
+                const isSelected = bone.id === selectedId;
+                const isTwin = bone.id === twin;
+                return (
+                  <g key={bone.id}>
+                    <line
+                      className={[
+                        'vt-rig-bone',
+                        bone.chain ? 'is-chained' : '',
+                        isSelected ? 'is-selected' : '',
+                        isTwin ? 'is-twin' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      x1={place.from.x}
+                      y1={place.from.y}
+                      x2={place.to.x}
+                      y2={place.to.y}
+                      strokeWidth={stroke * (isSelected ? 3 : 2)}
+                    />
+                    {/* A wide transparent copy takes the clicks, so a thin bone is
+                        still easy to hit. */}
+                    <line
+                      className="vt-rig-hit"
+                      x1={place.from.x}
+                      y1={place.from.y}
+                      x2={place.to.x}
+                      y2={place.to.y}
+                      strokeWidth={stroke * 8}
+                      onClick={() => setSelectedId(bone.id === selectedId ? null : bone.id)}
+                    >
+                      <title>{`${bone.name} — ${boneLength(bone).toFixed(1)} units`}</title>
+                    </line>
+                    <circle
+                      className={`vt-rig-joint${isSelected ? ' is-selected' : ''}`}
+                      cx={place.from.x}
+                      cy={place.from.y}
+                      r={stroke * (isSelected ? 3 : 2)}
+                    />
+                  </g>
+                );
+              })}
+            </svg>
+          </div>
+        </Stage>
 
         {selected ? (
           <div className="vt-section">

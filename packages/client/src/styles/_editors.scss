@@ -1111,12 +1111,12 @@
 
 /* Skeletal rig -------------------------------------------------------- */
 
+/* Sits inside a Stage, which draws the frame — so this only claims the space. */
 .vt-rig-stage {
   position: relative;
   flex: 1;
+  min-width: 0;
   min-height: 260px;
-  border: 1px solid $line;
-  border-radius: $radius;
   background: $bg-0;
   overflow: hidden;
 }
@@ -1183,4 +1183,346 @@
   stroke: rgba(110, 168, 254, 0.5);
   stroke-width: 0.4;
   pointer-events: none;
+}
+
+/* A part of an editor that can fill the screen ----------------------- */
+
+.vt-stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid $line;
+  border-radius: $radius;
+  background: $bg-1;
+  overflow: hidden;
+
+  /* Fixed rather than reparented: the children keep their DOM node, so a canvas
+     keeps its pixels across expanding. See Stage.tsx. */
+  &.is-full {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    border-radius: 0;
+    border: 0;
+    background: $bg-0;
+  }
+}
+
+.vt-stage-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  flex-wrap: wrap;
+  padding: 5px 8px;
+  background: $bg-1;
+  border-bottom: 1px solid $line;
+
+  > strong {
+    font-size: 12px;
+  }
+}
+
+.vt-stage-body {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Image source, extraction and filter -------------------------------- */
+
+/* A checkerboard behind anything with transparency in it, because a cutout on a
+   flat background is indistinguishable from a cutout that did nothing. */
+@mixin transparency-check {
+  background-color: $bg-2;
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.045) 25%, transparent 25% 75%, rgba(255, 255, 255, 0.045) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.045) 25%, transparent 25% 75%, rgba(255, 255, 255, 0.045) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+
+.vt-image-stage {
+  @include transparency-check;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+
+  > img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    image-rendering: auto;
+  }
+}
+
+/* Notes and warnings a flow wants to say out loud. */
+.vt-hints {
+  margin: 0;
+  padding-left: 18px;
+  color: $text-dim;
+  font-size: 12px;
+  line-height: 1.45;
+
+  > li + li {
+    margin-top: 4px;
+  }
+}
+
+.vt-filter-canvas {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* Palette colours as tickable swatches: the hex is on the chip because a colour
+   you cannot name is a colour you cannot look up in the palette's own report. */
+.vt-filter-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.vt-filter-color {
+  width: 54px;
+  height: 30px;
+  border-radius: $radius-sm;
+  border: 2px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  opacity: 0.32;
+  filter: grayscale(0.7);
+
+  &.is-on {
+    opacity: 1;
+    filter: none;
+    border-color: $line-strong;
+  }
+
+  &:hover {
+    border-color: $accent;
+  }
+
+  > span {
+    position: absolute;
+    inset: auto 0 1px 0;
+    font-size: 9px;
+    font-family: $mono;
+    text-align: center;
+    color: rgba(0, 0, 0, 0.6);
+    text-shadow: 0 0 3px rgba(255, 255, 255, 0.7);
+  }
+}
+
+/* The cutout stage --------------------------------------------------- */
+
+.vt-cutout-stage {
+  @include transparency-check;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  outline: none;
+}
+
+/* Fills the stage. The canvas and the overlay both letterbox themselves inside
+   it by the same rule, so a small picture is scaled *up* to the room available —
+   which is the entire point of expanding a cutout editor — and a large one is
+   scaled down, without either of them going out of register with the other. */
+.vt-cutout-frame {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.vt-cutout-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  /* Nearest-neighbour: at 4x a pixel you are trying to click on should be a
+     square you can see, not a smudge. */
+  image-rendering: pixelated;
+}
+
+/* The objects sit over the canvas rather than being drawn into it, so they stay
+   clickable and stay crisp however the picture is scaled.
+
+   `pointer-events: none` on the svg itself is essential, not tidiness: an `<svg>`
+   is a replaced element and captures pointer events across its whole box even
+   where nothing is painted, so without this the overlay swallows every click on
+   the picture and the fill tool silently never fires. The objects inside opt
+   back in. */
+.vt-cutout-objects {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.vt-cut-line {
+  fill: none;
+  stroke: $accent;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+  pointer-events: stroke;
+
+  &.is-erase {
+    stroke: $err;
+    stroke-dasharray: 6 3;
+  }
+
+  &.is-selected {
+    stroke: #fff;
+    filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.8));
+  }
+
+  &.is-drafting {
+    stroke: #fff;
+    stroke-dasharray: 4 3;
+    pointer-events: none;
+  }
+
+  &.is-muted {
+    opacity: 0.35;
+  }
+}
+
+.vt-seed {
+  cursor: pointer;
+  pointer-events: auto;
+
+  > circle:first-child {
+    stroke: #fff;
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+  }
+
+  &.is-include > circle:first-child {
+    fill: $ok;
+  }
+
+  &.is-exclude > circle:first-child {
+    fill: $err;
+  }
+
+  &.is-selected > circle:first-child {
+    stroke-width: 3;
+  }
+
+  &.is-muted {
+    opacity: 0.4;
+  }
+}
+
+/* A generous invisible target, because a seed is a few pixels across and
+   clicking one should not be a test of aim. */
+.vt-seed-hit {
+  fill: transparent;
+  /* `fill: transparent` is not hit-tested by default; this is what makes the
+     generous target actually generous. */
+  pointer-events: all;
+}
+
+.vt-object-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.vt-object {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: $bg-2;
+  border: 1px solid $line;
+  border-radius: $radius-sm;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    border-color: $line-strong;
+  }
+
+  &.is-selected {
+    border-color: $accent;
+    background: $accent-soft;
+  }
+
+  &.is-muted {
+    opacity: 0.55;
+  }
+}
+
+.vt-object-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+
+  &.is-include {
+    background: $ok;
+  }
+
+  &.is-exclude,
+  &.is-erase {
+    background: $err;
+  }
+
+  &.is-block {
+    background: $accent;
+  }
+}
+
+/* A sketch pad that can fill the screen.
+
+   `display: contents` normally, so the wrapper has no layout effect at all where
+   a pad already sits inside a plate card or a panel grid — the tools strip and
+   the pad stay direct children of whatever styled them before. Only when
+   expanded does it become a real box. The children keep their DOM nodes either
+   way, so a drawing in progress survives expanding: remounting the canvas would
+   lose it, which is exactly when you would want it. */
+.vt-sketch-wrap {
+  display: contents;
+
+  &.is-full {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: $bg-0;
+
+    /* The pad takes the room rather than holding its thumbnail aspect ratio. */
+    .vt-sketch {
+      flex: 1;
+      min-height: 0;
+      aspect-ratio: auto;
+      border-bottom: 0;
+    }
+
+    .vt-sketch-tools {
+      flex: none;
+    }
+  }
 }

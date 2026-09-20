@@ -470,6 +470,102 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
   /* ---------------------------------------------------------------- *
    * Colour palette
    * ---------------------------------------------------------------- */
+  /* Image source ---------------------------------------------------- */
+
+  'image.upload': {
+    what: 'A picture from this machine. It is copied into the project, so the project stays complete when the original is moved or deleted.',
+    examples: [
+      'PNG for artwork and anything with transparency.',
+      'JPEG for a photograph — but note that JPEG has no transparency, so a cutout of one has to be written as a PNG.',
+      'SVG works, but has no fixed pixel grid, so anything counting pixels reads whatever size it was drawn at.',
+    ],
+  },
+  'image.link': {
+    what: 'The address of an image on the web. The server fetches it once and stores the bytes in the project.',
+    examples: [
+      'It has to be the address of the picture itself, not of the page it sits on — a page address returns HTML, and the flow says so rather than storing it.',
+      'Fetched once, never again: a link that works today is not a link that works next year.',
+      'Addresses on this machine or its private network are refused, because the server can reach things your browser cannot.',
+    ],
+  },
+  'image.credit': {
+    what: 'Who made the picture and on what terms.',
+    examples: [
+      'Nothing enforces this; it is the only place the fact can be recorded.',
+      'Easiest to fill in now, while it is still easy to find out.',
+    ],
+  },
+
+  /* Image extraction ------------------------------------------------ */
+
+  'cutout.tolerance': {
+    what: 'How different a neighbouring pixel may be from the one you clicked and still count as the same region. Measured in OKLab, times 100.',
+    examples: [
+      '0 to 5 — flat artwork, where a region really is one colour.',
+      '10 to 20 — a photograph, where an edge is blended and a surface is not one colour.',
+      '40 and up — takes in most of the picture; usually a sign a cut line would work better.',
+      'Each fill keeps the tolerance it was made with, so this is only the value the next one starts at.',
+    ],
+  },
+  'cutout.diagonal': {
+    what: 'Whether a fill may spread through a corner as well as through an edge.',
+    examples: [
+      'Off — a one-pixel diagonal gap is a wall. Usually what you want on artwork.',
+      'On — closes speckled edges on a photograph, at the cost of leaking through thin diagonal gaps.',
+    ],
+  },
+  'cutout.grow': {
+    what: 'Push the edge of the selection out (or pull it in) by this many pixels after the fills have run.',
+    examples: [
+      '+1 to +2 — takes back the blended halo a fill on a photograph stops short of.',
+      '-1 to -2 — trims a fringe of background off a selection that went slightly wide.',
+      '0 — flat artwork, where the edge is exactly where the colour changes.',
+    ],
+  },
+  'cutout.feather': {
+    what: 'Blur the edge of the selection by this many pixels, so the cutout fades out rather than ending.',
+    examples: [
+      '0 — a hard edge. Right for sprites, cel artwork, and anything going to indexed colour.',
+      '1 to 3 — enough that a cutout composited over a new background does not look cut out.',
+      '8 and up — a soft vignette rather than an edge.',
+    ],
+  },
+  'cutout.minIsland': {
+    what: 'Drop included patches smaller than this many pixels.',
+    examples: [
+      '0 — keep everything, including single-pixel specks.',
+      '20 to 100 — clears the speckle a fill picks up on a noisy photograph.',
+      'It only removes patches; it never fills holes.',
+    ],
+  },
+
+  /* Palette filter -------------------------------------------------- */
+
+  'paletteFilter.mode': {
+    what: 'What the filter does with a pixel once it knows how close that pixel is to the palette.',
+    examples: [
+      'Keep — pixels near a palette colour stay, the rest go transparent. For finding where a colour is used.',
+      'Remove — the other way round. For dropping a background whose colour you sampled into the palette.',
+      'Snap — nothing goes transparent; every pixel becomes its nearest palette colour. This is the one that makes a photograph look drawn.',
+    ],
+  },
+  'paletteFilter.tolerance': {
+    what: 'How close a pixel has to be to a palette colour to count as that colour. Same OKLab scale the palette’s own minimum distance uses.',
+    examples: [
+      'under 2 — only pixels that are essentially that exact colour.',
+      '15 to 25 — the useful range on artwork: takes in shading without taking in the neighbouring colour.',
+      'Snap ignores this: every pixel has a nearest, so there is no threshold to set.',
+    ],
+  },
+  'paletteFilter.softness': {
+    what: 'How wide a band around the tolerance is partly transparent instead of wholly in or out.',
+    examples: [
+      '0 — a hard decision. Right for flat artwork.',
+      '4 to 8 — stops a filtered photograph looking cut out with scissors.',
+      'Ignored when alpha is forced fully on or off.',
+    ],
+  },
+
   'palette.count': {
     what: 'How many colours the palette has.',
     examples: [

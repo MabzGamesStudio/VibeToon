@@ -82,6 +82,16 @@ select {
   padding: 5px 7px;
   width: 100%;
 
+  /* A tick box has an intrinsic size and a label beside it. Stretching it to the
+     column width pushes its label to the far right and wraps it, which is what
+     this rule did to every checkbox in the studio until it said otherwise. */
+  &[type='checkbox'],
+  &[type='radio'] {
+    width: auto;
+    flex: none;
+    padding: 0;
+  }
+
   &:focus-visible {
     @include focus-ring;
     border-color: $accent;
@@ -185,6 +195,43 @@ label {
 }
 
 /* Small shared bits -------------------------------------------------- */
+
+/* A tickable value in a filter. Reads as off until pressed, because a row of
+   chips that all look active says nothing about what is narrowing the list. */
+.vt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: $bg-3;
+  color: $text-dim;
+  border: 1px solid $line;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: $line-strong;
+    color: $text;
+  }
+
+  &.is-on {
+    background: $accent-soft;
+    border-color: $accent;
+    color: $accent;
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+}
+
+.vt-chip-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  opacity: 0.7;
+}
 
 .vt-pill {
   display: inline-flex;

@@ -2,11 +2,14 @@ import { generateAnimatic } from './animatic';
 import { generateAssembly } from './assembly';
 import { generateBrief } from './brief';
 import { generateCorpus } from './corpus';
+import { generateCutout } from './cutout';
 import { generateDesign } from './design';
 import { generateDictionary } from './dictionary';
 import { generateGrammar } from './grammar';
+import { generateImage } from './image';
 import { generateLexicon } from './lexicon';
 import { generatePalette } from './palette';
+import { generatePaletteFilter } from './paletteFilter';
 import { generateRig } from './rig';
 import { generateDialog } from './dialog';
 import { generateStoryboard } from './storyboard';
@@ -32,6 +35,9 @@ const GENERATORS: Record<string, Generator> = {
   'animation.animatic': generateAnimatic,
   'animation.rig': generateRig,
   'art.palette': generatePalette,
+  'art.palette.filter': generatePaletteFilter,
+  'art.image': generateImage,
+  'art.cutout': generateCutout,
   'production.edit': generateAssembly,
   'production.render': generateAssembly,
 };

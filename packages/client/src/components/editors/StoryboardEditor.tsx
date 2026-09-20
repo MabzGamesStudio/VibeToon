@@ -278,6 +278,7 @@ export function StoryboardEditor({ project, node }: { project: Project; node: Fl
                       <SketchPad
                         sketch={panel.sketch}
                         showTools={active}
+                        canExpand
                         onActivate={() => setActivePanelId(panel.id)}
                         label={`panel ${(entry?.index ?? panelIndex) + 1} — draw here`}
                         onChange={(sketch) =>
