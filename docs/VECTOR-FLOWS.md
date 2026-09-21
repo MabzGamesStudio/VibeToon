@@ -55,6 +55,66 @@ The other settings are about grouping and tidiness:
 | Simplify to within | How far an outline may move to lose a point. |
 | Curved if bent by | How bent a run must be, relative to its length, to be a curve. |
 
+## Shapes are fitted to the pixels, not to the outline
+
+The first version of this simplified a traced outline by a tolerance in pixels,
+which asks the wrong question. "Is this anchor within 1.2px of the traced path"
+says nothing about whether the shape that comes out **covers the color it stands
+for**. A corner cut off a square is well within any tolerance and leaves a wedge
+of the picture unpainted.
+
+So every candidate is drawn and compared with the pixels it is meant to be:
+
+- **missed** — pixels of this color the shape failed to cover.
+- **extra** — pixels it covers that are not this color.
+
+Both are wrong in the same way and count the same. Against that sits what the
+shape costs: every anchor and every polygon is worth something, or the best
+answer is always to trace each pixel exactly. **Those two prices are settings** —
+at an anchor worth 6 pixels, an anchor earns its place by covering six pixels no
+cheaper shape would. Set them to nothing for an exact trace, or high for a few
+loose shapes.
+
+On a test drawing, the same picture comes out at 1.6% of pixels wrong with 65
+anchors, 1.9% with 55, or 2.2% with 53, as those prices move.
+
+### A shape is not charged for what covers it
+
+Areas are painted biggest first and strokes last, the way the picture was made,
+and a shape is not judged on pixels that something painted **after** it will
+cover.
+
+That is not a leniency, it is what the picture does. Without it every enclosing
+shape is punished for the things standing on it: a background is "wrong"
+everywhere the subject is, and the fit responds by eating the background away
+from its neighbours — which leaves real gaps, because the thing it was
+overlapping was going to cover that seam. It is also what lets an area run
+*under* a stroke instead of stopping at its edge, so a stroke narrower than the
+gap it was traced from no longer leaves a hairline of background showing through.
+
+### Strokes widen until they fill the gap
+
+A stroke's width is searched from thin upwards and the best one kept. The width
+that leaves fewest wrong pixels **is** the width of the contrast gap, found by
+measuring rather than estimated from area over length — which is off wherever a
+stroke branches, and every crossing is a branch. Then each end is pushed outwards
+while pushing keeps helping, because thinning ate them.
+
+Three things had to be right for that to work at all:
+
+- **Coverage is fractional.** A band two units wide over three pixels of ink
+  paints the middle one fully and each outer one half. Thresholded at "more than
+  half covered" that is indistinguishable from a band three wide, so the search
+  reports 2 where the ink is 3 and every line comes out a third too thin.
+- **Crossing strokes divide the ink between them.** Strokes that touch are one
+  region, and scoring each against all of it makes the others read as ink this
+  one failed to cover — a weight that swamps the thing being measured. Each pixel
+  goes to the path it lies nearest.
+- **The search runs past the limit.** Capping it at the maximum line width would
+  make the "is this a stroke" test vacuous: the answer could never exceed the
+  threshold it is compared against. Asking what width the ink *wants*, and then
+  checking that against the limit, is a question with two possible answers.
+
 ## How it works
 
 **Regions.** Pixels flood into regions of one color. A candidate is compared

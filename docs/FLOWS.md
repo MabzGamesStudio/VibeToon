@@ -272,6 +272,34 @@ A skeleton for the character: what bones it has, and how far each joint may move
 - **In:** Design, Spec
 - **Out:** Rig `rig.json`, Rig notes `rig.md`
 
+### Rig Binding
+
+`animation.bind` · **bespoke editor**
+
+Assigns the shapes of a vectorized drawing to the bones of a skeleton.
+
+- **In:** Rig *(required)*, Vector *(required)*
+- **Out:** Bound rig `bound.json`, Preview `bound.svg`, Report `bound.md`
+- **Rules a new wire leaving `bound` starts with:**
+
+  ```
+  keep: bones, shapes, binding
+  ```
+
+### Pose
+
+`animation.pose` · **bespoke editor**
+
+Moves a bound rig: turn a joint, or drag a limb and let the joints work it out.
+
+- **In:** Bound rig *(required)*
+- **Out:** Pose `pose.json`, Drawing `pose.svg`
+- **Rules a new wire leaving `pose` starts with:**
+
+  ```
+  keep: joint angles
+  ```
+
 ### Animatic
 
 `animation.animatic` · **bespoke editor**
@@ -551,4 +579,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-45 flow kinds.
+47 flow kinds.

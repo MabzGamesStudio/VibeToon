@@ -156,6 +156,14 @@ export interface RigFlowData {
   bones: Bone[];
   chains: BoneChain[];
   options: RigOptions;
+  /**
+   * Where the root of the skeleton sits, in whatever space it is being used in.
+   *
+   * Absent means the origin, which is what the rig flow itself draws against. It
+   * matters once a rig is laid over a drawing: the two were made in different
+   * spaces and something has to say how they line up.
+   */
+  origin?: Vec2;
 }
 
 /* ------------------------------------------------------------------ *
@@ -751,7 +759,8 @@ export function restPose(data: RigFlowData): Map<string, { from: Vec2; to: Vec2 
     for (const child of byParent.get(bone.id) ?? []) walk(child, to);
   };
 
-  for (const root of rootBones(data)) walk(root, { x: 0, y: 0 });
+  const origin = data.origin ?? { x: 0, y: 0 };
+  for (const root of rootBones(data)) walk(root, origin);
   return positions;
 }
 

@@ -499,6 +499,40 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     maturity: 'editor',
   },
   {
+    kind: 'animation.bind',
+    category: 'animation',
+    label: 'Rig Binding',
+    summary: 'Assigns the shapes of a vectorized drawing to the bones of a skeleton.',
+    inputs: [
+      input('rig', 'Rig', ['json'], 'The skeleton to bind to.', { required: true }),
+      input('vector', 'Vector', ['json'], 'The drawing to bind.', { required: true }),
+    ],
+    outputs: [
+      output('bound', 'Bound rig', ['json'], 'bound.json', 'The skeleton, the drawing, and which shape belongs to which bone.'),
+      output('preview', 'Preview', ['image'], 'bound.svg', 'The drawing with its skeleton over it.'),
+      output('report', 'Report', ['markdown'], 'bound.md', 'What is bound to what, and what is not.'),
+    ],
+    editor: 'bind',
+    maturity: 'editor',
+    defaultOutgoingRules: { bound: 'keep: bones, shapes, binding' },
+  },
+  {
+    kind: 'animation.pose',
+    category: 'animation',
+    label: 'Pose',
+    summary: 'Moves a bound rig: turn a joint, or drag a limb and let the joints work it out.',
+    inputs: [
+      input('bound', 'Bound rig', ['json'], 'A rig with a drawing bound to it.', { required: true }),
+    ],
+    outputs: [
+      output('pose', 'Pose', ['json'], 'pose.json', 'The angle of every joint, and where each bone ended up.'),
+      output('drawing', 'Drawing', ['image'], 'pose.svg', 'The drawing in that pose.'),
+    ],
+    editor: 'pose',
+    maturity: 'editor',
+    defaultOutgoingRules: { pose: 'keep: joint angles' },
+  },
+  {
     kind: 'animation.animatic',
     category: 'animation',
     label: 'Animatic',

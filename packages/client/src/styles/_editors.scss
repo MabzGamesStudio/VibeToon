@@ -1670,3 +1670,31 @@
   border: 1px solid $line-strong;
   vertical-align: middle;
 }
+
+/* Bones drawn over a drawing, for binding and posing. */
+.vt-bone {
+  stroke: #ff3b6b;
+  stroke-width: 2;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+  opacity: 0.8;
+
+  &.is-selected {
+    stroke: #fff;
+    stroke-width: 3;
+    opacity: 1;
+  }
+}
+
+.vt-joint {
+  fill: #ff3b6b;
+  stroke: #fff;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+
+  &.is-selected {
+    fill: #fff;
+  }
+}

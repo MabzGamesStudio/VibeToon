@@ -593,6 +593,43 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'Too high and separate shapes merge; too low and one shape becomes hundreds.',
     ],
   },
+  'pose.chainLength': {
+    what: 'How many joints back from the one you are dragging are allowed to move.',
+    examples: [
+      '2 to 3 — an arm: wrist, elbow, shoulder. Enough to reach without the whole body leaning.',
+      '1 — only the bone itself turns, which is forward kinematics with extra steps.',
+      '6 and up — a tentacle, where the whole length should curl towards what it is reaching for.',
+    ],
+  },
+  'pose.respectLimits': {
+    what: 'Whether the solver obeys each joint’s range of motion.',
+    examples: [
+      'On — an elbow still only bends one way, and a reach it cannot make honestly falls short.',
+      'Off — the rig will reach anything within its length, through poses a body could not hold. Useful for finding out whether the limits or the length is what is stopping you.',
+    ],
+  },
+  'vectorize.fit': {
+    what: 'Fit shapes by measuring how well they cover the color, rather than by how near their anchors are to the traced outline.',
+    examples: [
+      'On — every candidate is drawn and compared with the pixels it stands for, and the one that gets fewest wrong wins.',
+      'Off — the old way: simplify the outline to a tolerance and hope. Faster on a large picture, and it asks the wrong question, because an anchor near the path says nothing about whether the shape covers the color.',
+    ],
+  },
+  'vectorize.pointCost': {
+    what: 'What one anchor is worth, measured in wrong pixels.',
+    examples: [
+      'This is the exchange rate between accuracy and tidiness: at 6, an anchor has to cover six pixels no cheaper shape would in order to earn its place.',
+      '0 — accuracy at any price. The fit will trace every pixel exactly.',
+      '20 and up — far fewer anchors, and a looser shape.',
+    ],
+  },
+  'vectorize.polygonCost': {
+    what: 'What one polygon is worth, on top of its anchors.',
+    examples: [
+      'Higher means a concave area is more likely to be approximated by one convex piece than cut into several accurate ones.',
+      '40 — the default, which keeps an L-shape as two pieces rather than six.',
+    ],
+  },
   'vectorize.minArea': {
     what: 'Regions smaller than this many pixels are dropped as noise.',
     examples: [

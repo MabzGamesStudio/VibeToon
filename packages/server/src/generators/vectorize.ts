@@ -41,22 +41,36 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
   }
 
   const image = data.result!;
+  const found = data.report ?? null;
   const summary = summariseVector(image);
   if (summary.shapes === 0) {
     ctx.warn('The decomposition found no shapes. Check the image is not entirely transparent.');
   }
 
-  const report = [
+  const lines = [
     `# ${ctx.node.name} — decomposition`,
     '',
     `- Image: **${input.sourceNode.name}** (\`${input.artifact.fileName}\`), ${image.width} × ${image.height}`,
     `- Shapes: **${summary.shapes}** — ${summary.polygons} polygon(s), ${summary.lines} line(s)`,
     `- Lines: ${summary.straightLines} straight, ${summary.curvedLines} curved`,
     `- Points in total: ${summary.points.toLocaleString()}`,
+    ...(found
+      ? [
+          `- Pixels wrong: ${Math.round(found.wrongPixels).toLocaleString()}${
+            found.drawnPixels > 0
+              ? ` of ${found.drawnPixels.toLocaleString()} drawn (${((found.wrongPixels / found.drawnPixels) * 100).toFixed(1)}%)`
+              : ''
+          }`,
+        ]
+      : []),
     `- Colors: ${summary.colors.length}`,
     `- Widest a stroke may be: ${data.options.lineWidth}px`,
     `- Same-color tolerance: ${data.options.tolerance}`,
-    `- Simplified to within ${data.options.simplify}px`,
+    ...(data.options.fitToPixels
+      ? [
+          `- Fitted against the pixels · an anchor worth ${data.options.pointCost}px, a polygon ${data.options.polygonCost}px`,
+        ]
+      : [`- Simplified to within ${data.options.simplify}px (not fitted)`]),
     ...(data.options.minArea > 0 ? [`- Regions under ${data.options.minArea}px dropped`] : []),
     '',
     '## What counts as a line',
@@ -84,6 +98,19 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
       const count = image.shapes.filter((shape) => shape.color === color).length;
       return `| \`${color}\` | ${count} |`;
     }),
+    '',
+    '## How well it fits',
+    '',
+    'Shapes are chosen by drawing each candidate and comparing it with the pixels',
+    'it stands for. A pixel the shape misses and a pixel it covers in error are',
+    'both wrong, and count the same. Against that sits what the shape costs —',
+    'every anchor and every polygon is worth something, or the best answer would',
+    'always be to trace each pixel exactly.',
+    '',
+    'A shape is not charged for pixels that something painted **after** it will',
+    'cover. Areas go down biggest first and strokes last, the way the picture was',
+    'made, so an area may run under a stroke instead of stopping at its edge —',
+    'which is what keeps a hairline of background from showing along every line.',
     '',
     '## What the shapes are',
     '',
@@ -129,7 +156,7 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
       port: 'report',
       kind: 'markdown',
       fileName: 'vector.md',
-      content: `${report.join('\n')}\n`,
+      content: `${lines.join('\n')}\n`,
     }),
   ];
 

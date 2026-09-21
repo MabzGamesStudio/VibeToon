@@ -6,6 +6,8 @@ import type { DictionaryFlowData } from '../flows/dictionary';
 import type { GrammarFlowData } from '../flows/grammar';
 import type { LexiconFlowData } from '../flows/lexicon';
 import type { CutoutFlowData } from '../flows/cutout';
+import type { PoseFlowData } from '../flows/pose';
+import type { BindFlowData } from '../flows/rigBind';
 import type { VectorEditFlowData, VectorizeFlowData } from '../flows/vectorEdit';
 import type { ImageFlowData } from '../flows/image';
 import type { PaletteFlowData } from '../flows/palette';
@@ -192,7 +194,9 @@ export type FlowData =
   | ImageFlowData
   | CutoutFlowData
   | VectorizeFlowData
-  | VectorEditFlowData;
+  | VectorEditFlowData
+  | BindFlowData
+  | PoseFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph

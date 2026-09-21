@@ -8,6 +8,8 @@ import { emptyDictionaryFlowData } from '../flows/dictionary';
 import { emptyGrammarFlowData } from '../flows/grammar';
 import { emptyLexiconFlowData } from '../flows/lexicon';
 import { emptyCutoutFlowData } from '../flows/cutout';
+import { emptyPoseFlowData } from '../flows/pose';
+import { emptyBindFlowData } from '../flows/rigBind';
 import { emptyVectorEditFlowData, emptyVectorizeFlowData } from '../flows/vectorEdit';
 import { emptyImageFlowData } from '../flows/image';
 import { emptyPaletteFlowData } from '../flows/palette';
@@ -71,6 +73,10 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyVectorizeFlowData();
     case 'vectorEdit':
       return emptyVectorEditFlowData();
+    case 'bind':
+      return emptyBindFlowData();
+    case 'pose':
+      return emptyPoseFlowData();
     default:
       return emptyBriefData(def);
   }

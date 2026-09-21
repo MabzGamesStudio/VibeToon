@@ -45,10 +45,10 @@ Set `VIBETOON_DATA` to keep them somewhere else.
 
 ## What you can do today
 
-- **Graph overview.** Add flows from a catalogue of 45 kinds, drag a port to
+- **Graph overview.** Add flows from a catalogue of 47 kinds, drag a port to
   another port to connect them, and see at a glance what is up to date, what is
   stale and what failed. Port types are checked and loops are refused.
-- **A filterable catalogue.** Forty-five flow kinds is more than a list you
+- **A filterable catalogue.** Forty-seven flow kinds is more than a list you
   read, so it is a list you narrow: by what a flow *takes*, what it *gives*, and
   where it belongs. Port kind is the useful axis on a graph — the question is
   rarely "what is in the art category" and often "what can I plug this image
@@ -142,12 +142,26 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   areas become convex polygons. A line is a region that is *thin* **and** has
   different things either side of it — two blocks meeting is not a line, a stroke
   between them is — so one setting, how wide a stroke may be, decides what the
-  picture is. Writes the shapes, a real SVG, and a report.
+  picture is. Shapes are then fitted by **measuring**: each candidate is drawn and
+  compared with the pixels it stands for, and what it gets wrong is weighed
+  against what it costs in anchors and polygons — both of which are prices you
+  set. A stroke widens until it fills the contrast gap it was traced from, and
+  grows at each end while growing keeps helping.
 - **Vector editor.** Where the decomposition gets fixed: drag anchors, add and
   delete them, cut a shape in two, or delete a run out of a line. The edits are
   the work, so they are kept rather than recomputed — an upstream re-run is
   reported, not allowed to throw them away.
   See [docs/VECTOR-FLOWS.md](docs/VECTOR-FLOWS.md) for both.
+- **Rig binding.** A skeleton and a vectorized drawing in: assign shapes to bones
+  by picking or by lassoing a region, and add or delete bones as you go. The rig
+  is scaled onto the drawing when it arrives, because the two were made in
+  different spaces and a skeleton in the corner has no bone to aim at. One shape
+  belongs to one bone — an outline has to go somewhere whole.
+- **Pose.** Move the bound rig. Turn a joint and everything below it comes along,
+  or drag the end of a limb and the joints above it work out how to get there. A
+  reach it cannot make falls short and says how far out it was, rather than
+  stretching into a pose a body could not hold.
+  See [docs/RIG-FLOWS.md](docs/RIG-FLOWS.md) for both.
 - **Color palette.** An image in, the colors it actually uses most out —
   *counted*, not averaged, which is how palettes avoid coming out as five
   shades of mud. A minimum distance measured in OKLab stops a gradient of near
@@ -188,12 +202,12 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   exists. There is no model wired in; every generator is deterministic and local
   — including the random text flow, which walks a word database you can edit
   rather than predicting anything.
-- Bespoke editors exist for eighteen flow kinds so far (corpus, word database,
+- Bespoke editors exist for twenty flow kinds so far (corpus, word database,
   dictionary, grammar database, random text, dialog, storyboard, the three design
   sheets, image source, image extraction, color palette, palette filter, polygon
-  decomposition, vector editor, skeletal rig and animatic). The rest are real and
-  usable through the brief editor, but they are text and uploads, not
-  purpose-built tools.
+  decomposition, vector editor, rig binding, pose, skeletal rig and animatic).
+  The rest are real and usable through the brief editor, but they are text and
+  uploads, not purpose-built tools.
 - Building a word database from a book needs the network: one download for the
   text, and one dictionary request per word (cached afterwards). Without it the
   bundled sample corpus still works, because the words in it ship with their

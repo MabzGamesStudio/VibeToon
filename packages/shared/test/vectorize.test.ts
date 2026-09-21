@@ -111,16 +111,12 @@ test('a thin shape bordering only one thing is an area, not a stroke', () => {
 });
 
 test('the line width setting is what decides which it is', () => {
-  // A four-wide band between two blocks wide enough that nobody would call them
-  // strokes. Only the band's verdict changes.
-  const rows = [
-    'RRRRRRRRRRKKKKBBBBBBBBBB',
-    'RRRRRRRRRRKKKKBBBBBBBBBB',
-    'RRRRRRRRRRKKKKBBBBBBBBBB',
-    'RRRRRRRRRRKKKKBBBBBBBBBB',
-    'RRRRRRRRRRKKKKBBBBBBBBBB',
-    'RRRRRRRRRRKKKKBBBBBBBBBB',
-  ];
+  // A four-wide band between two blocks big enough in *both* directions that
+  // nobody would call them strokes — a block ten wide and six tall is six
+  // across the short way, which is thin, and the rule would be right to say so.
+  // Only the band's verdict is meant to change here.
+  const row = 'RRRRRRRRRRKKKKBBBBBBBBBB';
+  const rows = Array.from({ length: 20 }, () => row);
   const wide = run(rows, { lineWidth: 6 });
   assert.equal(wide.report.lines, 1, 'the band is a stroke when strokes may be that wide');
   assert.equal(wide.report.polygons, 2);

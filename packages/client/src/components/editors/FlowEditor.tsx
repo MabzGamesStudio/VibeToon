@@ -1,6 +1,7 @@
 import type { FlowNode } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
 import { AnimaticEditor } from './AnimaticEditor';
+import { BindFlowEditor } from './BindFlowEditor';
 import { BriefEditor } from './BriefEditor';
 import { DesignEditor } from './DesignEditor';
 import { CorpusFlowEditor } from './CorpusFlowEditor';
@@ -10,6 +11,7 @@ import { GrammarFlowEditor } from './GrammarFlowEditor';
 import { ImageFlowEditor } from './ImageFlowEditor';
 import { LexiconFlowEditor } from './LexiconFlowEditor';
 import { PaletteFlowEditor } from './PaletteFlowEditor';
+import { PoseFlowEditor } from './PoseFlowEditor';
 import { PaletteFilterFlowEditor } from './PaletteFilterFlowEditor';
 import { RigFlowEditor } from './RigFlowEditor';
 import { DialogEditor } from './DialogEditor';
@@ -59,6 +61,10 @@ export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
       return <VectorizeFlowEditor project={project} node={node} />;
     case 'vectorEdit':
       return <VectorEditFlowEditor project={project} node={node} />;
+    case 'bind':
+      return <BindFlowEditor project={project} node={node} />;
+    case 'pose':
+      return <PoseFlowEditor project={project} node={node} />;
     case 'rig':
       return <RigFlowEditor project={project} node={node} />;
     default:

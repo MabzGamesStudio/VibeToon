@@ -17,6 +17,7 @@ import {
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
+import { Field } from '../common/Field';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
@@ -48,7 +49,7 @@ export function VectorizeFlowEditor({
   }, [artifact]);
 
   const [busy, setBusy] = useState(false);
-  const [report, setReport] = useState<VectorizeReport | null>(null);
+  const [fresh, setFresh] = useState<VectorizeReport | null>(null);
   const [showSource, setShowSource] = useState(false);
   const [hover, setHover] = useState<string | null>(null);
   const svg = useRef<SVGSVGElement | null>(null);
@@ -61,6 +62,7 @@ export function VectorizeFlowEditor({
   const state = vectorizeState(data, artifact?.hash);
   const result: VectorImage | null = data.result;
   const summary = useMemo(() => (result ? summariseVector(result) : null), [result]);
+  const report = fresh ?? data.report ?? null;
 
   /** Read the picture and decompose it. */
   const decompose = useCallback(async () => {
@@ -99,9 +101,10 @@ export function VectorizeFlowEditor({
       };
 
       const run = vectorize(bitmap, data.options, newId);
-      setReport(run.report);
+      setFresh(run.report);
       patch({
         result: run.image,
+        report: run.report,
         imageHash: artifact?.hash,
         readAt: new Date().toISOString(),
       });
@@ -214,7 +217,54 @@ export function VectorizeFlowEditor({
         </div>
 
         <div className="vt-section">
+          <h3>How shapes are fitted</h3>
+          <Field label="Method" tip="vectorize.fit">
+            <label className="vt-row" style={{ gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={data.options.fitToPixels}
+                onChange={(event) =>
+                  patch({ options: { ...data.options, fitToPixels: event.target.checked } })
+                }
+              />
+              Measure against the pixels
+            </label>
+          </Field>
+          {data.options.fitToPixels ? (
+            <>
+              <Slider
+                label="What an anchor is worth"
+                value={data.options.pointCost}
+                min={0}
+                max={40}
+                step={1}
+                tip="vectorize.pointCost"
+                format={(value) => (value === 0 ? 'nothing — trace exactly' : `${value} pixels`)}
+                hint="An anchor earns its place by covering this many pixels no cheaper shape would."
+                onChange={(pointCost) => patch({ options: { ...data.options, pointCost } })}
+              />
+              <Slider
+                label="What a polygon is worth"
+                value={data.options.polygonCost}
+                min={0}
+                max={200}
+                step={5}
+                tip="vectorize.polygonCost"
+                format={(value) => `${value} pixels`}
+                onChange={(polygonCost) => patch({ options: { ...data.options, polygonCost } })}
+              />
+            </>
+          ) : null}
+        </div>
+
+        <div className="vt-section">
           <h3>Shape</h3>
+          {data.options.fitToPixels ? (
+            <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
+              Anchors are chosen by what they cover, so there is no tolerance to set. The
+              two costs above decide how many there are.
+            </p>
+          ) : null}
           <Slider
             label="Simplify to within"
             value={data.options.simplify}
@@ -223,6 +273,7 @@ export function VectorizeFlowEditor({
             step={0.1}
             tip="vectorize.simplify"
             format={(value) => (value === 0 ? 'every point' : `${value.toFixed(1)}px`)}
+            hint={data.options.fitToPixels ? 'Only used with the fit switched off.' : undefined}
             onChange={(simplify) => patch({ options: { ...data.options, simplify } })}
           />
           <Slider
@@ -253,6 +304,17 @@ export function VectorizeFlowEditor({
               <dd>{summary.points.toLocaleString()}</dd>
               <dt>Colors</dt>
               <dd>{summary.colors.length}</dd>
+              {report ? (
+                <>
+                  <dt>Pixels wrong</dt>
+                  <dd>
+                    {Math.round(report.wrongPixels).toLocaleString()}
+                    {report.drawnPixels > 0
+                      ? ` · ${((report.wrongPixels / report.drawnPixels) * 100).toFixed(1)}% of what it drew`
+                      : ''}
+                  </dd>
+                </>
+              ) : null}
             </dl>
             <div className="vt-filter-colors" style={{ marginTop: 6 }}>
               {summary.colors.map((color) => (

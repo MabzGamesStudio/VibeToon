@@ -32,6 +32,9 @@ export * from './flows/cutout';
 export * from './flows/vector';
 export * from './flows/vectorize';
 export * from './flows/vectorEdit';
+export * from './flows/rigBind';
+export * from './flows/pose';
+export * from './flows/fit';
 export * from './flows/rig';
 
 export * from './text/tokenize';

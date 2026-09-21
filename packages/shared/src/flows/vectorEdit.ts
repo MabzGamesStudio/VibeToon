@@ -1,4 +1,4 @@
-import { DEFAULT_VECTORIZE_OPTIONS, type VectorizeOptions } from './vectorize';
+import { DEFAULT_VECTORIZE_OPTIONS, type VectorizeOptions, type VectorizeReport } from './vectorize';
 import { emptyVectorImage, type VectorImage } from './vector';
 
 /**
@@ -14,6 +14,8 @@ export interface VectorizeFlowData {
   options: VectorizeOptions;
   /** What the last run found, or nothing if it has not been run. */
   result: VectorImage | null;
+  /** How that run went, so the written report can say so without redoing it. */
+  report?: VectorizeReport | null;
   /** The hash of the image it was found in. */
   imageHash?: string;
   readAt?: string;

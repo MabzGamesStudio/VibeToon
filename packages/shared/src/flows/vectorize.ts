@@ -1,4 +1,17 @@
 import type { Bitmap } from './cutout';
+import {
+  boxOf,
+  fitStroke,
+  mergeHidden,
+  prunePoints,
+  pruneStroke,
+  scorePieces,
+  shareInk,
+  type Box,
+  type FitWeights,
+  type Hidden,
+  type PolygonFit,
+} from './fit';
 import { colorDistance, quantise, toHex, type Rgb } from './palette';
 import {
   isConvex,
@@ -54,6 +67,25 @@ export interface VectorizeOptions {
   curveThreshold: number;
   /** Pixels at or below this alpha are transparent, and are not part of anything. */
   alphaFloor: number;
+  /**
+   * What one anchor is worth, measured in wrong pixels.
+   *
+   * Shapes are fitted by minimising wrong pixels *plus* what the shape costs, so
+   * this is the exchange rate between the two. At 6, an anchor earns its place by
+   * covering six pixels no cheaper shape would. Raise it for fewer, looser
+   * shapes; drop it to 0 and the fit will trace every pixel exactly.
+   */
+  pointCost: number;
+  /** What one polygon is worth, in the same units, on top of its anchors. */
+  polygonCost: number;
+  /**
+   * Fit against the pixels rather than by a distance tolerance.
+   *
+   * Off falls back to simplifying the traced outline by `simplify`, which is
+   * faster on a large picture and asks the wrong question — whether an anchor is
+   * near the traced path, rather than whether the shape covers the color.
+   */
+  fitToPixels: boolean;
 }
 
 export const DEFAULT_VECTORIZE_OPTIONS: VectorizeOptions = {
@@ -64,6 +96,9 @@ export const DEFAULT_VECTORIZE_OPTIONS: VectorizeOptions = {
   simplify: 1.2,
   curveThreshold: 0.04,
   alphaFloor: 8,
+  pointCost: 6,
+  polygonCost: 40,
+  fitToPixels: true,
 };
 
 export interface VectorizeReport {
@@ -71,6 +106,10 @@ export interface VectorizeReport {
   dropped: number;
   lines: number;
   polygons: number;
+  /** Pixels the finished shapes get wrong: missed plus covered in error. */
+  wrongPixels: number;
+  /** Pixels the shapes were trying to account for. */
+  drawnPixels: number;
   /** Regions thin enough to be a stroke but bordering only one thing. */
   thinButNotSeparating: number;
   convexPieces: number;
@@ -807,6 +846,8 @@ export function vectorize(
     dropped: 0,
     lines: 0,
     polygons: 0,
+    wrongPixels: 0,
+    drawnPixels: 0,
     thinButNotSeparating: 0,
     convexPieces: 0,
     transparent,
@@ -815,64 +856,236 @@ export function vectorize(
 
   const shapes: VectorShape[] = [];
 
-  for (const region of regions) {
-    if (region.pixels.length < options.minArea) {
-      report.dropped += 1;
-      continue;
-    }
+  /*
+   * The order shapes are painted in, which is also the order they are fitted in.
+   *
+   * Areas biggest first, then strokes. That is how the picture was made: a
+   * background is laid down and the subject stands on it, and ink goes on last.
+   * Painting them in that order means an enclosing shape never has to cut itself
+   * around what sits on top of it, and fitting them in that order means each one
+   * is judged on the pixels it is actually responsible for.
+   */
+  const kept = regions.filter((region) => {
+    if (region.pixels.length >= options.minArea) return true;
+    report.dropped += 1;
+    return false;
+  });
+  const strokes = new Set(kept.filter((region) => isLineRegion(region, options)));
+  const order = [
+    ...kept.filter((region) => !strokes.has(region)).sort((a, b) => b.pixels.length - a.pixels.length),
+    ...kept.filter((region) => strokes.has(region)),
+  ];
+
+  /*
+   * Which shape owns each pixel, in paint order, worked out once.
+   *
+   * A pixel belonging to a shape painted later is not this one's problem, and
+   * asking that is now a lookup rather than a mask built per region — which
+   * matters because the answer is wanted for every candidate a fit considers,
+   * and a fit considers hundreds.
+   */
+  const rankOf = new Int32Array(width * height).fill(-1);
+  for (let rank = 0; rank < order.length; rank += 1) {
+    for (const index of order[rank]!.pixels) rankOf[index] = rank;
+  }
+  const hiddenAfter = (rank: number): Hidden => (index: number) => rankOf[index]! > rank;
+
+  for (let rank = 0; rank < order.length; rank += 1) {
+    const region = order[rank]!;
     const color = toHex(region.color);
     const pixels = new Set(region.pixels);
 
-    if (isLineRegion(region, options)) {
-      const paths = centreline(pixels, width, height);
-      const measured = strokeWidth(region.pixels.length, paths);
+    const weights: FitWeights = {
+      pixel: 1,
+      point: options.pointCost,
+      polygon: options.polygonCost,
+    };
+    // Padded, because a fitted stroke grows past the ink it was traced from and
+    // a shape that covers too much has to be able to show it.
+    const box = boxOf(pixels, width, Math.ceil(options.lineWidth) + 2);
+    const hidden = options.fitToPixels ? hiddenAfter(rank) : undefined;
+    report.drawnPixels += pixels.size;
 
-      // Now that its real width is known, it may turn out to be an area after
-      // all — a squat blob is thin by the distance transform and not a stroke.
-      if (paths.length > 0 && measured <= options.lineWidth) {
-        for (const path of paths) {
-          const anchors = simplify(path.points, options.simplify);
-          if (anchors.length < (path.closed ? 3 : 2)) continue;
-          shapes.push({
-            id: makeId('line'),
-            kind: 'line',
-            color,
-            width: Math.max(0.5, Math.round(measured * 10) / 10),
-            points: anchors,
-            // A loop is always a curve by the straight-line test, since its ends
-            // are the same point. Judge it on its corners instead.
-            curved: path.closed
-              ? anchors.length > 6
-              : looksCurved(anchors, options.curveThreshold),
-            closed: path.closed,
-          } satisfies VectorLine);
-          report.lines += 1;
+    if (strokes.has(region)) {
+      const paths = centreline(pixels, width, height);
+      if (paths.length > 0) {
+        // Strokes that cross are one region, so its ink is divided between the
+        // paths running through it before any of them is measured.
+        const shares = options.fitToPixels
+          ? shareInk(paths.map((path) => path.points), pixels, width)
+          : paths.map(() => undefined);
+        const fitted = paths
+          .map((path, index) =>
+            fitLine(path, pixels, box, width, options, weights, mergeHidden(hidden, shares[index])),
+          )
+          .filter((line): line is FittedLine => line !== null);
+
+        // With the real widths known, a squat blob that the distance transform
+        // let through can still turn out to be an area rather than a stroke.
+        const widest = Math.max(0, ...fitted.map((line) => line.width));
+        if (fitted.length > 0 && widest <= options.lineWidth) {
+          for (const line of fitted) {
+            shapes.push({
+              id: makeId('line'),
+              kind: 'line',
+              color,
+              width: Math.max(0.5, Math.round(line.width * 10) / 10),
+              points: line.points,
+              // A loop is always a curve by the straight-line test, since its
+              // ends are the same point. Judge it on its corners instead.
+              curved: line.closed
+                ? line.points.length > 6
+                : looksCurved(line.points, options.curveThreshold),
+              closed: line.closed,
+            } satisfies VectorLine);
+            report.lines += 1;
+            report.wrongPixels += line.wrong;
+          }
+          continue;
         }
-        continue;
       }
     }
 
     if (region.thickness <= options.lineWidth) report.thinButNotSeparating += 1;
 
-    const outline = simplify(traceOutline(pixels, width, height), options.simplify);
-    if (outline.length < 3) {
+    const traced = traceOutline(pixels, width, height);
+    if (traced.length < 3) {
       report.dropped += 1;
       continue;
     }
-    const pieces = toConvexPieces(outline);
-    if (pieces.length === 0) {
+    const fit = fitArea(traced, pixels, box, width, options, weights, hidden);
+    if (fit.pieces.length === 0) {
       report.problems.push(`An area at ${describe(region, width)} could not be cut into convex pieces.`);
       continue;
     }
-    for (const piece of pieces) {
-      const polygon: VectorPolygon = { id: makeId('poly'), kind: 'polygon', color, points: piece };
-      shapes.push(polygon);
+    for (const piece of fit.pieces) {
+      shapes.push({ id: makeId('poly'), kind: 'polygon', color, points: piece } satisfies VectorPolygon);
       report.polygons += 1;
     }
-    report.convexPieces += pieces.length;
+    report.convexPieces += fit.pieces.length;
+    report.wrongPixels += fit.mismatch.wrong;
   }
 
   return { image: { width, height, shapes }, report };
+}
+
+/** One box cropped to another, so a tight box never reaches outside the image. */
+function clampBox(inner: Box, outer: Box): Box {
+  const x = Math.max(inner.x, outer.x);
+  const y = Math.max(inner.y, outer.y);
+  return {
+    x,
+    y,
+    width: Math.max(0, Math.min(inner.x + inner.width, outer.x + outer.width) - x),
+    height: Math.max(0, Math.min(inner.y + inner.height, outer.y + outer.height) - y),
+  };
+}
+
+interface FittedLine {
+  points: VectorPoint[];
+  width: number;
+  closed: boolean;
+  wrong: number;
+}
+
+/**
+ * One stroke, fitted to the ink it was traced from.
+ *
+ * The centreline says where the stroke runs; everything else about it is
+ * measured. The width is searched from thin up to the configured maximum, which
+ * is what "expand until it fills the contrast gap" means in practice — the width
+ * that leaves fewest wrong pixels *is* the width of the gap. Then each end is
+ * pushed outwards while that keeps helping, because thinning ate them.
+ */
+function fitLine(
+  path: Centreline,
+  pixels: Set<number>,
+  box: Box,
+  imageWidth: number,
+  options: VectorizeOptions,
+  weights: FitWeights,
+  hidden?: Hidden,
+): FittedLine | null {
+  const start = path.points;
+  if (start.length < (path.closed ? 3 : 2)) return null;
+
+  if (!options.fitToPixels) {
+    const anchors = simplify(start, options.simplify);
+    if (anchors.length < (path.closed ? 3 : 2)) return null;
+    return { points: anchors, width: 1, closed: path.closed, wrong: 0 };
+  }
+
+  // Simplified first, so the search is over a handful of anchors rather than one
+  // per pixel — and then pruned again at the end, once the width is known.
+  const rough = simplify(start, Math.max(0.6, options.simplify));
+  const seed = rough.length >= (path.closed ? 3 : 2) ? rough : start;
+
+  /*
+   * Searched past the limit on purpose.
+   *
+   * Capping the search at the limit would make the "this is a stroke" test
+   * vacuous — the answer could never exceed the threshold it is compared
+   * against, so every candidate would pass and a squat blob would come out as a
+   * very fat line. Asking what width the ink actually wants, and *then* checking
+   * it against the limit, is a question with two possible answers.
+   */
+  // Scored over the stroke's own box rather than the region's. A region of
+  // crossing strokes spans the picture while each stroke spans a corner of it,
+  // and every candidate width was walking all of the former to measure the
+  // latter.
+  const reach = options.lineWidth * 2 + 4;
+  const near = new Set<number>();
+  for (const point of seed) near.add(Math.round(point.y) * imageWidth + Math.round(point.x));
+  const tight = clampBox(boxOf(near, imageWidth, Math.ceil(reach)), box);
+
+  let fit = fitStroke(seed, pixels, tight, imageWidth, options.lineWidth * 2 + 2, weights, {
+    // A closed outline has no ends to push out; pushing one would open it.
+    maxExtend: path.closed ? 0 : undefined,
+    hidden,
+  });
+  fit = pruneStroke(fit, pixels, tight, imageWidth, weights, hidden);
+  if (fit.points.length < (path.closed ? 3 : 2)) return null;
+
+  return { points: fit.points, width: fit.width, closed: path.closed, wrong: fit.mismatch.wrong };
+}
+
+/**
+ * One filled area, fitted to the color it stands for.
+ *
+ * A ladder of simplify tolerances is tried, each cut into convex pieces and
+ * scored as a fill; the cheapest wins and is then pruned anchor by anchor. The
+ * ladder is there because simplifying and then cutting into convex pieces are
+ * not independent — a looser outline can need *more* pieces, not fewer — so the
+ * only honest way to compare two tolerances is to finish the job at both and
+ * look at what came out.
+ */
+function fitArea(
+  traced: VectorPoint[],
+  pixels: Set<number>,
+  box: Box,
+  imageWidth: number,
+  options: VectorizeOptions,
+  weights: FitWeights,
+  hidden?: Hidden,
+): PolygonFit {
+  if (!options.fitToPixels) {
+    const pieces = toConvexPieces(simplify(traced, options.simplify));
+    return scorePieces(pieces, pixels, box, imageWidth, weights);
+  }
+
+  const ladder = [0.4, 0.8, 1.2, 1.8, 2.6, 3.6];
+  let best: PolygonFit | null = null;
+  for (const tolerance of ladder) {
+    const outline = simplify(traced, tolerance);
+    if (outline.length < 3) continue;
+    const pieces = toConvexPieces(outline);
+    if (pieces.length === 0) continue;
+    const fit = scorePieces(pieces, pixels, box, imageWidth, weights, undefined, hidden);
+    if (!best || fit.cost < best.cost) best = fit;
+  }
+  if (!best) return { pieces: [], mismatch: { missed: pixels.size, extra: 0, wrong: pixels.size, target: pixels.size }, cost: Infinity };
+
+  return prunePoints(best.pieces, pixels, box, imageWidth, weights, 3, hidden);
 }
 
 function describe(region: PixelRegion, width: number): string {
