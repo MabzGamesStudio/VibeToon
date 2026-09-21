@@ -5,7 +5,7 @@ import { Modal } from './Modal';
 
 const POLL_MS = 2_000;
 
-/** A row's colour: what happened, not how the request was phrased. */
+/** A row's color: what happened, not how the request was phrased. */
 const OUTCOME_CLASS: Record<string, string> = {
   ok: 'is-ready',
   cached: 'is-empty',

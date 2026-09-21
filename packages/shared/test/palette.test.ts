@@ -37,7 +37,7 @@ function histogram(colors: ColorCount[], over: Partial<ImageHistogram> = {}): Im
   };
 }
 
-/* ---------------- measuring colour ---------------- */
+/* ---------------- measuring color ---------------- */
 
 test('hex round-trips, in both the long and the short form', () => {
   assert.deepEqual(fromHex('#ff8800'), { r: 255, g: 136, b: 0 });
@@ -59,17 +59,17 @@ test('distance follows the eye, not the channel values', () => {
 
   assert.ok(navyVsBlue < redVsGreen, `navy/blue ${navyVsBlue.toFixed(1)} < red/green ${redVsGreen.toFixed(1)}`);
   assert.ok(redVsGreen > 50, `red to green is ${redVsGreen.toFixed(1)}, which should be a long way`);
-  assert.equal(colorDistance(fromHex('#123456')!, fromHex('#123456')!), 0, 'and a colour is no distance from itself');
+  assert.equal(colorDistance(fromHex('#123456')!, fromHex('#123456')!), 0, 'and a color is no distance from itself');
 
   // Black to white is what the 0..100 scale is pinned to.
   const blackToWhite = colorDistance({ r: 0, g: 0, b: 0 }, { r: 255, g: 255, b: 255 });
   assert.ok(blackToWhite > 95 && blackToWhite < 105, `${blackToWhite.toFixed(1)} should be about 100`);
 
-  // Two colours a person would call the same sit under the just-noticeable mark.
+  // Two colors a person would call the same sit under the just-noticeable mark.
   assert.ok(colorDistance(fromHex('#808080')!, fromHex('#828282')!) < 2);
 });
 
-test('OKLab round-trips back to the colour it came from', () => {
+test('OKLab round-trips back to the color it came from', () => {
   for (const hex of ['#000000', '#ffffff', '#ff0000', '#0000ff', '#3d7a52', '#c0ffee']) {
     const rgb = fromHex(hex)!;
     const back = fromOklab(toOklab(rgb));
@@ -98,7 +98,7 @@ test('rounding groups near-identical pixels without moving the extremes', () => 
   assert.ok(Math.min(...levels) === 0 && Math.max(...levels) === 255);
 
   // Which means a step of about eight: values a step apart land together often
-  // enough for a wall to count as one colour, and a visible difference survives.
+  // enough for a wall to count as one color, and a visible difference survives.
   assert.equal(quantise(100, 5), quantise(102, 5));
   assert.notEqual(quantise(100, 5), quantise(120, 5));
 
@@ -109,7 +109,7 @@ test('rounding groups near-identical pixels without moving the extremes', () => 
 
 /* ---------------- the palette ---------------- */
 
-test('the commonest colours are the palette, in order', () => {
+test('the commonest colors are the palette, in order', () => {
   const palette = derivePalette(
     histogram(counts(['#ff0000', 100], ['#00ff00', 50], ['#0000ff', 25])),
     { count: 3, minDistance: 10 },
@@ -124,9 +124,9 @@ test('the commonest colours are the palette, in order', () => {
 /**
  * The reason the minimum distance exists. Four near-identical blues and one red:
  * without a minimum the palette is four blues, which describes the picture far
- * worse than two colours would.
+ * worse than two colors would.
  */
-test('colours too close together share one entry rather than filling the palette', () => {
+test('colors too close together share one entry rather than filling the palette', () => {
   const sky = counts(
     ['#4a6fd4', 400],
     ['#4b70d5', 380],
@@ -145,12 +145,12 @@ test('colours too close together share one entry rather than filling the palette
   const tight = derivePalette(histogram(sky), { count: 4, minDistance: 10 });
   assert.equal(tight.entries.length, 2, 'the four blues are one mode');
   assert.deepEqual(tight.entries.map((entry) => entry.hex), ['#4a6fd4', '#cc3322']);
-  assert.equal(tight.entries[0]!.members, 4, 'and the entry says how many colours it stands for');
+  assert.equal(tight.entries[0]!.members, 4, 'and the entry says how many colors it stands for');
   assert.equal(tight.entries[0]!.count, 1480, 'carrying the whole bucket’s tally, not just its own');
   assert.ok(tight.shortfall, 'four were asked for and the image has two that far apart');
 });
 
-test('a bucket is seeded by its own commonest colour, whatever order it was met in', () => {
+test('a bucket is seeded by its own commonest color, whatever order it was met in', () => {
   // The dimmer blue is listed first but counted less, so the brighter one seeds.
   const palette = derivePalette(
     histogram(counts(['#4a6fd4', 10], ['#4d72d7', 900], ['#cc3322', 200])),
@@ -161,7 +161,7 @@ test('a bucket is seeded by its own commonest colour, whatever order it was met 
 });
 
 test('every pixel ends up in a bucket, so the shares add up', () => {
-  // Six distinct colours, a palette of two: the four with nowhere to go still
+  // Six distinct colors, a palette of two: the four with nowhere to go still
   // have to be counted somewhere.
   const palette = derivePalette(
     histogram(counts(['#ff0000', 60], ['#00ff00', 50], ['#0000ff', 40], ['#ffff00', 30], ['#00ffff', 20], ['#ff00ff', 10])),
@@ -183,7 +183,7 @@ test('each entry reports how far it is from its nearest neighbour', () => {
   assert.ok(first!.nearest > 50, `${first!.nearest} — red and green are far apart`);
 });
 
-test('a single-colour image gives a palette of one rather than an error', () => {
+test('a single-color image gives a palette of one rather than an error', () => {
   const palette = derivePalette(histogram(counts(['#336699', 500])), { count: 5, minDistance: 10 });
   assert.equal(palette.entries.length, 1);
   assert.equal(palette.entries[0]!.share, 1);
@@ -218,7 +218,7 @@ test('temperature moves an entry off the mode but never out of its own bucket', 
   assert.notEqual(entry.hex, entry.modeHex, 'it moved');
   assert.ok(entry.shifted > 0);
   // The bucket's members span a small distance, and the entry stays inside it —
-  // so a palette colour is always a colour the image contains.
+  // so a palette color is always a color the image contains.
   const members = ['#4a6fd4', '#4b70d5', '#4c71d6', '#4d72d7'].map((hex) => fromHex(hex)!);
   const widest = Math.max(...members.map((a) => Math.max(...members.map((b) => colorDistance(a, b)))));
   assert.ok(
@@ -247,7 +247,7 @@ test('a tiny bucket can be dropped, but never the biggest one', () => {
   assert.equal(lean.entries.length, 1, 'the green is under 5% of the image');
   assert.equal(lean.dropped, 1);
 
-  // Even an absurd floor leaves the commonest colour, so a palette is never empty.
+  // Even an absurd floor leaves the commonest color, so a palette is never empty.
   assert.equal(derivePalette(histogram(rows), { minShare: 1 }).entries.length, 1);
 });
 
@@ -267,10 +267,10 @@ test('an entry can be pinned by hand and survives a change of settings', () => {
 
   assert.equal(pinned.entries[0]!.hex, '#ff0000', 'the unpinned entry is untouched');
   assert.equal(pinned.entries[1]!.hex, '#000000');
-  assert.ok(pinned.entries[1]!.shifted > 50, 'and it says how far from the counted colour it now is');
+  assert.ok(pinned.entries[1]!.shifted > 50, 'and it says how far from the counted color it now is');
 
   // Nonsense in the pin table is ignored rather than blanking the entry.
-  const bad = applyPinned(derivePalette(sky, { count: 2, minDistance: 10 }), { '0': 'not a colour' });
+  const bad = applyPinned(derivePalette(sky, { count: 2, minDistance: 10 }), { '0': 'not a color' });
   assert.equal(bad.entries[0]!.hex, '#ff0000');
 });
 

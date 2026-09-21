@@ -9,7 +9,7 @@ import { writeArtifact } from '../storage';
 import { readsWhole, type GenerationContext, type GenerationResult } from './types';
 
 /**
- * A palette is a few dozen colours. Reading more than this means the file is not
+ * A palette is a few dozen colors. Reading more than this means the file is not
  * a palette, and a truncated read of JSON is a syntax error rather than a shorter
  * palette — so the limit is generous but finite, and a read that hits it is
  * reported instead of parsed.
@@ -21,7 +21,7 @@ const PALETTE_LIMIT = 2_000_000;
  *
  * Like the cutout, the pixels are decided in the editor and arrive as an
  * attachment; this writes the file and explains what it did. The palette is read
- * here as well as there, so the notes can say which colours were actually in play
+ * here as well as there, so the notes can say which colors were actually in play
  * rather than trusting what the editor last saw.
  */
 export async function generatePaletteFilter(ctx: GenerationContext): Promise<GenerationResult> {
@@ -39,7 +39,7 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
     return { outputs: [] };
   }
   if (!paletteInput?.artifact) {
-    ctx.warn('No palette wired in — connect a Colour Palette flow to the Palette input.');
+    ctx.warn('No palette wired in — connect a Color Palette flow to the Palette input.');
     return { outputs: [] };
   }
 
@@ -58,14 +58,14 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
   }
   if (palette.hexes.length === 0) {
     ctx.warn(
-      `${paletteInput.sourceNode.name} has no colours in it. Generate it first, or check it wrote a palette.`,
+      `${paletteInput.sourceNode.name} has no colors in it. Generate it first, or check it wrote a palette.`,
     );
     return { outputs: [] };
   }
 
   const active = activePalette(palette, data.options);
   if (active.hexes.length === 0) {
-    ctx.warn('Every palette colour is switched off, so there is nothing to filter against.');
+    ctx.warn('Every palette color is switched off, so there is nothing to filter against.');
     return { outputs: [] };
   }
 
@@ -108,7 +108,7 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
           }`,
         ]),
     ...(data.options.hardAlpha ? ['- Alpha: forced to fully on or fully off.'] : []),
-    `- Colours in play: ${active.hexes.length} of ${palette.hexes.length}`,
+    `- Colors in play: ${active.hexes.length} of ${palette.hexes.length}`,
     '',
     '## What the mode does',
     '',
@@ -116,7 +116,7 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
     '',
     '## The palette it was filtered against',
     '',
-    '| | Colour | In play |',
+    '| | Color | In play |',
     '| --- | --- | --- |',
     ...palette.hexes.map(
       (hex, index) => `| ${index + 1} | \`${hex}\` | ${active.hexes.includes(hex) ? 'yes' : 'switched off'} |`,
@@ -134,7 +134,7 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
 
   if (mode === 'snap') {
     lines.push(
-      'Snapping has no threshold: every pixel has a nearest palette colour, and gets',
+      'Snapping has no threshold: every pixel has a nearest palette color, and gets',
       'it. A pixel that was already transparent stays transparent, so a cutout wired',
       'in keeps its shape.',
       '',
@@ -159,7 +159,7 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
   );
 
   ctx.log(
-    `${FILTER_MODE_LABEL[mode]} against ${active.hexes.length} colour(s): ${active.hexes.join(' ')}.`,
+    `${FILTER_MODE_LABEL[mode]} against ${active.hexes.length} color(s): ${active.hexes.join(' ')}.`,
   );
   return { outputs };
 }

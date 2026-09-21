@@ -59,14 +59,14 @@ test('nonsense reads as an empty palette rather than throwing', () => {
   }
 });
 
-test('a colour repeated in the palette is only one entry', () => {
+test('a color repeated in the palette is only one entry', () => {
   assert.deepEqual(readPalette([RED, RED.toUpperCase(), BLUE]).hexes, [RED, BLUE]);
 });
 
 test('switching entries off narrows what is matched against', () => {
   assert.deepEqual(activePalette(palette, options({ only: [RED] })).hexes, [RED]);
   assert.deepEqual(activePalette(palette, options({ only: [] })).hexes, [RED, BLUE], 'empty means all');
-  // Case should not decide whether a brand colour is in play.
+  // Case should not decide whether a brand color is in play.
   assert.deepEqual(activePalette(palette, options({ only: [RED.toUpperCase()] })).hexes, [RED]);
 });
 
@@ -84,7 +84,7 @@ test('an empty palette has no nearest, and says so rather than guessing one', ()
 
 /* ---------------- keep ---------------- */
 
-test('keep leaves palette colours alone and makes the rest transparent', () => {
+test('keep leaves palette colors alone and makes the rest transparent', () => {
   const source = image([
     [0xdc, 0x28, 0x28, 255], // exactly red
     [0x28, 0x3c, 0xdc, 255], // exactly blue
@@ -94,10 +94,10 @@ test('keep leaves palette colours alone and makes the rest transparent', () => {
   assert.deepEqual(alphaOf(pixels), [255, 255, 0]);
   assert.equal(report.kept, 2);
   assert.equal(report.dropped, 1);
-  assert.equal(report.recoloured, 0, 'keep never changes a colour');
+  assert.equal(report.recolored, 0, 'keep never changes a color');
 });
 
-test('keep judges by tolerance, so a near-miss counts as the colour', () => {
+test('keep judges by tolerance, so a near-miss counts as the color', () => {
   const nearlyRed = image([[0xd2, 0x32, 0x2e, 255]]);
   assert.deepEqual(alphaOf(filterImage(nearlyRed, palette, options({ tolerance: 10 })).pixels), [255]);
   assert.deepEqual(alphaOf(filterImage(nearlyRed, palette, options({ tolerance: 0.5 })).pixels), [0]);
@@ -118,7 +118,7 @@ test('remove is the exact opposite of keep', () => {
 
 /* ---------------- snap ---------------- */
 
-test('snap recolours every pixel and makes nothing transparent', () => {
+test('snap recolors every pixel and makes nothing transparent', () => {
   const source = image([
     [0xd0, 0x30, 0x30, 255], // nearly red
     [0x30, 0x40, 0xd0, 255], // nearly blue
@@ -129,7 +129,7 @@ test('snap recolours every pixel and makes nothing transparent', () => {
   assert.deepEqual(alphaOf(pixels), [255, 255, 255], 'snap never drops a pixel');
   assert.deepEqual([pixels[0], pixels[1], pixels[2]], [0xdc, 0x28, 0x28]);
   assert.deepEqual([pixels[4], pixels[5], pixels[6]], [0x28, 0x3c, 0xdc]);
-  assert.equal(report.recoloured, 3);
+  assert.equal(report.recolored, 3);
   assert.equal(report.dropped, 0);
 });
 
@@ -142,9 +142,9 @@ test('snap ignores the tolerance, because every pixel has a nearest', () => {
   assert.ok(tight.pixels[0]! > 0 || tight.pixels[2]! > 0, 'it became one of the two');
 });
 
-test('a pixel already on the palette is not counted as recoloured', () => {
+test('a pixel already on the palette is not counted as recolored', () => {
   const exact = image([[0xdc, 0x28, 0x28, 255]]);
-  assert.equal(filterImage(exact, palette, options({ mode: 'snap' })).report.recoloured, 0);
+  assert.equal(filterImage(exact, palette, options({ mode: 'snap' })).report.recolored, 0);
 });
 
 test('snap reports where the pixels landed, which is what makes it readable', () => {
@@ -190,7 +190,7 @@ test('a soft edge shows up as partial alpha in the result', () => {
 });
 
 test('hard alpha turns a soft decision back into on or off', () => {
-  // What you want when the result is going to be indexed colour or a sprite.
+  // What you want when the result is going to be indexed color or a sprite.
   const borderline = image([[0xc0, 0x50, 0x50, 255]]);
   const hard = filterImage(borderline, palette, options({ tolerance: 12, softness: 8, hardAlpha: true }));
   assert.ok(hard.pixels[3] === 0 || hard.pixels[3] === 255, `${hard.pixels[3]}`);
@@ -209,10 +209,10 @@ test('an empty palette leaves the image untouched and says what is wrong', () =>
   const source = image([[0xdc, 0x28, 0x28, 255]]);
   const { pixels, report } = filterImage(source, readPalette([]), options());
   assert.deepEqual(Array.from(pixels), Array.from(source.data));
-  assert.ok(report.problems.some((problem) => /no colours/.test(problem)), report.problems.join('; '));
+  assert.ok(report.problems.some((problem) => /no colors/.test(problem)), report.problems.join('; '));
 });
 
-test('switching every colour off is reported differently from an empty palette', () => {
+test('switching every color off is reported differently from an empty palette', () => {
   const source = image([[0xdc, 0x28, 0x28, 255]]);
   const { report } = filterImage(source, palette, options({ only: ['#000000'] }));
   assert.ok(report.problems.some((problem) => /switched off/.test(problem)), report.problems.join('; '));
@@ -252,7 +252,7 @@ test('the summary says what happened in the terms of the mode', () => {
   assert.match(summariseFilter(keep.report, options({ mode: 'keep' })), /50.0% kept, 50.0% made transparent/);
 
   const snap = filterImage(source, palette, options({ mode: 'snap' }));
-  assert.match(summariseFilter(snap.report, options({ mode: 'snap' })), /recoloured; nothing was made transparent/);
+  assert.match(summariseFilter(snap.report, options({ mode: 'snap' })), /recolored; nothing was made transparent/);
 
   const empty = filterImage(image([[0, 0, 0, 0]]), palette, options());
   assert.match(summariseFilter(empty.report, options()), /already transparent/);

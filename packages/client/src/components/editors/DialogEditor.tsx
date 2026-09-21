@@ -88,7 +88,7 @@ export function DialogEditor({ project, node }: { project: Project; node: FlowNo
                     className="vt-swatch"
                     type="color"
                     value={character.color}
-                    aria-label={`${character.name} colour`}
+                    aria-label={`${character.name} color`}
                     onChange={(event) =>
                       mutate((draft) => {
                         const target = draft.characters[index];

@@ -16,6 +16,8 @@ import { DialogEditor } from './DialogEditor';
 import { EditorShell } from './EditorShell';
 import { StoryboardEditor } from './StoryboardEditor';
 import { TextEditor } from './TextEditor';
+import { VectorEditFlowEditor } from './VectorEditFlowEditor';
+import { VectorizeFlowEditor } from './VectorizeFlowEditor';
 
 /** Picks the editor a flow's data asks for. */
 export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
@@ -53,6 +55,10 @@ export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
       return <ImageFlowEditor project={project} node={node} />;
     case 'cutout':
       return <CutoutFlowEditor project={project} node={node} />;
+    case 'vectorize':
+      return <VectorizeFlowEditor project={project} node={node} />;
+    case 'vectorEdit':
+      return <VectorEditFlowEditor project={project} node={node} />;
     case 'rig':
       return <RigFlowEditor project={project} node={node} />;
     default:

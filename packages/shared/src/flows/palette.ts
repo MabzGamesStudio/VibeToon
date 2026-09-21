@@ -1,23 +1,23 @@
 import { createRng } from '../text/generate';
 
 /**
- * A colour palette, counted out of an image.
+ * A color palette, counted out of an image.
  *
- * The idea is the mode rather than an average: the colours a picture actually
- * uses most, not the colours you get by averaging it (which is how palettes end
+ * The idea is the mode rather than an average: the colors a picture actually
+ * uses most, not the colors you get by averaging it (which is how palettes end
  * up as five shades of mud). Every pixel is counted, the counts are sorted, and
- * the commonest colours are taken in order.
+ * the commonest colors are taken in order.
  *
  * What makes that work is the minimum distance. Take the top five counts off a
  * photograph of a sky and you get five almost identical blues, because a
- * gradient is thousands of near-neighbours. So a colour that is closer than
+ * gradient is thousands of near-neighbours. So a color that is closer than
  * `minDistance` to one already chosen is not a new palette entry — it joins that
  * entry's bucket, and the bucket keeps its own tally. One bucket is one mode of
- * the image, and the palette is one colour picked out of each.
+ * the image, and the palette is one color picked out of each.
  */
 
 /* ------------------------------------------------------------------ *
- * Colour, and how far apart two of them are
+ * Color, and how far apart two of them are
  * ------------------------------------------------------------------ */
 
 export interface Rgb {
@@ -26,7 +26,7 @@ export interface Rgb {
   b: number;
 }
 
-/** A colour the image contained, and how many pixels of it there were. */
+/** A color the image contained, and how many pixels of it there were. */
 export interface ColorCount extends Rgb {
   count: number;
 }
@@ -92,10 +92,10 @@ export function toOklab({ r, g, b }: Rgb): Oklab {
 }
 
 /**
- * How far apart two colours look, on a scale where 100 is roughly black to white.
+ * How far apart two colors look, on a scale where 100 is roughly black to white.
  *
  * It is the straight-line distance in OKLab, times 100 so the numbers are worth
- * typing into a slider. Two colours a human would call the same are under about
+ * typing into a slider. Two colors a human would call the same are under about
  * 2; navy and royal blue are around 20; red and green are past 70.
  */
 export function colorDistance(a: Rgb, b: Rgb): number {
@@ -112,7 +112,7 @@ export function colorDistance(a: Rgb, b: Rgb): number {
  * ------------------------------------------------------------------ */
 
 /**
- * The counted colours of one image.
+ * The counted colors of one image.
  *
  * Reading the image happens in the editor, where the browser can decode a PNG, a
  * JPEG, a WebP or a GIF without this project carrying a decoder for each. What is
@@ -133,24 +133,24 @@ export interface ImageHistogram {
   height: number;
   /** Pixels counted. Fully transparent ones are not among them. */
   pixels: number;
-  /** Pixels skipped for being too transparent to have a colour. */
+  /** Pixels skipped for being too transparent to have a color. */
   transparent: number;
-  /** Bits kept per channel when rounding colours together before counting. */
+  /** Bits kept per channel when rounding colors together before counting. */
   precision: number;
-  /** Distinct colours after rounding, commonest first. */
+  /** Distinct colors after rounding, commonest first. */
   colors: ColorCount[];
   readAt: string;
 }
 
 /**
- * Round a colour so that near-identical pixels count as the same colour.
+ * Round a color so that near-identical pixels count as the same color.
  *
  * Without this the mode is meaningless for anything photographic: a photograph
  * of a red wall contains a hundred thousand slightly different reds, each seen
- * once or twice, and the "commonest colour" is then whichever one happened to
+ * once or twice, and the "commonest color" is then whichever one happened to
  * repeat. Rounding to 5 bits a channel gives 32 levels each, which is coarse
- * enough for a wall to be one colour and fine enough that a palette entry is
- * still the colour you can see in the picture.
+ * enough for a wall to be one color and fine enough that a palette entry is
+ * still the color you can see in the picture.
  *
  * The rounded value is expanded back across the full range, so pure white stays
  * `#ffffff` rather than drifting to `#f8f8f8`.
@@ -168,23 +168,23 @@ export function quantise(channel: number, precision: number): number {
  * ------------------------------------------------------------------ */
 
 export interface PaletteOptions {
-  /** How many colours the palette has. */
+  /** How many colors the palette has. */
   count: number;
   /**
-   * How far apart two palette colours must look, 0..100. Anything closer joins
-   * the bucket of the colour already chosen instead of becoming an entry of its
+   * How far apart two palette colors must look, 0..100. Anything closer joins
+   * the bucket of the color already chosen instead of becoming an entry of its
    * own. 0 takes the raw top counts, gradients and all.
    */
   minDistance: number;
   /** Same seed, same palette. Rerolling is an edit you can see. */
   seed: string;
   /**
-   * 0..1 — how far from each bucket's commonest colour the entry may wander.
+   * 0..1 — how far from each bucket's commonest color the entry may wander.
    *
-   * At 0 every entry is the modal colour of its bucket. Above that the entry
+   * At 0 every entry is the modal color of its bucket. Above that the entry
    * moves towards another member of the same bucket, picked by how often it
    * appears, so a warm grey can come out as the slightly warmer grey next to it.
-   * It never leaves the bucket, so a palette colour is always a colour the image
+   * It never leaves the bucket, so a palette color is always a color the image
    * actually contains.
    */
   temperature: number;
@@ -215,13 +215,13 @@ export interface PaletteEntry {
   r: number;
   g: number;
   b: number;
-  /** Pixels in this bucket — the whole mode, not just the one colour shown. */
+  /** Pixels in this bucket — the whole mode, not just the one color shown. */
   count: number;
   /** That count as a share of the pixels counted, 0..1. */
   share: number;
-  /** Distinct counted colours that fell into this bucket. */
+  /** Distinct counted colors that fell into this bucket. */
   members: number;
-  /** The bucket's commonest colour, which is what temperature moved away from. */
+  /** The bucket's commonest color, which is what temperature moved away from. */
   modeHex: string;
   /** How far the entry ended up from that, on the same 0..100 scale. */
   shifted: number;
@@ -233,12 +233,12 @@ export interface Palette {
   entries: PaletteEntry[];
   /** Pixels the buckets account for, which is all of them. */
   pixels: number;
-  /** Distinct counted colours that went in. */
+  /** Distinct counted colors that went in. */
   distinct: number;
   /** Buckets that were dropped for holding too small a share. */
   dropped: number;
   /**
-   * Set when the image simply does not contain `count` colours far enough apart:
+   * Set when the image simply does not contain `count` colors far enough apart:
    * a two-tone drawing cannot yield eight entries at a distance of 30.
    */
   shortfall?: string;
@@ -258,13 +258,13 @@ function labDistance(a: Oklab, b: Oklab): number {
 /**
  * Counts in, palette out.
  *
- * One pass over the counted colours, commonest first. Each one either joins the
+ * One pass over the counted colors, commonest first. Each one either joins the
  * nearest bucket it is close enough to, or starts a bucket of its own. Because
  * the walk is in count order, a bucket is always seeded by its own commonest
- * colour — which is what makes the seed the mode of that bucket and not just
- * whichever colour happened to be met first.
+ * color — which is what makes the seed the mode of that bucket and not just
+ * whichever color happened to be met first.
  *
- * Once the palette is full, a colour with no bucket near it still has to go
+ * Once the palette is full, a color with no bucket near it still has to go
  * somewhere, so it joins the nearest one regardless of distance. That keeps the
  * shares honest: they always add up to the whole image.
  */
@@ -333,7 +333,7 @@ export function derivePalette(
 
   const shortfall =
     entries.length < count
-      ? `The image has ${entries.length} colour${entries.length === 1 ? '' : 's'} at least ${minDistance.toFixed(
+      ? `The image has ${entries.length} color${entries.length === 1 ? '' : 's'} at least ${minDistance.toFixed(
           0,
         )} apart, not ${count}. Lower the minimum distance, or ask for fewer.`
       : undefined;
@@ -348,12 +348,12 @@ export function derivePalette(
 }
 
 /**
- * Which colour of a bucket the palette shows.
+ * Which color of a bucket the palette shows.
  *
- * At temperature 0 it is the bucket's commonest colour. Above that the entry
+ * At temperature 0 it is the bucket's commonest color. Above that the entry
  * moves towards another member, chosen by how often that member appears, by the
  * fraction the temperature asks for. Interpolating in OKLab rather than RGB
- * means the intermediate colours stay in the family — an RGB midpoint between
+ * means the intermediate colors stay in the family — an RGB midpoint between
  * two blues can pass through grey.
  */
 function pickFromBucket(bucket: Bucket, temperature: number, rng: () => number): Rgb {
@@ -376,7 +376,7 @@ function pickFromBucket(bucket: Bucket, temperature: number, rng: () => number):
   return mixOklab(bucket.seed, target, heat);
 }
 
-/** Blend two colours the way the eye reads a blend, and come back to sRGB. */
+/** Blend two colors the way the eye reads a blend, and come back to sRGB. */
 export function mixOklab(from: Rgb, to: Rgb, amount: number): Rgb {
   const t = Math.max(0, Math.min(1, amount));
   const a = toOklab(from);

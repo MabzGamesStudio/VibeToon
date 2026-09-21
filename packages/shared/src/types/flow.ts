@@ -1,6 +1,6 @@
 import type { ArtifactKind } from './artifacts';
 
-/** Top-level grouping used by the palette and the graph's colour coding. */
+/** Top-level grouping used by the palette and the graph's color coding. */
 export type FlowCategory =
   | 'brainstorm'
   | 'text'
@@ -52,6 +52,8 @@ export type EditorId =
   | 'rig'
   | 'image'
   | 'cutout'
+  | 'vectorize'
+  | 'vectorEdit'
   | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */

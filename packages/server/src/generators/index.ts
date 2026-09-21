@@ -14,6 +14,8 @@ import { generateRig } from './rig';
 import { generateDialog } from './dialog';
 import { generateStoryboard } from './storyboard';
 import { generateText } from './text';
+import { generateVectorEdit } from './vectorEdit';
+import { generateVectorize } from './vectorize';
 import type { Generator } from './types';
 
 /**
@@ -38,6 +40,8 @@ const GENERATORS: Record<string, Generator> = {
   'art.palette.filter': generatePaletteFilter,
   'art.image': generateImage,
   'art.cutout': generateCutout,
+  'art.vectorize': generateVectorize,
+  'art.vector.edit': generateVectorEdit,
   'production.edit': generateAssembly,
   'production.render': generateAssembly,
 };

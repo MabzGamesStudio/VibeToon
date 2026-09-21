@@ -26,7 +26,7 @@ test('an empty filter lets the whole catalogue through', () => {
 
 test('the text search reads labels, ids, summaries, port names and file names', () => {
   // A flow is remembered by any of these, so any of them should find it.
-  for (const needle of ['colour palette', 'art.palette', 'commonest', 'palette.json']) {
+  for (const needle of ['color palette', 'art.palette', 'commonest', 'palette.json']) {
     assert.ok(
       ids(filterFlowKinds(FLOW_KINDS, filter({ query: needle }))).includes('art.palette'),
       `“${needle}” did not find the palette flow`,

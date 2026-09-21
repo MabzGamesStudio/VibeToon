@@ -1031,7 +1031,7 @@
   }
 }
 
-/* Colour palette ------------------------------------------------------ */
+/* Color palette ------------------------------------------------------ */
 
 .vt-palette-source {
   border: 1px solid $line;
@@ -1056,7 +1056,7 @@
 
 /**
  * The palette as a strip. Each band is as wide as the share of the image its
- * colour accounts for, so the picture's own proportions are readable at a glance
+ * color accounts for, so the picture's own proportions are readable at a glance
  * rather than being a column of numbers.
  */
 .vt-swatches {
@@ -1102,8 +1102,8 @@
   padding: 4px 6px;
   font-family: $mono;
   font-size: 10px;
-  // The label has to be legible on any colour, which a translucent dark bar does
-  // and a fixed text colour does not.
+  // The label has to be legible on any color, which a translucent dark bar does
+  // and a fixed text color does not.
   color: #fff;
   background: rgba(0, 0, 0, 0.55);
   text-align: left;
@@ -1281,8 +1281,8 @@
   object-fit: contain;
 }
 
-/* Palette colours as tickable swatches: the hex is on the chip because a colour
-   you cannot name is a colour you cannot look up in the palette's own report. */
+/* Palette colors as tickable swatches: the hex is on the chip because a color
+   you cannot name is a color you cannot look up in the palette's own report. */
 .vt-filter-colors {
   display: flex;
   flex-wrap: wrap;
@@ -1525,4 +1525,148 @@
       flex: none;
     }
   }
+}
+
+/* A drawn region: filled, because what matters about it is its inside. */
+.vt-region {
+  stroke: $accent;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+  cursor: pointer;
+
+  &.is-include {
+    fill: rgba(86, 194, 113, 0.22);
+    stroke: $ok;
+  }
+
+  &.is-exclude {
+    fill: rgba(232, 112, 90, 0.22);
+    stroke: $err;
+  }
+
+  &.is-selected {
+    stroke: #fff;
+    stroke-dasharray: 5 3;
+  }
+
+  &.is-drafting {
+    fill: rgba(255, 255, 255, 0.12);
+    stroke: #fff;
+    stroke-dasharray: 4 3;
+    pointer-events: none;
+  }
+
+  &.is-muted {
+    opacity: 0.35;
+  }
+}
+
+/* The points as placed, so one dropped by mistake is visible before you finish. */
+.vt-draft-point {
+  fill: #fff;
+  stroke: rgba(0, 0, 0, 0.6);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.vt-object-dot {
+  &.is-keep,
+  &.is-region {
+    background: $ok;
+  }
+}
+
+/* Vector decomposition and editing ----------------------------------- */
+
+.vt-vector-stage {
+  @include transparency-check;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+}
+
+.vt-vector-frame {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The picture behind the shapes, so a decomposition can be judged against what
+   it was decomposing rather than on its own. */
+.vt-vector-source {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.vt-vector-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+
+  &.is-editable {
+    /* The frame handles the pointer so a click on empty space still deselects. */
+    pointer-events: none;
+  }
+}
+
+.vt-vector-shape {
+  pointer-events: all;
+
+  &.is-hover {
+    /* An outline rather than a fill change: recolouring a shape to show it is
+       hovered hides the one thing the editor is for looking at. */
+    outline: none;
+    filter: brightness(1.25);
+  }
+
+  &.is-selected {
+    stroke: #fff;
+    stroke-width: 1.5;
+    stroke-dasharray: 4 2;
+    vector-effect: non-scaling-stroke;
+    paint-order: stroke;
+  }
+}
+
+.vt-anchor {
+  fill: $accent;
+  stroke: #fff;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+
+  &.is-held {
+    fill: #fff;
+  }
+
+  /* One end of a run being deleted, waiting for the other. */
+  &.is-marked {
+    fill: $err;
+    stroke: #fff;
+  }
+}
+
+.vt-swatch-chip {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid $line-strong;
+  vertical-align: middle;
 }

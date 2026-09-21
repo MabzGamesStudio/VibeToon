@@ -61,7 +61,7 @@ export interface ApiLogPage {
   file: string | null;
 }
 
-/** The outcomes worth colouring as a problem. */
+/** The outcomes worth coloring as a problem. */
 export function isLogProblem(outcome: LogOutcome): boolean {
   return outcome === 'failed' || outcome === 'timeout' || outcome === 'rate-limited' || outcome === 'retry';
 }

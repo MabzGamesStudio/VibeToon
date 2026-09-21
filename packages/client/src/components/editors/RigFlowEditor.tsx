@@ -487,7 +487,7 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
           </div>
         ) : (
           <div className="vt-hint">
-            Chained bones are drawn in a lighter colour — those read their angles off their chain rather than
+            Chained bones are drawn in a lighter color — those read their angles off their chain rather than
             one at a time. Selecting a joint draws the wedge it can turn through.
           </div>
         )}

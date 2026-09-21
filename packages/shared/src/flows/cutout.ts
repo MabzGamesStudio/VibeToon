@@ -30,15 +30,28 @@ export interface Seed {
   tolerance: number;
   /** Off when the seed is kept but not applied, for trying without deleting. */
   muted?: boolean;
+  /**
+   * When this was made, so seeds and regions interleave in one order.
+   *
+   * They paint the mask rather than flooding it separately, and "the one I drew
+   * last wins" is the only rule that matches what clicking feels like. Two
+   * arrays cannot express that on their own. Absent on anything made before
+   * regions existed, which sorts first — the order it already had.
+   */
+  seq?: number;
 }
 
-/** A line that cuts the outline, whatever the pixels underneath say. */
+/**
+ * A line that cuts the outline, whatever the pixels underneath say.
+ *
+ * Always smoothed through its points. There is no straight variety and none is
+ * needed: a two-point spline **is** a straight line, so clicking twice gives a
+ * straight cut and clicking more gives a curve, without a mode to choose first.
+ */
 export interface CutLine {
   id: string;
-  /** Flat `x, y, x, y…` in image pixels. Two points is a straight line. */
+  /** Flat `x, y, x, y…` in image pixels. Two points is a straight cut. */
   points: number[];
-  /** Smooth through the points rather than joining them with corners. */
-  curved: boolean;
   /**
    * How wide the cut is, in pixels. A cut is a barrier a fill cannot cross, and
    * a one-pixel barrier leaks through diagonal gaps, so this is at least 1.
@@ -52,7 +65,36 @@ export interface CutLine {
   muted?: boolean;
 }
 
-export type CutObject = (Seed & { type: 'seed' }) | (CutLine & { type: 'line' });
+/**
+ * A closed shape that takes everything inside it, or gives everything inside it
+ * back — whatever the pixels say.
+ *
+ * A fill answers "what is this thing", and there are subjects no tolerance can
+ * answer that for: a face against a busy background shares colours with it
+ * everywhere. Drawing round it is the honest tool for that, and it is the one
+ * thing clicking regions cannot do however many seeds you drop.
+ *
+ * The ends join, so unlike a cut it encloses rather than divides. Straight
+ * joins its points with corners and curved smooths through them — and here the
+ * difference is real, because a shape has more than two points.
+ */
+export interface Region {
+  id: string;
+  /** Flat `x, y, x, y…`. The last point joins the first; no need to repeat it. */
+  points: number[];
+  /** Smooth through the points rather than joining them with corners. */
+  curved: boolean;
+  /** Take everything inside, or give everything inside back. */
+  mode: 'include' | 'exclude';
+  muted?: boolean;
+  /** When it was made; see `Seed.seq`. */
+  seq?: number;
+}
+
+export type CutObject =
+  | (Seed & { type: 'seed' })
+  | (CutLine & { type: 'line' })
+  | (Region & { type: 'region' });
 
 export interface CutoutOptions {
   /**
@@ -90,6 +132,9 @@ export interface CutoutFlowData {
   options: CutoutOptions;
   seeds: Seed[];
   lines: CutLine[];
+  regions: Region[];
+  /** Hands out `seq`, so the next thing drawn paints over what came before. */
+  nextSeq?: number;
   /** Ids of whatever is selected, so Delete knows what to remove. */
   selected: string[];
   /** The hash of the image the objects were placed against. */
@@ -105,17 +150,50 @@ export function emptyCutoutFlowData(): CutoutFlowData {
     options: { ...DEFAULT_CUTOUT_OPTIONS },
     seeds: [],
     lines: [],
+    regions: [],
+    nextSeq: 1,
     selected: [],
   };
+}
+
+/** Read a flow's regions whether or not it was made before they existed. */
+function regionsOf(data: CutoutFlowData): Region[] {
+  return data.regions ?? [];
+}
+
+/** The next sequence number, and the data that has handed it out. */
+export function takeSeq(data: CutoutFlowData): { seq: number; data: CutoutFlowData } {
+  const used = [...data.seeds, ...regionsOf(data)].map((object) => object.seq ?? 0);
+  const seq = Math.max(data.nextSeq ?? 1, ...used.map((value) => value + 1), 1);
+  return { seq, data: { ...data, nextSeq: seq + 1 } };
 }
 
 /* ---------------- the objects ---------------- */
 
 export function objectsOf(data: CutoutFlowData): CutObject[] {
   return [
-    ...data.seeds.map((seed) => ({ ...seed, type: 'seed' as const })),
+    ...paintOrder(data),
     ...data.lines.map((line) => ({ ...line, type: 'line' as const })),
   ];
+}
+
+/**
+ * Seeds and regions in the order they were drawn, which is the order they paint.
+ *
+ * Anything made before `seq` existed sorts first and keeps the order it already
+ * had, so an old cutout looks exactly as it did.
+ */
+export function paintOrder(
+  data: CutoutFlowData,
+): Array<(Seed & { type: 'seed' }) | (Region & { type: 'region' })> {
+  const painted = [
+    ...data.seeds.map((seed) => ({ ...seed, type: 'seed' as const })),
+    ...regionsOf(data).map((region) => ({ ...region, type: 'region' as const })),
+  ];
+  return painted
+    .map((object, index) => ({ object, index }))
+    .sort((a, b) => (a.object.seq ?? 0) - (b.object.seq ?? 0) || a.index - b.index)
+    .map((entry) => entry.object);
 }
 
 export function findObject(data: CutoutFlowData, id: string): CutObject | undefined {
@@ -130,6 +208,7 @@ export function deleteSelected(data: CutoutFlowData): CutoutFlowData {
     ...data,
     seeds: data.seeds.filter((seed) => !gone.has(seed.id)),
     lines: data.lines.filter((line) => !gone.has(line.id)),
+    regions: regionsOf(data).filter((region) => !gone.has(region.id)),
     selected: [],
   };
 }
@@ -139,6 +218,7 @@ export function deleteObject(data: CutoutFlowData, id: string): CutoutFlowData {
     ...data,
     seeds: data.seeds.filter((seed) => seed.id !== id),
     lines: data.lines.filter((line) => line.id !== id),
+    regions: regionsOf(data).filter((region) => region.id !== id),
     selected: data.selected.filter((candidate) => candidate !== id),
   };
 }
@@ -162,12 +242,24 @@ export function setLine(data: CutoutFlowData, id: string, over: Partial<CutLine>
   return { ...data, lines: data.lines.map((line) => (line.id === id ? { ...line, ...over } : line)) };
 }
 
+export function setRegion(data: CutoutFlowData, id: string, over: Partial<Region>): CutoutFlowData {
+  return {
+    ...data,
+    regions: regionsOf(data).map((region) => (region.id === id ? { ...region, ...over } : region)),
+  };
+}
+
 /** Ordinal names, so the object list reads as "Include 2" rather than an id. */
 export function labelOf(data: CutoutFlowData, object: CutObject): string {
   if (object.type === 'seed') {
     const peers = data.seeds.filter((seed) => seed.mode === object.mode);
     const index = peers.findIndex((seed) => seed.id === object.id) + 1;
     return `${object.mode === 'include' ? 'Include' : 'Exclude'} ${index}`;
+  }
+  if (object.type === 'region') {
+    const peers = regionsOf(data).filter((region) => region.mode === object.mode);
+    const index = peers.findIndex((region) => region.id === object.id) + 1;
+    return `${object.mode === 'include' ? 'Keep inside' : 'Drop inside'} ${index}`;
   }
   const index = data.lines.findIndex((line) => line.id === object.id) + 1;
   return `${object.mode === 'erase' ? 'Erase' : 'Cut'} ${index}`;
@@ -182,11 +274,25 @@ export function labelOf(data: CutoutFlowData, object: CutObject): string {
  * does not go where you put it is not a tool you can aim.
  */
 export function linePoints(line: CutLine, samplesPerSegment = 12): Array<{ x: number; y: number }> {
-  const raw: Array<{ x: number; y: number }> = [];
-  for (let index = 0; index + 1 < line.points.length; index += 2) {
-    raw.push({ x: line.points[index]!, y: line.points[index + 1]! });
+  return smoothOpen(unflatten(line.points), samplesPerSegment);
+}
+
+/** `x, y, x, y…` as points. */
+export function unflatten(flat: number[]): Array<{ x: number; y: number }> {
+  const out: Array<{ x: number; y: number }> = [];
+  for (let index = 0; index + 1 < flat.length; index += 2) {
+    out.push({ x: flat[index]!, y: flat[index + 1]! });
   }
-  if (raw.length < 2 || !line.curved) return raw;
+  return out;
+}
+
+function smoothOpen(
+  raw: Array<{ x: number; y: number }>,
+  samplesPerSegment: number,
+): Array<{ x: number; y: number }> {
+  // Two points is a straight line either way, so there is nothing to smooth and
+  // nothing lost by always smoothing.
+  if (raw.length < 3) return raw;
 
   const out: Array<{ x: number; y: number }> = [raw[0]!];
   for (let index = 0; index + 1 < raw.length; index += 1) {
@@ -195,8 +301,35 @@ export function linePoints(line: CutLine, samplesPerSegment = 12): Array<{ x: nu
     const p2 = raw[index + 1]!;
     const p3 = raw[index + 2] ?? p2;
     for (let step = 1; step <= samplesPerSegment; step += 1) {
-      const t = step / samplesPerSegment;
-      out.push(catmullRom(p0, p1, p2, p3, t));
+      out.push(catmullRom(p0, p1, p2, p3, step / samplesPerSegment));
+    }
+  }
+  return out;
+}
+
+/**
+ * The outline of a region, closed.
+ *
+ * A straight region is its points joined corner to corner. A curved one is
+ * smoothed through them with the spline wrapping past the ends, so the shape
+ * closes without a kink where the last point meets the first — which is exactly
+ * where a shape drawn by hand would otherwise show its seam.
+ */
+export function regionOutline(
+  region: Region,
+  samplesPerSegment = 12,
+): Array<{ x: number; y: number }> {
+  const raw = unflatten(region.points);
+  if (raw.length < 3) return raw;
+  if (!region.curved) return raw;
+
+  const at = (index: number) => raw[((index % raw.length) + raw.length) % raw.length]!;
+  const out: Array<{ x: number; y: number }> = [];
+  for (let index = 0; index < raw.length; index += 1) {
+    for (let step = 0; step < samplesPerSegment; step += 1) {
+      out.push(
+        catmullRom(at(index - 1), at(index), at(index + 1), at(index + 2), step / samplesPerSegment),
+      );
     }
   }
   return out;
@@ -257,6 +390,59 @@ export function blockedBy(lines: CutLine[], width: number, height: number): Uint
   return blocked;
 }
 
+/**
+ * Fill a closed outline, by scanline.
+ *
+ * Even-odd: for each row, find where the outline crosses it, sort the crossings
+ * and fill between alternate pairs. That handles a shape drawn back over itself
+ * without special-casing it, and it is far cheaper than testing every pixel
+ * against every edge — this runs on every change.
+ *
+ * Crossings are counted with a half-open rule on y (`y0 <= y < y1`), so a vertex
+ * sitting exactly on a scanline is counted once rather than twice or not at all.
+ * Without it a shape springs leaks along any horizontal edge.
+ */
+export function fillOutline(
+  outline: Array<{ x: number; y: number }>,
+  width: number,
+  height: number,
+): Uint8Array {
+  const inside = new Uint8Array(width * height);
+  if (outline.length < 3) return inside;
+
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (const point of outline) {
+    if (point.y < top) top = point.y;
+    if (point.y > bottom) bottom = point.y;
+  }
+  const first = Math.max(0, Math.ceil(top));
+  const last = Math.min(height - 1, Math.floor(bottom));
+
+  const crossings: number[] = [];
+  for (let y = first; y <= last; y += 1) {
+    crossings.length = 0;
+    const scan = y + 0.5;
+    for (let index = 0; index < outline.length; index += 1) {
+      const a = outline[index]!;
+      const b = outline[(index + 1) % outline.length]!;
+      if (a.y === b.y) continue;
+      const lower = Math.min(a.y, b.y);
+      const upper = Math.max(a.y, b.y);
+      if (scan < lower || scan >= upper) continue;
+      crossings.push(a.x + ((scan - a.y) / (b.y - a.y)) * (b.x - a.x));
+    }
+    if (crossings.length < 2) continue;
+    crossings.sort((one, two) => one - two);
+    for (let pair = 0; pair + 1 < crossings.length; pair += 2) {
+      const from = Math.max(0, Math.ceil(crossings[pair]! - 0.5));
+      const to = Math.min(width - 1, Math.floor(crossings[pair + 1]! - 0.5));
+      for (let x = from; x <= to; x += 1) inside[y * width + x] = 1;
+    }
+  }
+  return inside;
+}
+
 function stampSegment(
   target: Uint8Array,
   width: number,
@@ -296,9 +482,9 @@ function stampDisc(
 
 /**
  * Flood out from one seed, taking every neighbour within `tolerance` of the seed
- * pixel's colour and stopping at a cut line.
+ * pixel's color and stopping at a cut line.
  *
- * Tolerance is measured against the **seed colour**, not against each pixel's
+ * Tolerance is measured against the **seed color**, not against each pixel's
  * neighbour. Comparing neighbour to neighbour lets a gradient walk the whole
  * image one indistinguishable step at a time, which is the classic way a magic
  * wand "selects everything" and the reason people stop trusting one.
@@ -383,10 +569,35 @@ export function buildMask(
   const report: MaskReport = { inside: 0, seeds: [], islandsDropped: 0, problems: [] };
 
   const scratch = new Uint8Array(size);
-  for (const seed of data.seeds) {
-    if (seed.muted) continue;
+  // Seeds and regions paint in the order they were drawn, so a later one covers
+  // an earlier one exactly the way it looks like it should.
+  for (const object of paintOrder(data)) {
+    if (object.muted) continue;
+    const label = labelOf(data, object);
+
+    if (object.type === 'region') {
+      const outline = regionOutline(object);
+      if (outline.length < 3) {
+        report.problems.push(`${label} has too few points to enclose anything.`);
+        continue;
+      }
+      const filled = fillOutline(outline, width, height);
+      let pixels = 0;
+      for (let index = 0; index < size; index += 1) {
+        if (!filled[index]) continue;
+        pixels += 1;
+        inside[index] = object.mode === 'include' ? 1 : 0;
+      }
+      report.seeds.push({ id: object.id, mode: object.mode, pixels, label });
+      if (pixels === 0) {
+        report.problems.push(`${label} encloses nothing — it may be off the edge of the image.`);
+      }
+      continue;
+    }
+
+    const seed = object;
     if (seed.x < 0 || seed.y < 0 || seed.x >= width || seed.y >= height) {
-      report.problems.push(`${labelOf(data, { ...seed, type: 'seed' })} is outside the image.`);
+      report.problems.push(`${label} is outside the image.`);
       continue;
     }
     scratch.fill(0);
@@ -397,15 +608,10 @@ export function buildMask(
       pixels += 1;
       inside[index] = seed.mode === 'include' ? 1 : 0;
     }
-    report.seeds.push({
-      id: seed.id,
-      mode: seed.mode,
-      pixels,
-      label: labelOf(data, { ...seed, type: 'seed' }),
-    });
+    report.seeds.push({ id: seed.id, mode: seed.mode, pixels, label });
     if (pixels === 0) {
       report.problems.push(
-        `${labelOf(data, { ...seed, type: 'seed' })} caught nothing — it is on a cut line, or its tolerance is 0.`,
+        `${label} caught nothing — it is on a cut line, or its tolerance is 0.`,
       );
     }
   }
@@ -431,7 +637,7 @@ export function buildMask(
       ? { width, height, alpha: feather(alpha, width, height, data.options.feather) }
       : { width, height, alpha };
 
-  if (report.inside === 0 && data.seeds.length > 0) {
+  if (report.inside === 0 && (data.seeds.length > 0 || regionsOf(data).length > 0)) {
     report.problems.push('Nothing is included. Every fill was either empty or excluded again.');
   }
   return { mask, report };
@@ -616,10 +822,12 @@ export function summariseCutout(data: CutoutFlowData, report: MaskReport | null)
   const includes = data.seeds.filter((seed) => seed.mode === 'include' && !seed.muted).length;
   const excludes = data.seeds.filter((seed) => seed.mode === 'exclude' && !seed.muted).length;
   const cuts = data.lines.filter((line) => !line.muted).length;
+  const regions = regionsOf(data).filter((region) => !region.muted).length;
   const parts = [
     `${includes} include${includes === 1 ? '' : 's'}`,
     `${excludes} exclude${excludes === 1 ? '' : 's'}`,
     `${cuts} cut${cuts === 1 ? '' : 's'}`,
+    ...(regions > 0 ? [`${regions} region${regions === 1 ? '' : 's'}`] : []),
   ];
   if (report && data.imageWidth && data.imageHeight) {
     const share = (report.inside / (data.imageWidth * data.imageHeight)) * 100;

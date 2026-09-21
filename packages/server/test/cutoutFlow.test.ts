@@ -55,7 +55,6 @@ const seed = (over: Partial<Seed> = {}): Seed => ({
 const line = (over: Partial<CutLine> = {}): CutLine => ({
   id: 'cut_a',
   points: [0, 0, 8, 8],
-  curved: false,
   width: 2,
   mode: 'block',
   ...over,
@@ -200,7 +199,7 @@ test('the notes list every object in the terms of what it does', async () => {
   await setCutout({
     ...emptyCutoutFlowData(),
     seeds: [seed(), seed({ id: 'seed_b', mode: 'exclude', x: 0, y: 1, tolerance: 30 })],
-    lines: [line(), line({ id: 'cut_b', mode: 'erase', curved: true, points: [0, 0, 4, 4, 8, 0] })],
+    lines: [line(), line({ id: 'cut_b', mode: 'erase', points: [0, 0, 4, 4, 8, 0] })],
     imageHash: sourceHash,
     imageWidth: 2,
     imageHeight: 2,

@@ -169,7 +169,7 @@ test('a filter writes the picture and a report that names the palette', async ()
   const body = await report();
   assert.match(body, new RegExp(RED));
   assert.match(body, new RegExp(BLUE));
-  assert.match(body, /Keep only palette colours/);
+  assert.match(body, /Keep only palette colors/);
   assert.match(body, /OKLab/);
 });
 
@@ -212,21 +212,21 @@ test('a tolerance and its softness are both reported when they apply', async () 
   assert.match(await report(), /Tolerance: 25 · a hard threshold/);
 });
 
-test('a colour switched off is written as switched off', async () => {
+test('a color switched off is written as switched off', async () => {
   const data = emptyPaletteFilterFlowData();
   await setFilter({ ...data, options: { ...data.options, only: [RED] }, imageHash, paletteHash });
   await generate(png());
   const body = await report();
-  assert.match(body, /Colours in play: 1 of 2/);
+  assert.match(body, /Colors in play: 1 of 2/);
   assert.match(body, new RegExp(`\`${BLUE}\` \\| switched off`));
 });
 
 /* ---------------- what it refuses ---------------- */
 
-test('a palette with no readable colours is refused rather than filtered against nothing', async () => {
+test('a palette with no readable colors is refused rather than filtered against nothing', async () => {
   await putPalette({ colors: [] });
   const run = (await generate(png())).runs[0]!;
-  assert.ok(run.warnings.some((warning) => /no colours in it/.test(warning)), run.warnings.join('; '));
+  assert.ok(run.warnings.some((warning) => /no colors in it/.test(warning)), run.warnings.join('; '));
 });
 
 test('a palette file that is not JSON is reported as that, not as an empty palette', async () => {
@@ -244,7 +244,7 @@ test('a palette file that is not JSON is reported as that, not as an empty palet
   assert.ok(run.warnings.some((warning) => /readable JSON/.test(warning)), run.warnings.join('; '));
 });
 
-test('every colour switched off is refused with its own reason', async () => {
+test('every color switched off is refused with its own reason', async () => {
   await putPalette({ colors: [{ hex: RED }, { hex: BLUE }] });
   const data = emptyPaletteFilterFlowData();
   await setFilter({ ...data, options: { ...data.options, only: ['#00ff00'] }, imageHash });

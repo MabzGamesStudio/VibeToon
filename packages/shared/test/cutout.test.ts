@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   applyMask,
+  fillOutline,
+  paintOrder,
+  regionOutline,
+  setRegion,
+  takeSeq,
   blockedBy,
   buildMask,
   deleteObject,
@@ -20,6 +25,7 @@ import {
   type Bitmap,
   type CutLine,
   type CutoutFlowData,
+  type Region,
   type Seed,
 } from '../src/flows/cutout';
 
@@ -71,7 +77,6 @@ const seed = (over: Partial<Seed> = {}): Seed => ({
 const line = (over: Partial<CutLine> = {}): CutLine => ({
   id: 'l1',
   points: [0, 0, 0, 3],
-  curved: false,
   width: 1,
   mode: 'block',
   ...over,
@@ -87,23 +92,23 @@ function inside(data: CutoutFlowData, image: Bitmap = TWO_TONE): number {
 
 /* ---------------- the fill ---------------- */
 
-test('a click includes the region of like-coloured pixels it landed in', () => {
+test('a click includes the region of like-colored pixels it landed in', () => {
   const { mask, report } = buildMask(TWO_TONE, withSeeds(seed({ x: 1, y: 1 })));
   assert.equal(report.inside, 12, 'the red square is 3x4');
-  // And only the red square: the white band is a different colour.
+  // And only the red square: the white band is a different color.
   assert.equal(mask.alpha[0], 255);
   assert.equal(mask.alpha[3], 0, 'the white band is out');
   assert.equal(mask.alpha[4], 0, 'and so is the blue');
 });
 
-test('a fill stops at a colour further away than its tolerance', () => {
+test('a fill stops at a color further away than its tolerance', () => {
   // Red to white is a long way in OKLab, so a tight tolerance holds the line.
   assert.equal(inside(withSeeds(seed({ tolerance: 5 }))), 12);
   // And a tolerance wide enough to swallow the whole image does exactly that.
   assert.equal(inside(withSeeds(seed({ tolerance: 200 }))), 28);
 });
 
-test('tolerance is measured against the seed colour, not each neighbour', () => {
+test('tolerance is measured against the seed color, not each neighbour', () => {
   // The classic magic-wand failure: on a gradient, neighbour-to-neighbour
   // comparison walks the whole image one indistinguishable step at a time.
   // A ramp from mid grey upwards, one level a pixel. Each neighbour is a
@@ -171,7 +176,7 @@ test('a muted object is kept but not applied', () => {
 
 test('a cut line stops a fill that the pixels would otherwise let through', () => {
   // The everyday case: a shadow joins an arm to the body, and a line separates
-  // them without the colours having to differ.
+  // them without the colors having to differ.
   const solid = bitmap(['RRRR', 'RRRR', 'RRRR'], { R: RED });
   const open = buildMask(solid, withSeeds(seed({ x: 0, y: 1 })));
   assert.equal(open.report.inside, 12, 'with no cut, the whole block fills');
@@ -210,7 +215,7 @@ test('an erase line clears what it covers, after every fill has run', () => {
 test('a curved line passes through every point it was given', () => {
   // A line you drew that does not go where you put it is not a tool you can aim.
   const points = [0, 0, 5, 10, 10, 0];
-  const sampled = linePoints({ ...line(), points, curved: true });
+  const sampled = linePoints({ ...line(), points });
   for (let index = 0; index + 1 < points.length; index += 2) {
     const wanted = { x: points[index]!, y: points[index + 1]! };
     assert.ok(
@@ -221,8 +226,10 @@ test('a curved line passes through every point it was given', () => {
   assert.ok(sampled.length > points.length / 2, 'and it is smoothed, not just the corners');
 });
 
-test('a straight line is its points and nothing added', () => {
-  const sampled = linePoints({ ...line(), points: [0, 0, 4, 4], curved: false });
+test('two points is a straight cut, which is why there is no straight tool', () => {
+  // A two-point spline is a straight line, so the straight variety costs nothing
+  // to remove: click twice and the cut is straight.
+  const sampled = linePoints({ ...line(), points: [0, 0, 4, 4] });
   assert.deepEqual(sampled, [
     { x: 0, y: 0 },
     { x: 4, y: 4 },
@@ -273,10 +280,10 @@ test('small islands can be dropped, and the count is reported', () => {
 
 /* ---------------- what comes out ---------------- */
 
-test('applying a mask makes everything outside transparent and touches no colour', () => {
+test('applying a mask makes everything outside transparent and touches no color', () => {
   const { mask } = buildMask(TWO_TONE, withSeeds(seed({ x: 1, y: 1 })));
   const out = applyMask(TWO_TONE, mask);
-  assert.deepEqual([out[0], out[1], out[2], out[3]], [220, 40, 40, 255], 'inside keeps its colour');
+  assert.deepEqual([out[0], out[1], out[2], out[3]], [220, 40, 40, 255], 'inside keeps its color');
   assert.equal(out[3 * 4 + 3], 0, 'outside is transparent');
   assert.deepEqual(
     [out[3 * 4], out[3 * 4 + 1], out[3 * 4 + 2]],
@@ -370,4 +377,215 @@ test('an empty cutout is empty rather than everything', () => {
   assert.equal(report.inside, 0);
   assert.ok([...mask.alpha].every((value) => value === 0));
   assert.deepEqual(report.problems, [], 'and it does not complain before you have done anything');
+});
+
+
+/* ---------------- drawn regions ---------------- */
+
+const region = (over: Partial<Region> = {}): Region => ({
+  id: 'g1',
+  // The red square: x 0..2, y 0..3.
+  points: [0, 0, 2, 0, 2, 3, 0, 3],
+  curved: false,
+  mode: 'include',
+  ...over,
+});
+
+function withRegions(...regions: Region[]): CutoutFlowData {
+  return { ...emptyCutoutFlowData(), regions };
+}
+
+test('a region takes everything inside it, whatever the pixels say', () => {
+  // The case no tolerance can answer: a subject sharing its colors with the
+  // background everywhere. Drawing round it is the honest tool.
+  //
+  // Points are corners, not pixels: the box (0,0)-(7,2) encloses the centres of
+  // the top two rows of a 7-wide image, which is 14 pixels.
+  const { report } = buildMask(TWO_TONE, withRegions(region({ points: [0, 0, 7, 0, 7, 2, 0, 2] })));
+  assert.equal(report.inside, 14, 'the whole top two rows, across all three colours');
+});
+
+test('a region can drop everything inside it instead', () => {
+  const data: CutoutFlowData = {
+    ...emptyCutoutFlowData(),
+    seeds: [seed({ id: 'a', tolerance: 200, seq: 1 })],
+    regions: [region({ id: 'g', mode: 'exclude', points: [0, 0, 7, 0, 7, 2, 0, 2], seq: 2 })],
+  };
+  assert.equal(inside(data), 28 - 14);
+});
+
+test('a region and a fill paint in the order they were drawn', () => {
+  // "The one I drew last wins" is the only rule that matches what it looks like.
+  const fillThenRegion: CutoutFlowData = {
+    ...emptyCutoutFlowData(),
+    seeds: [seed({ id: 'a', x: 1, y: 1, tolerance: 200, seq: 1 })],
+    regions: [region({ id: 'g', mode: 'exclude', points: [0, 0, 7, 0, 7, 2, 0, 2], seq: 2 })],
+  };
+  const regionThenFill: CutoutFlowData = {
+    ...fillThenRegion,
+    seeds: [seed({ id: 'a', x: 1, y: 1, tolerance: 200, seq: 3 })],
+  };
+  assert.equal(inside(fillThenRegion), 14, 'the region cut into what the fill took');
+  assert.equal(inside(regionThenFill), 28, 'and the fill put it back when it came second');
+});
+
+test('paint order is by when it was drawn, across both kinds', () => {
+  const data: CutoutFlowData = {
+    ...emptyCutoutFlowData(),
+    seeds: [seed({ id: 'late', seq: 9 }), seed({ id: 'early', seq: 1 })],
+    regions: [region({ id: 'middle', seq: 5 })],
+  };
+  assert.deepEqual(paintOrder(data).map((object) => object.id), ['early', 'middle', 'late']);
+});
+
+test('a cutout made before regions existed keeps the order it had', () => {
+  // No seq at all: the array order is the order, and nothing shifts under it.
+  const old: CutoutFlowData = {
+    ...emptyCutoutFlowData(),
+    seeds: [seed({ id: 'first' }), seed({ id: 'second' }), seed({ id: 'third' })],
+  };
+  assert.deepEqual(paintOrder(old).map((object) => object.id), ['first', 'second', 'third']);
+});
+
+test('the sequence counter never hands out a number already used', () => {
+  const data: CutoutFlowData = {
+    ...emptyCutoutFlowData(),
+    seeds: [seed({ id: 'a', seq: 7 })],
+    nextSeq: 2,
+  };
+  const { seq, data: bumped } = takeSeq(data);
+  assert.ok(seq > 7, `${seq} would paint under an object drawn before it`);
+  assert.equal(takeSeq(bumped).seq, seq + 1);
+});
+
+test('a curved region closes without a seam', () => {
+  // Smoothing an open line leaves a kink where the last point meets the first,
+  // which on a shape drawn by hand is exactly where the eye goes.
+  const square = region({ curved: true, points: [0, 0, 10, 0, 10, 10, 0, 10] });
+  const outline = regionOutline(square);
+  assert.ok(outline.length > 20, 'it is sampled, not just the corners');
+
+  const first = outline[0]!;
+  const last = outline[outline.length - 1]!;
+  const gap = Math.hypot(last.x - first.x, last.y - first.y);
+  const longest = Math.max(
+    ...outline.map((point, index) => {
+      const next = outline[(index + 1) % outline.length]!;
+      return Math.hypot(next.x - point.x, next.y - point.y);
+    }),
+  );
+  assert.ok(gap <= longest + 0.001, `the closing step (${gap}) is not longer than the rest (${longest})`);
+});
+
+test('a cornered region is exactly the points it was given', () => {
+  const square = region({ curved: false, points: [0, 0, 10, 0, 10, 10, 0, 10] });
+  assert.deepEqual(regionOutline(square), [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 10, y: 10 },
+    { x: 0, y: 10 },
+  ]);
+});
+
+test('filling an outline is even-odd, so a shape drawn over itself has a hole', () => {
+  // Falls out of the rule rather than being special-cased.
+  const ring = fillOutline(
+    [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 0, y: 10 },
+      { x: 0, y: 0 },
+      { x: 3, y: 3 },
+      { x: 3, y: 7 },
+      { x: 7, y: 7 },
+      { x: 7, y: 3 },
+      { x: 3, y: 3 },
+    ],
+    10,
+    10,
+  );
+  assert.equal(ring[5 * 10 + 5], 0, 'the middle is a hole');
+  assert.equal(ring[1 * 10 + 1], 1, 'and the ring itself is filled');
+});
+
+test('a horizontal edge does not spring a leak', () => {
+  // The vertex-on-scanline case: counted twice or not at all, a shape bleeds
+  // along every flat edge, and it looks like the fill algorithm misbehaving.
+  const box = fillOutline(
+    [
+      { x: 1, y: 1 },
+      { x: 8, y: 1 },
+      { x: 8, y: 8 },
+      { x: 1, y: 8 },
+    ],
+    10,
+    10,
+  );
+  for (let x = 0; x < 10; x += 1) {
+    assert.equal(box[0 * 10 + x], 0, `row 0 leaked at ${x}`);
+    assert.equal(box[9 * 10 + x], 0, `row 9 leaked at ${x}`);
+  }
+  assert.equal(box[4 * 10 + 4], 1, 'and the inside is filled');
+});
+
+test('a region with too few points to enclose anything is reported', () => {
+  const { report } = buildMask(TWO_TONE, withRegions(region({ points: [0, 0, 2, 2] })));
+  assert.ok(report.problems.some((problem) => /too few points/.test(problem)), report.problems.join('; '));
+});
+
+test('a region off the edge of the image is reported rather than silently empty', () => {
+  const { report } = buildMask(
+    TWO_TONE,
+    withRegions(region({ points: [50, 50, 60, 50, 60, 60, 50, 60] })),
+  );
+  assert.ok(report.problems.some((problem) => /encloses nothing/.test(problem)), report.problems.join('; '));
+});
+
+test('regions are named for what they do and counted in the summary', () => {
+  const data: CutoutFlowData = {
+    ...emptyCutoutFlowData(),
+    regions: [region({ id: 'a' }), region({ id: 'b', mode: 'exclude' }), region({ id: 'c' })],
+  };
+  const named = objectsOf(data).map((object) => labelOf(data, object));
+  assert.deepEqual(named, ['Keep inside 1', 'Drop inside 1', 'Keep inside 2']);
+  assert.match(summariseCutout(data, null), /3 regions/);
+});
+
+test('a muted region does nothing but is still there', () => {
+  const data = withRegions(region({ points: [0, 0, 7, 0, 7, 2, 0, 2], muted: true }));
+  assert.equal(inside(data), 0);
+  assert.equal(data.regions.length, 1);
+});
+
+test('a region can be edited and deleted like anything else', () => {
+  let data = withRegions(region({ id: 'g', points: [0, 0, 7, 0, 7, 2, 0, 2] }));
+  assert.equal(inside(data), 14);
+
+  data = setRegion(data, 'g', { mode: 'exclude' });
+  assert.equal(inside(data), 0, 'nothing was included for it to take from');
+
+  data = deleteObject(data, 'g');
+  assert.deepEqual(data.regions, []);
+});
+
+test('a region\u2019s points are corners, and pixels are their centres', () => {
+  // Worth pinning: the off-by-one here is the difference between a region that
+  // selects what you drew round and one a row short on every side.
+  const oneRow = fillOutline(
+    [
+      { x: 0, y: 0 },
+      { x: 4, y: 0 },
+      { x: 4, y: 1 },
+      { x: 0, y: 1 },
+    ],
+    4,
+    4,
+  );
+  assert.equal(
+    oneRow.reduce((sum: number, value) => sum + value, 0),
+    4,
+    'a box one unit tall covers one row of centres',
+  );
+  for (let x = 0; x < 4; x += 1) assert.equal(oneRow[x], 1);
 });

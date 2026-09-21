@@ -1320,7 +1320,7 @@ export const SAMPLE_MEANINGS: Record<string, WordMeaning> = {
   "red": {
     source: 'manual',
     senses: [
-      { type: 'adjective', description: "The colour of blood.", variations: { positive: "red", comparative: "redder", superlative: "reddest" } },
+      { type: 'adjective', description: "The color of blood.", variations: { positive: "red", comparative: "redder", superlative: "reddest" } },
     ],
   },
   "sweet": {

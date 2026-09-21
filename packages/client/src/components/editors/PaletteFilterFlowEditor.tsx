@@ -34,12 +34,12 @@ function toImageData(pixels: Uint8ClampedArray, width: number, height: number): 
  *
  * Three jobs in one flow, because they are the same measurement read three ways:
  * keeping what is on-palette, dropping what is, and replacing every pixel with its
- * nearest. The first two answer "where is this colour in my picture"; the third is
+ * nearest. The first two answer "where is this color in my picture"; the third is
  * what makes a photograph look drawn.
  *
  * Both inputs are read here — the image because a browser is what decodes it, the
  * palette because the file is small and reading it here is what lets you tick a
- * colour off and see the result immediately.
+ * color off and see the result immediately.
  */
 export function PaletteFilterFlowEditor({
   project,
@@ -131,7 +131,7 @@ export function PaletteFilterFlowEditor({
         if (cancelled) return;
         setPalette(read);
         setPaletteError(
-          read.hexes.length === 0 ? 'That file has no colours in it that this flow can read.' : null,
+          read.hexes.length === 0 ? 'That file has no colors in it that this flow can read.' : null,
         );
       } catch (error) {
         if (!cancelled) setPaletteError((error as Error).message);
@@ -198,7 +198,7 @@ export function PaletteFilterFlowEditor({
     : !imageArtifact
       ? `Press Generate on ${imageInput.sourceNode.name} first — it has no image yet.`
       : !paletteInput
-        ? 'Wire a Colour Palette flow into the Palette input.'
+        ? 'Wire a Color Palette flow into the Palette input.'
         : !paletteArtifact
           ? `Press Generate on ${paletteInput.sourceNode.name} first — it has no palette yet.`
           : paletteError;
@@ -258,7 +258,7 @@ export function PaletteFilterFlowEditor({
           <div className="vt-section">
             <h3>Closeness</h3>
             <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
-              Snapping has no threshold to set: every pixel has a nearest palette colour and gets it. Nothing
+              Snapping has no threshold to set: every pixel has a nearest palette color and gets it. Nothing
               is made transparent, so a cutout wired in keeps its shape.
             </p>
           </div>
@@ -300,7 +300,7 @@ export function PaletteFilterFlowEditor({
 
         <div className="vt-section">
           <h3>
-            Colours in play ({active.hexes.length} of {palette.hexes.length})
+            Colors in play ({active.hexes.length} of {palette.hexes.length})
           </h3>
           {palette.hexes.length === 0 ? (
             <div className="vt-empty">No palette read yet.</div>
@@ -404,7 +404,7 @@ export function PaletteFilterFlowEditor({
                     ))}
                 </div>
                 <p className="vt-faint" style={{ fontSize: 11, marginTop: 6 }}>
-                  Each band is one palette colour, as wide as the share of the picture that landed on it.
+                  Each band is one palette color, as wide as the share of the picture that landed on it.
                 </p>
               </div>
             ) : null}

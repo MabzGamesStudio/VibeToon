@@ -187,7 +187,7 @@ function normaliseKey(key: string): string {
 /**
  * `#` starts a comment at the beginning of a line, or mid-line when it is
  * followed by a space. That keeps `palette: #ff8800` intact, which matters
- * because colour values show up in style rules all the time.
+ * because color values show up in style rules all the time.
  */
 function stripComment(rawLine: string): string {
   const trimmed = rawLine.trim();

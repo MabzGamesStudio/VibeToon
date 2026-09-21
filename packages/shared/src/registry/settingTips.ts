@@ -468,7 +468,7 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
   },
 
   /* ---------------------------------------------------------------- *
-   * Colour palette
+   * Color palette
    * ---------------------------------------------------------------- */
   /* Image source ---------------------------------------------------- */
 
@@ -501,10 +501,18 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
   'cutout.tolerance': {
     what: 'How different a neighbouring pixel may be from the one you clicked and still count as the same region. Measured in OKLab, times 100.',
     examples: [
-      '0 to 5 — flat artwork, where a region really is one colour.',
-      '10 to 20 — a photograph, where an edge is blended and a surface is not one colour.',
+      '0 to 5 — flat artwork, where a region really is one color.',
+      '10 to 20 — a photograph, where an edge is blended and a surface is not one color.',
       '40 and up — takes in most of the picture; usually a sign a cut line would work better.',
       'Each fill keeps the tolerance it was made with, so this is only the value the next one starts at.',
+    ],
+  },
+  'cutout.region': {
+    what: 'A shape you draw round something, which takes everything inside it regardless of what the pixels are.',
+    examples: [
+      'For a subject no tolerance can separate — a face against a busy background shares its colors with it everywhere.',
+      'Finish with a double-click or Enter to keep the inside; right-click to drop it instead.',
+      'Smoothed follows a curve through your points; cornered joins them straight, for something with edges.',
     ],
   },
   'cutout.diagonal': {
@@ -519,13 +527,13 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     examples: [
       '+1 to +2 — takes back the blended halo a fill on a photograph stops short of.',
       '-1 to -2 — trims a fringe of background off a selection that went slightly wide.',
-      '0 — flat artwork, where the edge is exactly where the colour changes.',
+      '0 — flat artwork, where the edge is exactly where the color changes.',
     ],
   },
   'cutout.feather': {
     what: 'Blur the edge of the selection by this many pixels, so the cutout fades out rather than ending.',
     examples: [
-      '0 — a hard edge. Right for sprites, cel artwork, and anything going to indexed colour.',
+      '0 — a hard edge. Right for sprites, cel artwork, and anything going to indexed color.',
       '1 to 3 — enough that a cutout composited over a new background does not look cut out.',
       '8 and up — a soft vignette rather than an edge.',
     ],
@@ -544,16 +552,16 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
   'paletteFilter.mode': {
     what: 'What the filter does with a pixel once it knows how close that pixel is to the palette.',
     examples: [
-      'Keep — pixels near a palette colour stay, the rest go transparent. For finding where a colour is used.',
-      'Remove — the other way round. For dropping a background whose colour you sampled into the palette.',
-      'Snap — nothing goes transparent; every pixel becomes its nearest palette colour. This is the one that makes a photograph look drawn.',
+      'Keep — pixels near a palette color stay, the rest go transparent. For finding where a color is used.',
+      'Remove — the other way round. For dropping a background whose color you sampled into the palette.',
+      'Snap — nothing goes transparent; every pixel becomes its nearest palette color. This is the one that makes a photograph look drawn.',
     ],
   },
   'paletteFilter.tolerance': {
-    what: 'How close a pixel has to be to a palette colour to count as that colour. Same OKLab scale the palette’s own minimum distance uses.',
+    what: 'How close a pixel has to be to a palette color to count as that color. Same OKLab scale the palette’s own minimum distance uses.',
     examples: [
-      'under 2 — only pixels that are essentially that exact colour.',
-      '15 to 25 — the useful range on artwork: takes in shading without taking in the neighbouring colour.',
+      'under 2 — only pixels that are essentially that exact color.',
+      '15 to 25 — the useful range on artwork: takes in shading without taking in the neighbouring color.',
       'Snap ignores this: every pixel has a nearest, so there is no threshold to set.',
     ],
   },
@@ -566,8 +574,52 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     ],
   },
 
+  /* Polygon decomposition ------------------------------------------- */
+
+  'vectorize.lineWidth': {
+    what: 'The widest a stroke can be and still be treated as a drawn line rather than an area.',
+    examples: [
+      'This is the setting that decides what the picture is. Below it a thin shape is a mark with a middle; above it the same shape is a long thin area with an inside.',
+      '2 to 4 — clean line art drawn with a thin pen.',
+      '8 and up — a brushy drawing, or a scan where the ink has spread.',
+      'There is no right answer in general: it depends how the picture was drawn, so turn it and watch the result.',
+    ],
+  },
+  'vectorize.tolerance': {
+    what: 'How different two neighbouring pixels may be and still count as the same color, in the OKLab-times-100 scale.',
+    examples: [
+      '0 to 4 — flat artwork where a region really is one color.',
+      '8 to 15 — a drawing with slight shading, or one that has been through a JPEG.',
+      'Too high and separate shapes merge; too low and one shape becomes hundreds.',
+    ],
+  },
+  'vectorize.minArea': {
+    what: 'Regions smaller than this many pixels are dropped as noise.',
+    examples: [
+      '0 — keep everything, including single-pixel specks.',
+      '10 to 50 — clears the speckle along a compressed edge.',
+      'Raise it when the shape count is in the thousands.',
+    ],
+  },
+  'vectorize.simplify': {
+    what: 'How far a traced outline may be moved in order to drop a point.',
+    examples: [
+      '0 — every pixel step becomes an anchor, which is far more than a shape needs.',
+      '1 to 2 — the useful range: follows the drawing without recording its jaggies.',
+      '4 and up — a loose shape with very few points.',
+    ],
+  },
+  'vectorize.curveThreshold': {
+    what: 'How bent a run has to be, relative to its length, before it is called a curve rather than a straight line.',
+    examples: [
+      'Relative on purpose: a 2px bow across 10px is a curve, and the same bow across 400px is a straight line someone drew by hand.',
+      '4% — the default, and about right for drawn artwork.',
+      '0% — everything curves. 30% — almost nothing does.',
+    ],
+  },
+
   'palette.count': {
-    what: 'How many colours the palette has.',
+    what: 'How many colors the palette has.',
     examples: [
       '3 to 5 — a scheme you could paint a whole shot with.',
       '8 to 12 — enough to describe a photograph.',
@@ -575,33 +627,33 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     ],
   },
   'palette.minDistance': {
-    what: 'How far apart two palette colours must look. Anything closer joins the group of the colour already chosen instead of becoming an entry of its own.',
+    what: 'How far apart two palette colors must look. Anything closer joins the group of the color already chosen instead of becoming an entry of its own.',
     examples: [
       '0 — the raw top counts. A photo of a sky gives you five near-identical blues.',
       '2 — the point at which a person can see a difference at all.',
       '12 — the default. Navy against royal blue is about 20.',
-      '35 — only genuinely different colours, so a palette of six needs a busy picture.',
+      '35 — only genuinely different colors, so a palette of six needs a busy picture.',
     ],
     note: 'Measured in OKLab, where equal numbers look equally different, times 100 so black to white is about 100. Plain RGB cannot do this: it puts navy/blue and green/mint the same distance apart.',
   },
   'palette.temperature': {
-    what: 'How far each entry may wander from its group\u2019s commonest colour.',
+    what: 'How far each entry may wander from its group\u2019s commonest color.',
     examples: [
-      '0 — every entry is the exact modal colour of its group.',
-      '0.5 — halfway towards another colour from the same group.',
-      '1 — any colour from the group, weighted by how often it appears.',
+      '0 — every entry is the exact modal color of its group.',
+      '0.5 — halfway towards another color from the same group.',
+      '1 — any color from the group, weighted by how often it appears.',
     ],
-    note: 'It moves towards another member of the same group and never out of it, so a palette colour is always a colour the image actually contains.',
+    note: 'It moves towards another member of the same group and never out of it, so a palette color is always a color the image actually contains.',
   },
   'palette.seed': {
     what: 'Same seed, same palette. Rerolling is an edit you can see rather than a result that changes under you.',
     examples: ['Only does anything above temperature 0 \u2014 at 0 there is nothing to choose.'],
   },
   'palette.precision': {
-    what: 'How finely colours are rounded together before they are counted.',
+    what: 'How finely colors are rounded together before they are counted.',
     examples: [
       '5 bits \u2014 32 levels a channel. The default.',
-      '8 bits \u2014 no rounding, so a photograph has almost no repeated colours and the mode means nothing.',
+      '8 bits \u2014 no rounding, so a photograph has almost no repeated colors and the mode means nothing.',
       '3 bits \u2014 very coarse, for finding the broad blocks of a painting.',
     ],
     note: 'Without rounding, a photograph of a red wall holds a hundred thousand slightly different reds seen once each. Read the image again for a change here to take effect.',
@@ -610,18 +662,18 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     what: 'Pixels this transparent are not counted.',
     examples: [
       '8 \u2014 the default. Skips a cut-out background.',
-      '0 \u2014 counts every pixel, so a transparent PNG\u2019s commonest colour is the hole in the middle.',
+      '0 \u2014 counts every pixel, so a transparent PNG\u2019s commonest color is the hole in the middle.',
       '255 \u2014 only fully opaque pixels.',
     ],
   },
   'palette.minShare': {
-    what: 'Leaves out a colour group that accounts for less than this much of the image.',
+    what: 'Leaves out a color group that accounts for less than this much of the image.',
     examples: ['0% \u2014 keep everything.', '2% \u2014 drops the odd stray highlight.'],
     note: 'The commonest group is always kept, so the palette is never empty.',
   },
   'palette.pinned': {
-    what: 'A colour you chose by hand, used as it is whatever the settings do.',
-    examples: ['For a brand colour, or when the count found something almost right.'],
+    what: 'A color you chose by hand, used as it is whatever the settings do.',
+    examples: ['For a brand color, or when the count found something almost right.'],
     note: 'Pinned by position, so it survives changing the count or the distance. Clear it to go back to what was counted.',
   },
 

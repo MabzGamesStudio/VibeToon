@@ -69,6 +69,7 @@ export async function generateCutout(ctx: GenerationContext): Promise<Generation
   const includes = data.seeds.filter((seed) => seed.mode === 'include' && !seed.muted);
   const excludes = data.seeds.filter((seed) => seed.mode === 'exclude' && !seed.muted);
   const cuts = data.lines.filter((line) => !line.muted);
+  const regions = (data.regions ?? []).filter((region) => !region.muted);
 
   const lines = [
     `# ${ctx.node.name} — cutout`,
@@ -80,6 +81,7 @@ export async function generateCutout(ctx: GenerationContext): Promise<Generation
     `- Included regions: ${includes.length}`,
     `- Excluded regions: ${excludes.length}`,
     `- Cut lines: ${cuts.length}`,
+    ...(regions.length > 0 ? [`- Drawn regions: ${regions.length}`] : []),
     `- Edge: grow ${data.options.grow}px, feather ${data.options.feather}px`,
     `- Neighbours: ${data.options.diagonal ? 'including diagonals' : 'four-way'}`,
     ...(data.options.minIsland > 0 ? [`- Islands under ${data.options.minIsland}px dropped`] : []),
@@ -96,10 +98,17 @@ export async function generateCutout(ctx: GenerationContext): Promise<Generation
         } | ${Math.round(object.x)}, ${Math.round(object.y)} | ${object.tolerance} |`;
       }
       const points = object.points.length / 2;
+      if (object.type === 'region') {
+        return `| ${name} | ${
+          object.mode === 'include' ? 'keeps everything inside it' : 'drops everything inside it'
+        }${object.muted ? ' *(off)*' : ''} | ${points} point${points === 1 ? '' : 's'}, ${
+          object.curved ? 'smoothed' : 'cornered'
+        } | — |`;
+      }
       return `| ${name} | ${
         object.mode === 'erase' ? 'clears what it covers' : 'blocks a fill from crossing'
       }${object.muted ? ' *(off)*' : ''} | ${points} point${points === 1 ? '' : 's'}, ${
-        object.curved ? 'curved' : 'straight'
+        points === 2 ? 'straight' : 'curved'
       } | ${object.width}px wide |`;
     }),
     '',
@@ -111,7 +120,12 @@ export async function generateCutout(ctx: GenerationContext): Promise<Generation
     'indistinguishable step at a time. A right click does the same and takes the',
     'region back out. A cut line is a barrier a fill cannot cross, which is what',
     'separates two regions the pixels think are the same: the shadow joining an arm',
-    'to a body is the everyday case.',
+    'to a body is the everyday case. Two points make it straight and more make it a',
+    'curve, so there is no straight-or-curved to decide before drawing one.',
+    '',
+    'A drawn region ignores the pixels entirely and takes — or drops — everything',
+    'inside its outline. That is the tool for a subject no tolerance can separate',
+    'from its background, where every fill catches some of both.',
     '',
     'Distance is measured in OKLab, times 100 — under about 2 is a difference you',
     'cannot see, 20 is navy against royal blue.',

@@ -24,7 +24,7 @@ keep: the pause before the last line
   verbatim as **guidance**. Nothing you write is ever silently dropped; unknown
   keys are flagged in the editor rather than discarded.
 - `#` starts a comment at the start of a line, or mid-line when followed by a
-  space. `palette: #ff8800` keeps its colour.
+  space. `palette: #ff8800` keeps its color.
 - Keys are case- and space-insensitive (`Shot   For   Line` = `shot for line`),
   and the last line wins if a key is repeated — except `carry` and `ignore`,
   which accumulate.
