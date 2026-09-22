@@ -57,8 +57,19 @@ export function posedBones(rig: RigFlowData, pose: Pose): Map<string, PosedBone>
     for (const child of byParent.get(bone.id) ?? []) walk(child, to, angle);
   };
 
+  /*
+   * From where the rig actually stands, not from the origin.
+   *
+   * A rig laid over a drawing has been moved there — `origin` is where its root
+   * sits — and `restPose` has always read it. This did not, so posing a bound rig
+   * moved the whole drawing by that offset before a single joint had been turned:
+   * an empty pose, which should change nothing at all, threw the picture off the
+   * top-left corner. The two have to walk from the same place or nothing they say
+   * about each other means anything.
+   */
+  const start = rig.origin ?? { x: 0, y: 0 };
   for (const root of rig.bones.filter((bone) => !bone.parent || !boneById(rig, bone.parent))) {
-    walk(root, { x: 0, y: 0 }, 0);
+    walk(root, start, 0);
   }
   return out;
 }

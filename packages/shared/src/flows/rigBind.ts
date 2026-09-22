@@ -16,6 +16,28 @@ import { containsPoint, emptyVectorImage, type VectorImage, type VectorPoint, ty
  * to cut the shape in the vector editor and bind the halves separately.
  */
 
+/**
+ * Where a thing sits and how big it is drawn.
+ *
+ * The drawing and the skeleton arrive in different spaces and neither is right.
+ * Fitting the rig to the picture gets them roughly on top of each other, and
+ * roughly is where the useful work starts: a skeleton has to be lined up with
+ * the shoulders and hips of *this* drawing, and no automatic fit knows where
+ * those are. So each is placed by hand, and independently — moving the drawing
+ * under a skeleton you have already positioned is a different thing from moving
+ * the skeleton over a drawing you have already framed, and wanting one is not
+ * wanting the other.
+ */
+export interface Placement {
+  /** Where the thing's own origin lands, in the picture's pixels. */
+  x: number;
+  y: number;
+  /** How much bigger it is drawn than it is. */
+  scale: number;
+}
+
+export const AS_IS: Placement = { x: 0, y: 0, scale: 1 };
+
 export interface BindFlowData {
   editor: 'bind';
   /** The skeleton, taken in from upstream and editable here. */
@@ -28,6 +50,10 @@ export interface BindFlowData {
   selected: string[];
   /** The bone being assigned to. */
   boneId: string | null;
+  /** Where the drawing sits under the skeleton. */
+  placement: Placement;
+  /** Hide shapes another bone has already claimed, rather than fading them. */
+  hideOthers: boolean;
   rigHash?: string;
   vectorHash?: string;
   edits: number;
@@ -41,12 +67,166 @@ export function emptyBindFlowData(): BindFlowData {
     binding: {},
     selected: [],
     boneId: null,
+    placement: { ...AS_IS },
+    hideOthers: false,
     edits: 0,
   };
 }
 
+/** The drawing as taken in, before it was placed. */
 export function imageOfBinding(data: BindFlowData): VectorImage {
   return data.image ?? emptyVectorImage();
+}
+
+/**
+ * The drawing where it has been put.
+ *
+ * Kept as a transform of the original rather than written into the shapes,
+ * because a placement is a thing you adjust: baking each nudge into the points
+ * would round them a little every time, and after an afternoon of lining a
+ * skeleton up the drawing would have quietly drifted.
+ */
+export function placedImage(data: BindFlowData): VectorImage {
+  const image = imageOfBinding(data);
+  const place = data.placement ?? AS_IS;
+  if (place.x === 0 && place.y === 0 && place.scale === 1) return image;
+
+  const shapes = image.shapes.map((shape) => ({
+    ...shape,
+    points: shape.points.map((point) => ({
+      x: point.x * place.scale + place.x,
+      y: point.y * place.scale + place.y,
+    })),
+    // A stroke's width is a width, so it scales with everything else.
+    ...(shape.kind === 'line' ? { width: shape.width * place.scale } : {}),
+  })) as VectorShape[];
+
+  /*
+   * The frame grows to hold what was put in it.
+   *
+   * Zooming a drawing up to meet a big skeleton pushes it past the edge of the
+   * picture it came from, and a frame left at the old size clips it everywhere
+   * downstream — the pose flow would show three quarters of a character and no
+   * reason why. Growing rather than re-centring, because re-centring would move
+   * the drawing out from under the skeleton it was just lined up with.
+   */
+  let right = image.width;
+  let bottom = image.height;
+  for (const shape of shapes) {
+    for (const point of shape.points) {
+      if (point.x > right) right = point.x;
+      if (point.y > bottom) bottom = point.y;
+    }
+  }
+  return { width: Math.ceil(right), height: Math.ceil(bottom), shapes };
+}
+
+/** A point in the picture, read back into the drawing's own coordinates. */
+export function intoDrawing(data: BindFlowData, point: VectorPoint): VectorPoint {
+  const place = data.placement ?? AS_IS;
+  const scale = place.scale === 0 ? 1 : place.scale;
+  return { x: (point.x - place.x) / scale, y: (point.y - place.y) / scale };
+}
+
+/* ------------------------------------------------------------------ *
+ * Placing the two of them
+ * ------------------------------------------------------------------ */
+
+export function moveImage(data: BindFlowData, by: VectorPoint): BindFlowData {
+  const place = data.placement ?? AS_IS;
+  return {
+    ...data,
+    placement: { ...place, x: place.x + by.x, y: place.y + by.y },
+    edits: data.edits + 1,
+  };
+}
+
+/** Zoom the drawing about a point, so what is under the pointer stays under it. */
+export function zoomImage(data: BindFlowData, by: number, about: VectorPoint): BindFlowData {
+  const place = data.placement ?? AS_IS;
+  const scale = Math.max(0.05, Math.min(40, place.scale * by));
+  const step = scale / place.scale;
+  return {
+    ...data,
+    placement: {
+      scale,
+      x: about.x - (about.x - place.x) * step,
+      y: about.y - (about.y - place.y) * step,
+    },
+    edits: data.edits + 1,
+  };
+}
+
+export function moveRig(data: BindFlowData, by: VectorPoint): BindFlowData {
+  if (!data.rig) return data;
+  const origin = data.rig.origin ?? { x: 0, y: 0 };
+  return {
+    ...data,
+    rig: { ...data.rig, origin: { x: origin.x + by.x, y: origin.y + by.y } },
+    edits: data.edits + 1,
+  };
+}
+
+/**
+ * Zoom the whole skeleton about a point.
+ *
+ * Every bone's offset is scaled, which is what makes the rig bigger rather than
+ * making one bone longer — the proportions are the rig's own and are not
+ * touched. The origin moves so the point you zoomed about stays where it was.
+ */
+export function zoomRig(data: BindFlowData, by: number, about: VectorPoint): BindFlowData {
+  if (!data.rig) return data;
+  const origin = data.rig.origin ?? { x: 0, y: 0 };
+  const step = Math.max(0.05, Math.min(40, by));
+  return {
+    ...data,
+    rig: {
+      ...data.rig,
+      bones: data.rig.bones.map((bone) => ({
+        ...bone,
+        offset: { x: bone.offset.x * step, y: bone.offset.y * step },
+      })),
+      origin: {
+        x: about.x - (about.x - origin.x) * step,
+        y: about.y - (about.y - origin.y) * step,
+      },
+    },
+    edits: data.edits + 1,
+  };
+}
+
+/**
+ * Put a joint somewhere.
+ *
+ * A bone is stored as a step from where its parent ends, so moving its far end
+ * is a matter of working out the step that lands it there. Everything hanging
+ * off it comes along, which is what a joint is: pulling a wrist takes the hand
+ * with it and leaves the elbow alone.
+ *
+ * Dragging a *root's* near end has nothing above it to step from, so it moves
+ * the whole skeleton instead — which is the only thing it could sensibly mean.
+ */
+export function moveJoint(data: BindFlowData, boneId: string, to: VectorPoint): BindFlowData {
+  if (!data.rig) return data;
+  const bone = boneById(data.rig, boneId);
+  if (!bone) return data;
+
+  const pose = restPose(data.rig);
+  const start = pose.get(boneId)?.from;
+  if (!start) return data;
+
+  return {
+    ...data,
+    rig: {
+      ...data.rig,
+      bones: data.rig.bones.map((candidate) =>
+        candidate.id === boneId
+          ? { ...candidate, offset: { x: to.x - start.x, y: to.y - start.y } }
+          : candidate,
+      ),
+    },
+    edits: data.edits + 1,
+  };
 }
 
 /** Is what is held still describing what is wired in? */
@@ -282,7 +462,10 @@ export interface BoundRig {
 
 export function boundRigOf(data: BindFlowData): BoundRig | null {
   if (!data.rig || !data.image) return null;
-  return { rig: data.rig, image: data.image, binding: data.binding };
+  // The drawing goes out where it was put, so everything downstream sees the
+  // picture that was lined up with the skeleton rather than the one that
+  // arrived.
+  return { rig: data.rig, image: placedImage(data), binding: data.binding };
 }
 
 /** Read one back, dropping anything that does not refer to something real. */
