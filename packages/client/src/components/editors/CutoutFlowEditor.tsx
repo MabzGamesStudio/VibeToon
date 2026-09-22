@@ -658,6 +658,7 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
 
       <div className="vt-editor-main">
         <Stage
+          zoomable
           title="The image"
           tools={
             <>

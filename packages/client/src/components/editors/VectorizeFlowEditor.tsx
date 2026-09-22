@@ -17,7 +17,6 @@ import {
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
-import { Field } from '../common/Field';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
@@ -218,41 +217,40 @@ export function VectorizeFlowEditor({
         </div>
 
         <div className="vt-section">
-          <h3>How shapes are fitted</h3>
-          <Field label="Method" tip="vectorize.refine">
-            <label className="vt-row" style={{ gap: 6 }}>
-              <input
-                type="checkbox"
-                checked={data.options.refine}
-                onChange={(event) =>
-                  patch({ options: { ...data.options, refine: event.target.checked } })
-                }
-              />
-              Spend longer for a closer fit
-            </label>
-          </Field>
-          {data.options.refine ? (
+          <h3>Where to spend the effort</h3>
+          <Slider
+            label="Rounds of refinement"
+            value={data.options.refineRounds}
+            min={0}
+            max={4}
+            step={1}
+            tip="vectorize.refineRounds"
+            format={(value) => (value === 0 ? 'none — one pass' : `${value} round${value === 1 ? '' : 's'}`)}
+            hint="Each round draws the result, measures it against the picture, and tightens only the boundaries running through the worst parts."
+            onChange={(refineRounds) => patch({ options: { ...data.options, refineRounds } })}
+          />
+          {data.options.refineRounds > 0 ? (
             <>
               <Slider
-                label="What an anchor is worth"
-                value={data.options.pointCost}
-                min={0}
-                max={40}
-                step={1}
-                tip="vectorize.pointCost"
-                format={(value) => (value === 0 ? 'nothing — trace exactly' : `${value} pixels`)}
-                hint="An anchor earns its place by covering this many pixels no cheaper shape would."
-                onChange={(pointCost) => patch({ options: { ...data.options, pointCost } })}
+                label="Measured over blocks of"
+                value={data.options.hotspotBlock}
+                min={4}
+                max={64}
+                step={4}
+                tip="vectorize.hotspotBlock"
+                format={(value) => `${value} × ${value} px`}
+                hint="How big a mistake has to be to count as one."
+                onChange={(hotspotBlock) => patch({ options: { ...data.options, hotspotBlock } })}
               />
               <Slider
-                label="What a polygon is worth"
-                value={data.options.polygonCost}
-                min={0}
-                max={200}
-                step={5}
-                tip="vectorize.polygonCost"
-                format={(value) => `${value} pixels`}
-                onChange={(polygonCost) => patch({ options: { ...data.options, polygonCost } })}
+                label="Worst blocks to work on"
+                value={data.options.hotspotShare}
+                min={0.05}
+                max={1}
+                step={0.05}
+                tip="vectorize.hotspotShare"
+                format={(value) => `${(value * 100).toFixed(0)}% of them`}
+                onChange={(hotspotShare) => patch({ options: { ...data.options, hotspotShare } })}
               />
             </>
           ) : null}
@@ -340,6 +338,7 @@ export function VectorizeFlowEditor({
 
       <div className="vt-editor-main">
         <Stage
+          zoomable
           title="The shapes"
           tools={
             <>
@@ -381,6 +380,12 @@ export function VectorizeFlowEditor({
                         key={shape.id}
                         d={shapePath(shape)}
                         fill={shape.color}
+                        // The areas tile the picture exactly, but a renderer
+                        // antialiases each on its own — so without a hairline of
+                        // its own color, every boundary shows the background
+                        // through it.
+                        stroke={shape.color}
+                        strokeWidth={0.5}
                         className={`vt-vector-shape${hover === shape.id ? ' is-hover' : ''}`}
                         onMouseEnter={() => setHover(shape.id)}
                         onMouseLeave={() => setHover(null)}

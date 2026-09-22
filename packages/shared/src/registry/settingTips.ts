@@ -618,27 +618,29 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'Off — the rig will reach anything within its length, through poses a body could not hold. Useful for finding out whether the limits or the length is what is stopping you.',
     ],
   },
-  'vectorize.refine': {
-    what: 'Spend longer for a closer fit, once the shapes have been found.',
+  'vectorize.refineRounds': {
+    what: 'How many rounds of “draw it, see what is wrong, and do that part better”.',
     examples: [
-      'Off — the fast path, and the one to work in: find the boundaries, fill between them, trace, simplify. A drawing comes back in a moment.',
-      'On — every candidate is also drawn and compared with the pixels it stands for, anchors that are not paying for themselves are dropped, and a stroke’s width is searched against the ink. Several times slower.',
-      'Turn it on for the version you are keeping, not for the twenty you throw away first.',
+      'Each round rasterises the shapes, measures them against the picture they came from, and grants more anchors to the boundaries running through the parts that came out worst. Everywhere else is left alone, which is what makes it affordable.',
+      '0 — one pass and done. Quickest, and usually close.',
+      '1 to 2 — the useful range. A round that comes back worse is thrown away, so more rounds never make the drawing worse, only slower.',
+      'Painting over a transparent part of the picture counts for sixteen ordinary wrong pixels, so a boundary that has spilled into the empty space is the first thing a round pulls back.',
     ],
   },
-  'vectorize.pointCost': {
-    what: 'What one anchor is worth, measured in wrong pixels.',
+  'vectorize.hotspotBlock': {
+    what: 'How big a square the error is averaged over when looking for the worst parts.',
     examples: [
-      'This is the exchange rate between accuracy and tidiness: at 6, an anchor has to cover six pixels no cheaper shape would in order to earn its place.',
-      '0 — accuracy at any price. The fit will trace every pixel exactly.',
-      '20 and up — far fewer anchors, and a looser shape.',
+      'The measure is an average, so this is really asking how big a mistake has to be before it counts as one.',
+      '8 to 16 — notices a single misplaced corner.',
+      '32 and up — only notices a whole shape in the wrong place.',
     ],
   },
-  'vectorize.polygonCost': {
-    what: 'What one polygon is worth, on top of its anchors.',
+  'vectorize.hotspotShare': {
+    what: 'At most this fraction of the picture’s blocks are worked on in a round.',
     examples: [
-      'Higher means a concave area is more likely to be approximated by one convex piece than cut into several accurate ones.',
-      '40 — the default, which keeps an L-shape as two pieces rather than six.',
+      'A block also has to be twice as wrong as the picture’s own average to qualify, so on a drawing that is already good this is almost nowhere however high it is set.',
+      '10% to 30% — the useful range.',
+      'Higher spends anchors over more of the drawing for less each; lower concentrates them on the one thing that is worst.',
     ],
   },
   'vectorize.minArea': {

@@ -52,10 +52,10 @@ The other settings are about where the boundaries are and how heavy the result i
 | Contrast that counts | How steeply the picture must change to be a boundary, in the OKLab-times-100 scale. |
 | …and to keep one going | The weaker threshold, which keeps a boundary unbroken where it softens. |
 | Drop regions under | The noise floor, in pixels. Smaller regions are folded into a neighbour. |
-| Simplify to within | How far an outline may move to lose a point. The main control over how heavy the result is. |
+| Simplify to within | How far a boundary may move to lose a point. The main control over how heavy the result is. |
 | At most, per shape | A hard point budget, for when a tolerance alone will not promise one. |
 | Curved if bent by | How bent a run must be, relative to its length, to be a curve. |
-| Spend longer for a closer fit | Off by default. See *fitting to the pixels* below. |
+| Rounds of refinement | How many times to measure the result and do the worst part better. See below. |
 
 ## Boundaries first, and the fill between them
 
@@ -108,7 +108,97 @@ looks like, so without a final pass for the leftovers it belongs to nothing and
 silently disappears. A two-pixel sliver, and the black ring above, are both
 exactly that.
 
-## Fitting to the pixels, when you ask for it
+## The shapes fit together
+
+The areas are a **partition** of the picture. Every pixel that is drawn belongs to
+exactly one of them, and no pixel belongs to two.
+
+That is not tidiness. Shapes that overlap only look right because they are painted
+in an order that hides the seams under each other, and everything downstream pays
+for it: a rig cannot bind to a shape whose extent depends on what is painted after
+it, an editor cannot cut one without leaving a hole, and a pose that moves one
+shape and not its neighbour tears the drawing open.
+
+### One boundary, traced once
+
+It holds because **every boundary in the picture is traced and simplified once**,
+and used by the shapes either side of it in opposite directions. They cannot
+overlap, because the shared edge is literally the same list of numbers; they
+cannot gap, for the same reason; and the drawing costs fewer points than before,
+because a boundary that used to be simplified twice is now paid for once.
+
+The picture's boundaries are cut into **arcs**, each running from one junction —
+where three or more regions meet — to the next. A junction is the one thing
+simplifying may never move: pull one and the three shapes meeting there come
+apart.
+
+### A hole is a hole
+
+A shape with nothing in the middle of it has nothing in the middle of it.
+
+Tracing an outline gives the boundary round the outside, and filling that gives a
+disc. For a black ring round a face that was *almost* right — the face is painted
+over the middle afterwards and only the rim shows — and for a ring with
+transparency in the middle it was plainly wrong: a washer came out as a coin. Now
+each hole is cut out with a **bridge**, a slit from the hole to the outside walked
+down one side and back up the other, so the ring stays one closed loop with a
+genuinely empty middle.
+
+### Nothing is drawn where the picture is not
+
+Painting over a transparent part of the picture is weighted at **sixteen ordinary
+wrong pixels**. A plain one-for-one count does not say it loudly enough: a boundary
+spilling into the empty half of a picture is worth the same as a pixel a shade off,
+and it is spread thin along a boundary, so it vanishes into a block average. Counted
+properly, it is the first thing a round of refinement pulls back.
+
+### A piece thinner than a stroke is a stroke — if it covers the same ink
+
+A sliver of polygon is a mark with a width pretending to be an area: three or more
+anchors to say what two and a width say better, and miserable to grab hold of.
+Measured across its narrowest direction, which for a triangle is its shortest
+altitude.
+
+But a sliver is also what a convex cut leaves along any curve, and *that* kind has
+to stay a polygon — it is part of the partition, and a stroke is not, so swapping
+one in opens a seam down both of its long sides. On a finely traced boundary there
+are dozens: measured, it took a drawing from 825 wrong pixels to 1034. So the swap
+is measured rather than assumed. A real thin limb is covered better by a stroke
+than by the splinters it was cut into; a splinter of a curve is not, and keeps its
+place.
+
+## Rounds of refinement: measure, then fix the worst part
+
+Rasterise what has been drawn, take the difference from the picture it came from,
+and average that over a grid of blocks. A block's average is the honest measure of
+"how bad is it around here" — one wrong pixel is noise, a whole block wrong is a
+shape in the wrong place — and the worst blocks are where more anchors buy
+something. Everywhere else keeps the loose tolerance, which is the whole reason it
+is affordable.
+
+Three things had to be right for that to work at all, and each was wrong first:
+
+- **Both the tolerance and the budget.** Either alone does nothing. A tolerance
+  cannot buy detail the budget will not pay for, and a bigger budget buys nothing
+  while the tolerance says there is nothing worth keeping. Granting one and not
+  the other came back with the identical drawing.
+- **Point by point, not boundary by boundary.** An arc runs from junction to
+  junction and can be the whole outline of a head. Tightening the arc spends
+  anchors along every part of it that was already exact, blows the budget, and the
+  budget loosens the lot back again — so asking for a closer fit produced a *worse*
+  drawing.
+- **The smallest tolerance that fits the budget, found by bisection.** Doubling
+  until it fits overshoots, and a boundary needing twenty-one points at 0.45 lands
+  at 4.7 while the boundary beside it stays sharp. Measured, asking for more points
+  came back with more error than asking for fewer — which is not a thing a setting
+  should ever do.
+
+A round is kept only if it is actually better, so more rounds never make a drawing
+worse, only slower. A block also has to be **twice as wrong as the picture's own
+average** to count, or a drawing that is already good has a fifth of itself marked
+as a hotspot and the next round spends anchors all over it for nothing.
+
+## The fit this replaced
 
 Simplifying a traced outline by a tolerance asks a slightly wrong question. "Is
 this anchor within 1.2px of the traced path" says nothing about whether the shape
@@ -131,19 +221,12 @@ loose shapes.
 On a test drawing, the same picture comes out at 1.6% of pixels wrong with 65
 anchors, 1.9% with 55, or 2.2% with 53, as those prices move.
 
-**This is off by default**, under *spend longer for a closer fit*, because asking
-it hundreds of times a shape was most of what the flow spent its time on. On a
-640,000-pixel drawing:
-
-| | Time | Polygons | Points | Pixels wrong |
-| --- | --- | --- | --- | --- |
-| Tolerance, before | 4.0s | 124 | 600 | 31.0% |
-| Fitted, before | 22.7s | 21 | 234 | 1.7% |
-| **Boundaries first** | **2.2s** | **22** | **216** | **2.1%** |
-| Boundaries first, then fitted | 4.7s | 19 | 209 | 1.9% |
-
-Ten times faster than the fit it replaces, for a fifth of a percent — and the
-fit is still there for the version you are keeping.
+That fit is **gone**, and the rounds of refinement above replace it. It could not
+survive shared boundaries: re-simplifying one region's outline on its own is
+exactly what the arcs exist to stop, and a fit that moves a boundary for one shape
+and not its neighbour is an overlap by another name. Measuring the whole drawing
+once a round and spending the next round's anchors on the worst part of it answers
+the same question, keeps the partition, and costs a fraction as much.
 
 ### A shape is not charged for what covers it
 
@@ -187,6 +270,15 @@ Three things had to be right for that to work at all:
 **Regions.** Boundaries, then the fill between them, then the boundary pixels
 handed back, then the leftovers — as above.
 
+**Convex pieces**, all on *indices* rather than on coordinates. A shape with a
+hole bridged into it holds the same point twice, and every test — is this corner
+one of the ear's own, do these two pieces share this edge — comes out wrong when
+asked by position: the other copy answers yes, and clipping stalls with a sixth of
+the shape still on the floor while a merge joins across the wrong seam and loses a
+bite out of the middle. Ear clipping picks the **fattest** ear rather than the
+first, which leaves almost no splinters, and every merge is checked by area,
+because areas add when a join is real.
+
 **Thickness.** Each region's thickest point, by distance transform. That decides
 which regions are worth measuring properly; the real width is taken afterwards
 from **area over length**, because the distance transform is out by a pixel on
@@ -225,9 +317,11 @@ two-pixel square has no corner more than a pixel and a half off its own diagonal
 so a pixel and a half of slack flattens it into a line. It keeps enough points to
 still be a shape. Losing detail is the deal; losing the shape is not.
 
-**Convex pieces.** An area is ear-clipped to triangles and then glued back
-together wherever the join stays convex. Triangles alone would satisfy "convex"
-and give ten times the shapes, which is worse to edit and worse to read.
+**Hertel-Mehlhorn.** The triangles are glued back together by rubbing out every cut
+that was not earning its place: a cut can go whenever the shape left behind is
+still convex, and only the two corners the cut ended at can have stopped being so.
+Triangles alone would satisfy "convex" and give ten times the shapes, which is
+worse to edit and worse to read.
 
 ## Why convex
 

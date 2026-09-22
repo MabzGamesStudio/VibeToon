@@ -1229,6 +1229,47 @@
   min-width: 0;
   display: flex;
   overflow: hidden;
+
+  &.is-zoomable {
+    touch-action: none;
+  }
+
+  /* Zoomed in, a pixel is a square. The browser's default is to smooth an image
+     it is scaling up, which at eight times is a blur of guesses about colors
+     that are not in the picture — the opposite of what looking closely is for. */
+  &.is-zoomed {
+    cursor: grab;
+
+    img,
+    canvas {
+      image-rendering: pixelated;
+    }
+  }
+}
+
+.vt-stage-view {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  transform-origin: 0 0;
+}
+
+.vt-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+
+  > .vt-btn {
+    min-width: 30px;
+    justify-content: center;
+  }
+}
+
+.vt-zoom-hint {
+  flex: none;
+  margin: 0;
+  border-radius: 0;
 }
 
 /* Image source, extraction and filter -------------------------------- */
@@ -1242,6 +1283,27 @@
     linear-gradient(45deg, rgba(255, 255, 255, 0.045) 25%, transparent 25% 75%, rgba(255, 255, 255, 0.045) 75%);
   background-size: 16px 16px;
   background-position: 0 0, 8px 8px;
+}
+
+/*
+ * The checkerboard belongs to the frame, not to the picture.
+ *
+ * It says "there is nothing here", which is a fact about the screen rather than
+ * about the drawing — so it has to stay the same size as the drawing is zoomed.
+ * Left on the scaled element, one check is 16px at a glance and four hundred at
+ * twenty-seven times, and the view fills with enormous grey squares.
+ */
+.vt-stage-body.is-zoomable {
+  @include transparency-check;
+}
+
+.vt-stage-view {
+  .vt-image-stage,
+  .vt-cutout-stage,
+  .vt-vector-stage {
+    background-color: transparent;
+    background-image: none;
+  }
 }
 
 .vt-image-stage {

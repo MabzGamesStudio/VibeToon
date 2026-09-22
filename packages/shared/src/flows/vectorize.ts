@@ -1,20 +1,6 @@
 import type { Bitmap } from './cutout';
-import {
-  boxOf,
-  coverageFor,
-  fillInto,
-  fitStroke,
-  mergeHidden,
-  prunePoints,
-  pruneStroke,
-  scorePieces,
-  shareInk,
-  strokeInto,
-  type Box,
-  type FitWeights,
-  type Hidden,
-  type PolygonFit,
-} from './fit';
+import { boxOf, coverageFor, fillInto, strokeInto, type Box } from './fit';
+import { traceShared, type RegionLoops } from './arcs';
 import { detectEdges, growRegions, type EdgeMap, type GrownRegion } from './edges';
 import { colorDistance, fromHex, toHex } from './palette';
 import {
@@ -100,19 +86,25 @@ export interface VectorizeOptions {
   /** Pixels at or below this alpha are transparent, and are not part of anything. */
   alphaFloor: number;
   /**
-   * Spend longer for a closer fit, once the shapes are found.
+   * How many rounds of "find the worst part and do it better".
    *
-   * Off is the fast path: edges, fill, trace, simplify, done. On adds a pass that
-   * draws each candidate and compares it with the pixels it stands for, dropping
-   * anchors that are not paying for themselves and searching a stroke's width
-   * against the ink. Slower by several times, and worth it when the answer
-   * matters more than the wait.
+   * 0 is the fast path: edges, fill, trace, simplify, done. Each round after
+   * that rasterises what has been drawn, measures it against the picture it came
+   * from, and grants a tighter tolerance to the boundaries running through the
+   * blocks that came out worst — so the effort goes where the drawing is wrong
+   * rather than evenly over a drawing that is mostly right.
    */
-  refine: boolean;
-  /** With `refine` on: what one anchor is worth, measured in wrong pixels. */
-  pointCost: number;
-  /** With `refine` on: what one polygon is worth, in the same units. */
-  polygonCost: number;
+  refineRounds: number;
+  /**
+   * How big a block the error is averaged over, in pixels.
+   *
+   * The measure is an *average*, so this is really asking how big a mistake has
+   * to be to count as one. Small blocks notice a single misplaced corner; large
+   * ones only notice a shape in the wrong place.
+   */
+  hotspotBlock: number;
+  /** What fraction of the blocks that have any error at all count as hot, 0..1. */
+  hotspotShare: number;
 }
 
 export const DEFAULT_VECTORIZE_OPTIONS: VectorizeOptions = {
@@ -124,9 +116,9 @@ export const DEFAULT_VECTORIZE_OPTIONS: VectorizeOptions = {
   minArea: 12,
   curveThreshold: 0.04,
   alphaFloor: 8,
-  refine: false,
-  pointCost: 6,
-  polygonCost: 40,
+  refineRounds: 1,
+  hotspotBlock: 16,
+  hotspotShare: 0.2,
 };
 
 export interface VectorizeReport {
@@ -141,9 +133,17 @@ export interface VectorizeReport {
   /** Regions thin enough to be a stroke but bordering only one thing. */
   thinButNotSeparating: number;
   convexPieces: number;
+  /** Pieces too thin to be areas, given back as strokes instead. */
+  slivers: number;
   transparent: number;
   /** Pixels the edge pass claimed, before they were handed back to regions. */
   edgePixels: number;
+  /** Rounds of refinement that actually improved the drawing. */
+  rounds: number;
+  /** Blocks the last round judged worth another look. */
+  hotBlocks: number;
+  /** Pixels painted where the picture is not there at all. Should be none. */
+  overNothing: number;
   problems: string[];
 }
 
@@ -175,6 +175,8 @@ export function findRegions(
   edgePixels: number;
   folded: number;
   map: EdgeMap;
+  /** Which region each pixel ended up in, which is what the tracer reads. */
+  labels: Int32Array;
 } {
   const map = detectEdges(image, {
     edgeThreshold: options.edgeThreshold,
@@ -192,6 +194,7 @@ export function findRegions(
     edgePixels: grown.edgePixels,
     folded: grown.folded,
     map,
+    labels: grown.labels,
   };
 }
 
@@ -329,83 +332,7 @@ export function strokeWidth(pixels: number, paths: Centreline[]): number {
  * 3. Outlines and centrelines
  * ------------------------------------------------------------------ */
 
-/**
- * Walk the boundary of a region, in order.
- *
- * Moore neighbourhood tracing from the top-left-most pixel, going clockwise.
- * The walk is on pixel *corners* rather than centres, so the outline lands on
- * the edge of the shape instead of half a pixel inside it.
- */
-export function traceOutline(
-  pixels: Set<number>,
-  width: number,
-  height: number,
-): VectorPoint[] {
-  let start = -1;
-  for (const index of pixels) {
-    if (start === -1 || index < start) start = index;
-  }
-  if (start === -1) return [];
 
-  const has = (x: number, y: number) =>
-    x >= 0 && y >= 0 && x < width && y < height && pixels.has(y * width + x);
-
-  // Square tracing on the corner lattice: walk the boundary keeping the shape on
-  // the right. Directions are right, down, left, up.
-  const steps: Array<[number, number]> = [
-    [1, 0],
-    [0, 1],
-    [-1, 0],
-    [0, -1],
-  ];
-  const startX = start % width;
-  const startY = (start - startX) / width;
-
-  const out: VectorPoint[] = [];
-  let x = startX;
-  let y = startY;
-  let direction = 0;
-  const first = { x, y };
-  let guard = 0;
-  const limit = pixels.size * 8 + 64;
-
-  do {
-    out.push({ x, y });
-    // Try to turn left first, then straight, then right, then back: that traces
-    // the outline tightly rather than cutting corners off it.
-    let moved = false;
-    for (let turn = 3; turn <= 6 && !moved; turn += 1) {
-      const next = (direction + turn) % 4;
-      const [dx, dy] = steps[next]!;
-      const nx = x + dx;
-      const ny = y + dy;
-      if (!edgeExists(has, x, y, nx, ny)) continue;
-      x = nx;
-      y = ny;
-      direction = next;
-      moved = true;
-    }
-    if (!moved) break;
-    guard += 1;
-  } while ((x !== first.x || y !== first.y) && guard < limit);
-
-  return out;
-}
-
-/** Is there a boundary edge between corner (x,y) and (nx,ny)? */
-function edgeExists(
-  has: (x: number, y: number) => boolean,
-  x: number,
-  y: number,
-  nx: number,
-  ny: number,
-): boolean {
-  if (nx === x + 1 && ny === y) return has(x, y) !== has(x, y - 1);
-  if (nx === x - 1 && ny === y) return has(x - 1, y) !== has(x - 1, y - 1);
-  if (nx === x && ny === y + 1) return has(x, y) !== has(x - 1, y);
-  if (nx === x && ny === y - 1) return has(x, y - 1) !== has(x - 1, y - 1);
-  return false;
-}
 
 /**
  * The middle of a stroke, as a path.
@@ -641,9 +568,32 @@ function walkSkeleton(
  * 4. Fitting
  * ------------------------------------------------------------------ */
 
+/**
+ * How far a point may be moved to drop it: one distance, or a different one
+ * depending on where in the picture it is.
+ *
+ * Varying it along a boundary is what makes refinement worth anything. A
+ * boundary is not uniformly good or bad — the outline of a head is exact for
+ * most of its length and wrong at the chin — and an arc is one run from junction
+ * to junction, so granting the *arc* a tighter tolerance spends points along
+ * every part of it that was already right. Granting the tolerance point by point
+ * spends them at the chin.
+ */
+export type Tolerance = number | ((point: VectorPoint) => number);
+
+const toleranceAt = (tolerance: Tolerance, point: VectorPoint): number =>
+  typeof tolerance === 'number' ? tolerance : tolerance(point);
+
+const loosest = (tolerance: Tolerance, points: VectorPoint[]): number => {
+  if (typeof tolerance === 'number') return tolerance;
+  let most = 0;
+  for (const point of points) most = Math.max(most, tolerance(point));
+  return most;
+};
+
 /** Ramer-Douglas-Peucker: drop points that were not saying anything. */
-export function simplify(points: VectorPoint[], tolerance: number): VectorPoint[] {
-  if (points.length < 3 || tolerance <= 0) return points;
+export function simplify(points: VectorPoint[], tolerance: Tolerance): VectorPoint[] {
+  if (points.length < 3 || loosest(tolerance, points) <= 0) return points;
 
   const keep = new Uint8Array(points.length);
   keep[0] = 1;
@@ -656,16 +606,19 @@ export function simplify(points: VectorPoint[], tolerance: number): VectorPoint[
     const a = points[from]!;
     const b = points[to]!;
 
+    // Scored against its own tolerance, so a point in a part of the picture that
+    // came out wrong is kept where the same deviation elsewhere is dropped.
     let worst = 0;
     let at = -1;
     for (let index = from + 1; index < to; index += 1) {
-      const away = perpendicular(points[index]!, a, b);
+      const point = points[index]!;
+      const away = perpendicular(point, a, b) / Math.max(1e-6, toleranceAt(tolerance, point));
       if (away > worst) {
         worst = away;
         at = index;
       }
     }
-    if (worst > tolerance && at > 0) {
+    if (worst > 1 && at > 0) {
       keep[at] = 1;
       stack.push([from, at], [at, to]);
     }
@@ -686,8 +639,8 @@ export function simplify(points: VectorPoint[], tolerance: number): VectorPoint[
  * Splitting at the point farthest from the start gives two open halves that
  * between them cover the ring, each with a baseline the length of the shape.
  */
-export function simplifyClosed(points: VectorPoint[], tolerance: number): VectorPoint[] {
-  if (points.length < 4 || tolerance <= 0) return points;
+export function simplifyClosed(points: VectorPoint[], tolerance: Tolerance): VectorPoint[] {
+  if (points.length < 4 || loosest(tolerance, points) <= 0) return points;
 
   const first = points[0]!;
   let far = 0;
@@ -748,45 +701,171 @@ export function toConvexPieces(points: VectorPoint[]): VectorPoint[][] {
 
   const triangles = earClip(points);
   if (triangles.length === 0) return [];
-  return mergeConvex(triangles);
+  return mergeConvex(points, triangles).map((piece) => piece.map((at) => points[at]!));
 }
 
-function earClip(points: VectorPoint[]): VectorPoint[][] {
+/**
+ * Ear clipping, on indices rather than on positions.
+ *
+ * Which matters, because a polygon with a hole bridged into it holds the same
+ * point twice — the slit is one cut walked down and back — and every test here
+ * used to ask "is this point one of the ear's corners" by comparing
+ * coordinates. With duplicates that is the wrong question: the *other* copy
+ * answers yes, tests get skipped that should not be, ears are accepted that
+ * reach across the hole and rejected that are perfectly good, and clipping
+ * stalls with a sixth of the shape still on the floor.
+ *
+ * Asked by position in the list instead, all three tests are exact:
+ *
+ * 1. The corner turns the way the polygon winds.
+ * 2. No other corner lies strictly inside the ear. *Strictly*: a corner sitting
+ *    exactly on the ear's edge is not inside it, and on a slit that happens
+ *    constantly.
+ * 3. The cut the ear makes stays inside the shape — it crosses no edge, and its
+ *    middle is in the polygon rather than out in a notch or a hole. This is the
+ *    one that stops a ring being clipped into a disc: an ear spanning the hole
+ *    has a good corner and nothing inside it, and makes a cut straight through
+ *    the middle of nothing.
+ */
+export function earClip(points: VectorPoint[]): number[][] {
   const winding = signedArea(points) > 0 ? 1 : -1;
-  const remaining = points.map((point, index) => ({ point, index }));
-  const out: VectorPoint[][] = [];
+  const remaining = points.map((_, index) => index);
+  const out: number[][] = [];
   let guard = 0;
 
   while (remaining.length > 3 && guard < points.length * points.length + 64) {
     guard += 1;
-    let clipped = false;
-    for (let index = 0; index < remaining.length; index += 1) {
-      const previous = remaining[(index - 1 + remaining.length) % remaining.length]!.point;
-      const ear = remaining[index]!.point;
-      const next = remaining[(index + 1) % remaining.length]!.point;
+    const count = remaining.length;
+    let clipped = -1;
+    let fattest = -1;
 
-      const cross = (ear.x - previous.x) * (next.y - ear.y) - (ear.y - previous.y) * (next.x - ear.x);
-      if (cross * winding <= 0) continue;
+    for (let index = 0; index < count; index += 1) {
+      const before = (index - 1 + count) % count;
+      const after = (index + 1) % count;
+      const previous = points[remaining[before]!]!;
+      const ear = points[remaining[index]!]!;
+      const next = points[remaining[after]!]!;
 
-      const others = remaining
-        .filter((_, at) => at !== index && at !== (index - 1 + remaining.length) % remaining.length && at !== (index + 1) % remaining.length)
-        .map((entry) => entry.point);
-      if (others.some((point) => inTriangle(point, previous, ear, next))) continue;
+      // The two ends of a slit, which is not an ear but a fold.
+      if (same(previous, next)) continue;
 
-      out.push([previous, ear, next]);
-      remaining.splice(index, 1);
-      clipped = true;
-      break;
+      const turn = (ear.x - previous.x) * (next.y - ear.y) - (ear.y - previous.y) * (next.x - ear.x);
+      if (turn * winding <= 0) continue;
+
+      let blocked = false;
+      for (let other = 0; other < count && !blocked; other += 1) {
+        if (other === index || other === before || other === after) continue;
+        if (strictlyInside(points[remaining[other]!]!, previous, ear, next)) blocked = true;
+      }
+      if (blocked) continue;
+
+      for (let edge = 0; edge < count && !blocked; edge += 1) {
+        const to = (edge + 1) % count;
+        if (edge === before || to === before || edge === after || to === after) continue;
+        if (edge === index || to === index) continue;
+        if (segmentsCross(previous, next, points[remaining[edge]!]!, points[remaining[to]!]!)) {
+          blocked = true;
+        }
+      }
+      if (blocked) continue;
+
+      const middle = { x: (previous.x + next.x) / 2, y: (previous.y + next.y) / 2 };
+      if (!insideRing(middle, remaining.map((at) => points[at]!))) continue;
+
+      /*
+       * The fattest ear on offer, not the first one that will do.
+       *
+       * Taking the first leaves a fan of splinters along every curve, and a
+       * splinter is a real problem rather than an untidiness: it is thinner than
+       * a stroke, so the rule that says a piece that thin should be a stroke
+       * fires on it — and a stroke is not part of the partition, so swapping one
+       * in opens a seam down both of its long sides. Fifty-one of them took a
+       * drawing from 825 wrong pixels to 1067.
+       *
+       * Measured by how square the triangle is: its shortest way across over its
+       * longest, which is 0 for a splinter and highest for an equilateral one.
+       * Choosing on that costs one pass over the corners instead of stopping at
+       * the first, and it leaves almost nothing for the rule to fire on.
+       */
+      const quality = squareness(previous, ear, next);
+      if (quality > fattest) {
+        fattest = quality;
+        clipped = index;
+      }
     }
-    // A polygon that will not clip is self-intersecting or degenerate. Give back
-    // what has been found rather than looping, and let the caller report it.
-    if (!clipped) break;
+
+    if (clipped >= 0) {
+      const count2 = remaining.length;
+      out.push([
+        remaining[(clipped - 1 + count2) % count2]!,
+        remaining[clipped]!,
+        remaining[(clipped + 1) % count2]!,
+      ]);
+    }
+
+    /*
+     * Nothing would clip. Before giving up, drop a corner that is on the
+     * straight between its neighbours: it encloses no area, so losing it costs
+     * the shape nothing, and it is usually the thing that was in the way.
+     */
+    if (clipped < 0) {
+      for (let index = 0; index < count && clipped < 0; index += 1) {
+        const previous = points[remaining[(index - 1 + count) % count]!]!;
+        const ear = points[remaining[index]!]!;
+        const next = points[remaining[(index + 1) % count]!]!;
+        const turn = (ear.x - previous.x) * (next.y - ear.y) - (ear.y - previous.y) * (next.x - ear.x);
+        if (Math.abs(turn) < 1e-9) clipped = index;
+      }
+    }
+    // A polygon that will not clip at all is self-intersecting or degenerate.
+    // Give back what has been found rather than looping, and let the caller
+    // report it.
+    if (clipped < 0) break;
+    remaining.splice(clipped, 1);
   }
-  if (remaining.length === 3) out.push(remaining.map((entry) => entry.point));
+  if (remaining.length === 3) out.push([...remaining]);
   return out;
 }
 
-function signedArea(points: VectorPoint[]): number {
+/** How square a triangle is: its shortest way across over its longest side, 0..~0.87. */
+function squareness(a: VectorPoint, b: VectorPoint, c: VectorPoint): number {
+  const sides = [
+    Math.hypot(b.x - a.x, b.y - a.y),
+    Math.hypot(c.x - b.x, c.y - b.y),
+    Math.hypot(a.x - c.x, a.y - c.y),
+  ];
+  const longest = Math.max(...sides);
+  if (longest < 1e-9) return 0;
+  const area = Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) / 2;
+  // Twice the area over the longest side is the altitude to it, which is the
+  // narrowest the triangle is across.
+  return (2 * area) / longest / longest;
+}
+
+/** Inside the triangle and not on its edge, which on a slit is the difference. */
+function strictlyInside(point: VectorPoint, a: VectorPoint, b: VectorPoint, c: VectorPoint): boolean {
+  const side = (p: VectorPoint, q: VectorPoint, r: VectorPoint) =>
+    (p.x - r.x) * (q.y - r.y) - (q.x - r.x) * (p.y - r.y);
+  const one = side(point, a, b);
+  const two = side(point, b, c);
+  const three = side(point, c, a);
+  if (one === 0 || two === 0 || three === 0) return false;
+  return one > 0 === two > 0 && two > 0 === three > 0;
+}
+
+/** Even-odd ray cast, for asking whether a cut runs through the shape or past it. */
+function insideRing(point: VectorPoint, ring: VectorPoint[]): boolean {
+  let inside = false;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
+    const a = ring[index]!;
+    const b = ring[previous]!;
+    if (a.y > point.y === b.y > point.y) continue;
+    if (point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+export function signedArea(points: VectorPoint[]): number {
   let total = 0;
   for (let index = 0; index < points.length; index += 1) {
     const a = points[index]!;
@@ -796,79 +875,222 @@ function signedArea(points: VectorPoint[]): number {
   return total / 2;
 }
 
-function inTriangle(point: VectorPoint, a: VectorPoint, b: VectorPoint, c: VectorPoint): boolean {
-  const sign = (p: VectorPoint, q: VectorPoint, r: VectorPoint) =>
-    (p.x - r.x) * (q.y - r.y) - (q.x - r.x) * (p.y - r.y);
-  const d1 = sign(point, a, b);
-  const d2 = sign(point, b, c);
-  const d3 = sign(point, c, a);
-  const negative = d1 < 0 || d2 < 0 || d3 < 0;
-  const positive = d1 > 0 || d2 > 0 || d3 > 0;
-  return !(negative && positive);
-}
+/**
+ * Hertel-Mehlhorn: take the triangulation and rub out every cut that was not
+ * earning its place.
+ *
+ * A cut between two pieces can go whenever the shape left behind is still
+ * convex, and only the two corners the cut ended at can have stopped being so —
+ * every other corner is untouched. So the test is two cross products rather
+ * than a walk of the whole polygon, and what comes out is at most four times as
+ * many pieces as the fewest possible.
+ *
+ * All of it on indices. Rubbing out cuts by comparing coordinates cannot work on
+ * a shape with a hole bridged into it, because the slit puts the same point in
+ * the list twice: "these two pieces share this edge" comes out true of an edge
+ * at the *other* copy, and the merge that follows is convex, plausible, and
+ * missing a bite out of the middle. A sixth of a ring went that way.
+ */
+export function mergeConvex(points: VectorPoint[], triangles: number[][]): number[][] {
+  const pieces: Array<number[] | null> = triangles.map((piece) => [...piece]);
 
-/** Glue neighbouring pieces together while the result is still convex. */
-function mergeConvex(pieces: VectorPoint[][]): VectorPoint[][] {
-  const current = pieces.map((piece) => [...piece]);
-  let merged = true;
-  let guard = 0;
+  // Which pieces each cut has on either side of it.
+  const cuts = new Map<string, number[]>();
+  const key = (a: number, b: number) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+  for (let at = 0; at < pieces.length; at += 1) {
+    const piece = pieces[at]!;
+    for (let index = 0; index < piece.length; index += 1) {
+      const edge = key(piece[index]!, piece[(index + 1) % piece.length]!);
+      const sides = cuts.get(edge);
+      if (sides) sides.push(at);
+      else cuts.set(edge, [at]);
+    }
+  }
 
-  while (merged && guard < 200) {
-    merged = false;
-    guard += 1;
-    outer: for (let one = 0; one < current.length; one += 1) {
-      for (let two = one + 1; two < current.length; two += 1) {
-        const joined = joinAlongSharedEdge(current[one]!, current[two]!);
-        if (!joined || !isConvex(joined)) continue;
-        current.splice(two, 1);
-        current[one] = joined;
-        merged = true;
-        break outer;
+  const turnsRight = (before: number, corner: number, after: number) => {
+    const a = points[before]!;
+    const b = points[corner]!;
+    const c = points[after]!;
+    return (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+  };
+  const winding = signedArea(points) > 0 ? 1 : -1;
+
+  for (const [, sides] of cuts) {
+    if (sides.length !== 2) continue;
+    const [one, two] = sides as [number, number];
+    const first = pieces[one];
+    const second = pieces[two];
+    if (!first || !second) continue;
+
+    const joined = joinAlongSharedEdge(first, second);
+    if (!joined || joined.length < 3) continue;
+
+    /*
+     * And it has to be the two of them, and nothing less.
+     *
+     * Two pieces either side of a slit can share more than one cut, and splicing
+     * along one of them gives a perfectly convex polygon that is missing a bite
+     * out of the middle — a sixth of a ring went that way. Areas add when a join
+     * is real, so checking that they do catches it without having to reason
+     * about which cut was which.
+     */
+    const want = areaOf(points, first) + areaOf(points, second);
+    if (Math.abs(areaOf(points, joined) - want) > 1e-6 * Math.max(1, want)) continue;
+
+    let convex = true;
+    for (let index = 0; index < joined.length && convex; index += 1) {
+      const before = joined[(index - 1 + joined.length) % joined.length]!;
+      const corner = joined[index]!;
+      const after = joined[(index + 1) % joined.length]!;
+      if (turnsRight(before, corner, after) * winding < 0) convex = false;
+    }
+    if (!convex) continue;
+
+    pieces[one] = joined;
+    pieces[two] = null;
+    // The cut is gone, so whatever the absorbed piece was beside is now beside
+    // the piece that absorbed it.
+    for (const [, other] of cuts) {
+      for (let index = 0; index < other.length; index += 1) {
+        if (other[index] === two) other[index] = one;
       }
     }
   }
-  return current;
+
+  return pieces.filter((piece): piece is number[] => piece !== null && piece.length >= 3);
 }
 
-const same = (a: VectorPoint, b: VectorPoint) =>
-  Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.y - b.y) < 1e-9;
+function areaOf(points: VectorPoint[], piece: number[]): number {
+  let total = 0;
+  for (let index = 0; index < piece.length; index += 1) {
+    const a = points[piece[index]!]!;
+    const b = points[piece[(index + 1) % piece.length]!]!;
+    total += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(total / 2);
+}
 
-/** Two polygons sharing exactly one edge, as one polygon. */
-function joinAlongSharedEdge(one: VectorPoint[], two: VectorPoint[]): VectorPoint[] | null {
+/** Two pieces sharing exactly one cut, as one piece. Indices, so no ambiguity. */
+function joinAlongSharedEdge(one: number[], two: number[]): number[] | null {
   for (let a = 0; a < one.length; a += 1) {
     const a1 = one[a]!;
     const a2 = one[(a + 1) % one.length]!;
     for (let b = 0; b < two.length; b += 1) {
       const b1 = two[b]!;
       const b2 = two[(b + 1) % two.length]!;
-      // The shared edge runs the other way round in the neighbour, because both
+      // The shared cut runs the other way round in the neighbour, because both
       // wind the same way.
-      if (!same(a1, b2) || !same(a2, b1)) continue;
+      if (a1 !== b2 || a2 !== b1) continue;
       const joined = [
         ...one.slice(0, a + 1),
         ...two.slice(b + 1),
         ...two.slice(0, b),
       ];
-      // Drop a point repeated across the seam.
-      return joined.filter(
-        (point, index) => !same(point, joined[(index + 1) % joined.length]!),
-      );
+      // A corner repeated across the seam says nothing and can go.
+      return joined.filter((corner, index) => corner !== joined[(index + 1) % joined.length]);
     }
   }
   return null;
 }
 
+const same = (a: VectorPoint, b: VectorPoint) =>
+  Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.y - b.y) < 1e-9;
+
+
 /* ------------------------------------------------------------------ *
  * The whole thing
  * ------------------------------------------------------------------ */
+
+/**
+ * What a boundary running through a hot block is granted: half the tolerance,
+ * and twice the points.
+ *
+ * Both, because either alone does nothing. A tolerance cannot buy detail the
+ * budget will not pay for — `toBudget` simplifies harder until a shape fits, so
+ * against a binding budget a tighter tolerance changes not one point — and a
+ * bigger budget buys nothing while the tolerance says there is nothing worth
+ * keeping. Granting one and not the other is how a round of refinement comes
+ * back with the identical drawing.
+ */
+const TIGHTEN = 0.5;
+const ALLOWANCE = 2;
+
+/** What a boundary is allowed to spend on itself. */
+interface Budget {
+  detail: Tolerance;
+  maxPoints: number;
+}
 
 export function vectorize(
   image: Bitmap,
   options: VectorizeOptions,
   makeId: (prefix: string) => string,
 ): { image: VectorImage; report: VectorizeReport } {
-  const { width, height } = image;
+  // Found once. Rounds of refinement change how the boundaries are *simplified*,
+  // never where they are, so nothing above this needs doing twice.
   const found = findRegions(image, options);
+
+  const plain: Budget = { detail: options.detail, maxPoints: options.maxPoints };
+  let detail: (points: VectorPoint[]) => Budget = () => plain;
+  let best = build(image, found, options, makeId, detail);
+  let measured = difference(image, best.image, options);
+
+  /*
+   * Round by round, spend the effort where the drawing is actually wrong.
+   *
+   * Rasterise what has been drawn, take the difference from the picture it came
+   * from, and average that over a grid of blocks. A block's average is the
+   * honest measure of "how bad is it around here" — one wrong pixel is noise and
+   * a whole block wrong is a shape in the wrong place — and the worst blocks are
+   * where a tighter tolerance buys something. Everywhere else keeps the loose
+   * one, which is the whole reason this is affordable.
+   */
+  for (let round = 0; round < options.refineRounds; round += 1) {
+    const hot = hotBlocks(measured.error, image.width, image.height, options);
+    if (hot.blocks === 0) break;
+
+    /*
+     * Point by point, not arc by arc.
+     *
+     * An arc runs from junction to junction and can be the whole outline of a
+     * head; tightening the arc spends anchors along every part of it that was
+     * already exact, blows the budget, and the budget then loosens the lot back
+     * again — so asking for a closer fit came back with a worse drawing.
+     * Tightening only the points that lie in a block that came out wrong spends
+     * them where the mistake is.
+     */
+    const rich: Budget = {
+      detail: (point) => (hot.holds(point) ? options.detail * TIGHTEN : options.detail),
+      maxPoints: options.maxPoints > 0 ? Math.ceil(options.maxPoints * ALLOWANCE) : 0,
+    };
+    detail = (points) => (hot.runsThrough(points) ? rich : plain);
+    const next = build(image, found, options, makeId, detail);
+    const score = difference(image, next.image, options);
+    // Only kept if it is actually better. Spending anchors on the worst part of
+    // the picture almost always is, and "almost always" is not a reason to stop
+    // checking — a round that comes back worse is the loop's answer that the
+    // drawing is as close as this tolerance can take it.
+    if (score.wrong >= measured.wrong) break;
+    next.report.rounds = round + 1;
+    next.report.hotBlocks = hot.blocks;
+    best = next;
+    measured = score;
+  }
+
+  best.report.wrongPixels = measured.plain;
+  best.report.overNothing = measured.overNothing;
+  return { image: best.image, report: best.report };
+}
+
+/** The picture as shapes, at whatever tolerance each boundary is granted. */
+function build(
+  image: Bitmap,
+  found: ReturnType<typeof findRegions>,
+  options: VectorizeOptions,
+  makeId: (prefix: string) => string,
+  detailAt: (points: VectorPoint[]) => Budget,
+): { image: VectorImage; report: VectorizeReport } {
+  const { width, height } = image;
   const report: VectorizeReport = {
     regions: found.regions.length,
     // Specks folded into a neighbour were dropped as surely as one that could not
@@ -880,26 +1102,21 @@ export function vectorize(
     drawnPixels: 0,
     thinButNotSeparating: 0,
     convexPieces: 0,
+    slivers: 0,
     transparent: found.transparent,
     edgePixels: found.edgePixels,
+    rounds: 0,
+    hotBlocks: 0,
+    overNothing: 0,
     problems: [],
   };
 
   /*
-   * Areas by what they cover, biggest first, then strokes.
+   * Strokes first, because a stroke's region is not part of the partition.
    *
-   * That is how the picture was made — a background is laid down, the subject
-   * stands on it, ink goes on last — and painting them back in that order means
-   * an enclosing shape never has to cut itself around what sits on top of it.
-   *
-   * **What an area covers is what its outline encloses**, not how many pixels its
-   * region held, and the difference is the whole of this. A region can be a ring:
-   * a black outline round a face is a closed band of ink with a hole in it. Its
-   * outline is traced on the outside, so filling it gives a disc rather than a
-   * ring — which is right, because the face is painted over it afterwards and
-   * only the rim is left showing. Ordered by pixel count instead, the ring is the
-   * smaller of the two and goes on last, and the face disappears under a black
-   * blob. That is exactly what it did.
+   * A stroke is drawn down the middle of its own band with a width, so the band
+   * is already accounted for; leaving it in as an area too would put a polygon
+   * under every line in the drawing.
    */
   const strokes = new Set(found.regions.filter((region) => isLineRegion(region, options)));
   // Thin is half the rule, and the half that fails is worth saying out loud: a
@@ -911,104 +1128,331 @@ export function vectorize(
       report.thinButNotSeparating += 1;
     }
   }
-  // Traced once, here, because the order needs the outline and so does the fit.
-  const outlines = new Map<PixelRegion, VectorPoint[]>();
-  for (const region of found.regions) {
-    if (strokes.has(region)) continue;
-    outlines.set(region, traceOutline(new Set(region.pixels), width, height));
-  }
-  const covers = (region: PixelRegion) => Math.abs(signedArea(outlines.get(region) ?? []));
-
-  const order = [
-    ...found.regions.filter((region) => !strokes.has(region)).sort((a, b) => covers(b) - covers(a)),
-    ...found.regions.filter((region) => strokes.has(region)),
-  ];
-
-  const weights: FitWeights = { pixel: 1, point: options.pointCost, polygon: options.polygonCost };
-  const rankOf = new Int32Array(width * height).fill(-1);
-  if (options.refine) {
-    for (let rank = 0; rank < order.length; rank += 1) {
-      for (const index of order[rank]!.pixels) rankOf[index] = rank;
-    }
-  }
-  const hiddenAfter = (rank: number): Hidden => (index: number) => rankOf[index]! > rank;
 
   const shapes: VectorShape[] = [];
+  const byId = new Map(found.regions.map((region) => [region.id, region]));
 
-  for (let rank = 0; rank < order.length; rank += 1) {
-    const region = order[rank]!;
-    const color = toHex(region.color);
-    const pixels = new Set(region.pixels);
-    report.drawnPixels += pixels.size;
+  /*
+   * Every boundary in the picture, traced and simplified **once**.
+   *
+   * Two regions meeting along a boundary used to simplify it separately, each
+   * moving it by up to the tolerance in whatever direction its own corners
+   * wanted — which leaves a sliver of overlap down one side of every boundary
+   * and a sliver of gap down the other. Sharing the arc means the two shapes
+   * either side of it hold the same list of numbers, so they meet exactly, and
+   * the picture costs fewer points than before because each boundary is only
+   * paid for once.
+   */
+  const loops = traceShared(found.labels, width, height, (points, closed) => {
+    const budget = detailAt(points);
+    return toBudget(points, budget.detail, budget.maxPoints, closed ? 3 : 2, closed);
+  });
 
-    const box = boxOf(pixels, width, Math.ceil(options.lineWidth) + 2);
-    const hidden = options.refine ? hiddenAfter(rank) : undefined;
+  /*
+   * Areas by what they cover, biggest first, then strokes.
+   *
+   * They no longer overlap, so this is not load-bearing for what the picture
+   * looks like — it decides only what sits on top where a stroke crosses an
+   * area, and it keeps the output in a stable, readable order.
+   */
+  const areas = [...loops]
+    .filter(([id]) => byId.has(id) && !strokes.has(byId.get(id)!))
+    .sort((a, b) => Math.abs(signedArea(b[1].outer)) - Math.abs(signedArea(a[1].outer)));
 
-    if (strokes.has(region)) {
-      const paths = centreline(pixels, width, height);
-      if (paths.length > 0) {
-        const shares = options.refine
-          ? shareInk(paths.map((path) => path.points), pixels, width)
-          : paths.map(() => undefined);
-
-        const lines = paths
-          .map((path, index) =>
-            options.refine
-              ? fitLine(path, pixels, box, width, options, weights, mergeHidden(hidden, shares[index]))
-              : quickLine(path, region, paths, options),
-          )
-          .filter((line): line is FittedLine => line !== null);
-
-        const widest = Math.max(0, ...lines.map((line) => line.width));
-        // With the real widths known, a squat blob that the thinness test let
-        // through can still turn out to be an area rather than a stroke.
-        if (lines.length > 0 && widest <= options.lineWidth + 0.5) {
-          for (const line of lines) {
-            shapes.push({
-              id: makeId('line'),
-              kind: 'line',
-              color,
-              width: Math.max(0.5, Math.round(line.width * 10) / 10),
-              points: line.points,
-              // A loop is always a curve by the straight-line test, since its
-              // ends are the same point. Judge it on its corners instead.
-              curved: line.closed
-                ? line.points.length > 6
-                : looksCurved(line.points, options.curveThreshold),
-              closed: line.closed,
-            } satisfies VectorLine);
-            report.lines += 1;
-          }
-          continue;
-        }
-      }
-      report.thinButNotSeparating += 1;
-    }
-
-    const traced = outlines.get(region) ?? traceOutline(pixels, width, height);
-    if (traced.length < 3) {
-      report.dropped += 1;
-      continue;
-    }
-
-    const pieces = options.refine
-      ? fitArea(traced, pixels, box, width, options, weights, hidden).pieces
-      : quickArea(traced, options);
-
-    if (pieces.length === 0) {
-      report.problems.push(`An area at ${describe(region, width)} could not be cut into convex pieces.`);
-      continue;
-    }
+  const emit = (color: string, pieces: VectorPoint[][], pixels: Set<number>) => {
     for (const piece of pieces) {
+      /*
+       * A piece thinner than a stroke *is* a stroke — if it covers the same ink.
+       *
+       * A sliver of polygon is a mark with a width pretending to be an area: it
+       * costs three or more anchors to say what two and a width say better, and
+       * it is miserable to grab hold of in the editor. Measured across its
+       * narrowest direction, which for a triangle is its shortest altitude.
+       *
+       * But it is also what a convex cut leaves along any curve, and *that* kind
+       * of sliver must stay a polygon. The pieces of a region are a partition —
+       * they tile it exactly, with no overlap and no gap — and a stroke is not
+       * part of that partition. Swapping one in for a piece opens a seam down
+       * both of its long sides, and on a finely traced boundary there are dozens
+       * of them: measured, it took a drawing from 825 wrong pixels to 1034.
+       *
+       * So the swap is measured rather than assumed. A real thin limb is covered
+       * better by a stroke than by the splinters it was cut into; a splinter of
+       * a curve is not, and keeps its place in the partition.
+       */
+      const slim = asStroke(piece, options.lineWidth);
+      if (slim && coversBetter(slim, piece, pixels, width)) {
+        shapes.push({
+          id: makeId('line'),
+          kind: 'line',
+          color,
+          width: Math.max(0.5, Math.round(slim.width * 10) / 10),
+          points: slim.points,
+          curved: false,
+          closed: false,
+        } satisfies VectorLine);
+        report.lines += 1;
+        report.slivers += 1;
+        continue;
+      }
       shapes.push({ id: makeId('poly'), kind: 'polygon', color, points: piece } satisfies VectorPolygon);
       report.polygons += 1;
     }
     report.convexPieces += pieces.length;
+  };
+
+  for (const [id, region] of areas) {
+    const own = byId.get(id)!;
+    report.drawnPixels += own.pixels.length;
+
+    const pieces = convexPieces(region);
+    if (pieces.length === 0) {
+      report.problems.push(`An area at ${describe(own, width)} could not be cut into convex pieces.`);
+      continue;
+    }
+    emit(toHex(own.color), pieces, new Set(own.pixels));
   }
 
-  const drawn: VectorImage = { width, height, shapes };
-  report.wrongPixels = measureWhole(image, drawn, options);
-  return { image: drawn, report };
+  for (const region of found.regions) {
+    if (!strokes.has(region)) continue;
+    const color = toHex(region.color);
+    const pixels = new Set(region.pixels);
+    report.drawnPixels += pixels.size;
+
+    const paths = centreline(pixels, width, height);
+    const lines = paths
+      .map((path) => quickLine(path, region, paths, detailAt(path.points)))
+      .filter((line): line is FittedLine => line !== null);
+
+    const widest = Math.max(0, ...lines.map((line) => line.width));
+    // With the real widths known, a squat blob that the thinness test let
+    // through can still turn out to be an area rather than a stroke.
+    if (lines.length === 0 || widest > options.lineWidth + 0.5) {
+      report.thinButNotSeparating += 1;
+      const loop = loops.get(region.id);
+      if (loop) emit(color, convexPieces(loop), pixels);
+      continue;
+    }
+
+    for (const line of lines) {
+      shapes.push({
+        id: makeId('line'),
+        kind: 'line',
+        color,
+        width: Math.max(0.5, Math.round(line.width * 10) / 10),
+        points: line.points,
+        // A loop is always a curve by the straight-line test, since its ends are
+        // the same point. Judge it on its corners instead.
+        curved: line.closed
+          ? line.points.length > 6
+          : looksCurved(line.points, options.curveThreshold),
+        closed: line.closed,
+      } satisfies VectorLine);
+      report.lines += 1;
+    }
+  }
+
+  return { image: { width, height, shapes }, report };
+}
+
+/* ------------------------------------------------------------------ *
+ * 5. Measuring, and where to spend the next round
+ * ------------------------------------------------------------------ */
+
+/**
+ * Painting over a part of the picture that is not there is worth this many
+ * ordinary wrong pixels.
+ *
+ * Nothing at all should be drawn where the source is transparent, and a plain
+ * one-for-one count does not say so loudly enough: a shape that bulges into the
+ * empty half of the picture scores the same as one a shade off the right color,
+ * and the round of refinement goes to the shade. It is also thin and spread out
+ * — a boundary overshooting by a pixel along its length — so against a block
+ * average it disappears next to a patch of solidly wrong color.
+ *
+ * Weighted up, a block with any of it in stands out, which is what makes the
+ * next round pull the boundary back onto the edge of what is actually there.
+ */
+const OVER_NOTHING = 16;
+
+export interface Difference {
+  /** Wrong pixels, weighted: what a round of refinement is judged on. */
+  wrong: number;
+  /** Wrong pixels, counted one each: what the report quotes, because it is a count. */
+  plain: number;
+  /** How wrong each pixel is, 0 for right, up to `OVER_NOTHING` for painted nothing. */
+  error: Float32Array;
+  /** Of those, the ones painted where the picture is not there at all. */
+  overNothing: number;
+}
+
+/**
+ * Rasterise the drawing and take the difference from what it was drawn from.
+ *
+ * Measured once at the end of a round rather than per candidate shape. The fit
+ * this replaced asked the question hundreds of times a shape and that was most
+ * of what the flow spent its time on; asking it once over the whole picture says
+ * just as much about whether the answer is any good, and costs one pass.
+ */
+export function difference(
+  source: Bitmap,
+  drawn: VectorImage,
+  options: VectorizeOptions,
+): Difference {
+  const { width, height } = source;
+  const box: Box = { x: 0, y: 0, width, height };
+  const painted = new Int32Array(width * height).fill(-1);
+  const scratch = coverageFor(box);
+
+  const order = [
+    ...drawn.shapes.filter((shape) => shape.kind === 'polygon'),
+    ...drawn.shapes.filter((shape) => shape.kind === 'line'),
+  ];
+  for (const shape of order) {
+    scratch.fill(0);
+    if (shape.kind === 'polygon') fillInto(shape.points, box, scratch);
+    else strokeInto(shape.points, shape.width, box, scratch);
+    const rgb = fromHex(shape.color);
+    if (!rgb) continue;
+    const packed = (rgb.r << 16) | (rgb.g << 8) | rgb.b;
+    for (let index = 0; index < scratch.length; index += 1) {
+      if (scratch[index]! >= 128) painted[index] = packed;
+    }
+  }
+
+  const error = new Float32Array(width * height);
+  let wrong = 0;
+  let plain = 0;
+  let overNothing = 0;
+  for (let index = 0; index < width * height; index += 1) {
+    const at = index * 4;
+    const clear = source.data[at + 3]! <= options.alphaFloor;
+    const got = painted[index]!;
+
+    let cost = 0;
+    if (clear) {
+      if (got >= 0) {
+        cost = OVER_NOTHING;
+        overNothing += 1;
+      }
+    } else if (got < 0) cost = 1;
+    else {
+      const distance = colorDistance(
+        { r: (got >> 16) & 255, g: (got >> 8) & 255, b: got & 255 },
+        { r: source.data[at]!, g: source.data[at + 1]!, b: source.data[at + 2]! },
+      );
+      // Judged by eye rather than by byte: a pixel a shade off is not wrong.
+      cost = distance > 8 ? 1 : 0;
+    }
+    error[index] = cost;
+    wrong += cost;
+    if (cost > 0) plain += 1;
+  }
+  return { wrong, plain, error, overNothing };
+}
+
+/** How much worse than the picture's own average a block has to be to be hot. */
+const WORSE_THAN_AVERAGE = 2;
+
+export interface HotBlocks {
+  /** How many blocks were judged hot. */
+  blocks: number;
+  /** Does this run of points pass through one? */
+  runsThrough(points: VectorPoint[]): boolean;
+  /** Is this one point in one? */
+  holds(point: VectorPoint): boolean;
+}
+
+/**
+ * The blocks of the picture that are worst, by the average error over each.
+ *
+ * Averaged rather than totalled, so a small block of solid wrong outranks a
+ * large block with a scattering of it. Scattered error is the drawing being a
+ * shade off; concentrated error is a shape in the wrong place, and a shape in
+ * the wrong place is the thing another round can fix.
+ */
+export function hotBlocks(
+  error: Float32Array,
+  width: number,
+  height: number,
+  options: VectorizeOptions,
+): HotBlocks {
+  const size = Math.max(4, Math.round(options.hotspotBlock));
+  const across = Math.ceil(width / size);
+  const down = Math.ceil(height / size);
+
+  const totals = new Float64Array(across * down);
+  const counts = new Int32Array(across * down);
+  for (let y = 0; y < height; y += 1) {
+    const row = Math.floor(y / size) * across;
+    for (let x = 0; x < width; x += 1) {
+      const block = row + Math.floor(x / size);
+      totals[block]! += error[y * width + x]!;
+      counts[block]! += 1;
+    }
+  }
+
+  const averages = Array.from(totals, (total, block) => {
+    const count = counts[block] ?? 0;
+    return { block, average: count > 0 ? total / count : 0 };
+  }).filter((entry) => entry.average > 0);
+  averages.sort((a, b) => b.average - a.average);
+
+  /*
+   * Worse than the picture, not merely the worst of it.
+   *
+   * Every block along an edge has a pixel or two wrong in it, so a plain "worst
+   * fifth" on a drawing that is already good marks a fifth of the picture as a
+   * hotspot, and the round that follows spends anchors all over a drawing with
+   * nothing much wrong with it — three times the polygons for a seventh less
+   * error. A block has to be twice the picture's own average to count, which on
+   * a good drawing is almost nowhere and on a bad one is exactly where the
+   * trouble is.
+   */
+  const mean = averages.reduce((sum, entry) => sum + entry.average, 0) / Math.max(1, averages.length);
+  const standOut = averages.filter((entry) => entry.average >= mean * WORSE_THAN_AVERAGE);
+  /*
+   * Unless nothing stands out, in which case the worst of an even spread is
+   * still the worst. "Twice the average" has nothing to say when every block is
+   * about as wrong as every other — a picture with one block in it cannot have a
+   * block twice its own average — and answering "no hotspots" there would stop
+   * the refinement on exactly the drawings that need it most.
+   */
+  const worthIt = standOut.length > 0 ? standOut : averages;
+
+  const share = Math.max(0, Math.min(1, options.hotspotShare));
+  const take = Math.min(worthIt.length, Math.max(1, Math.round(averages.length * share)));
+  const hot = new Uint8Array(across * down);
+  let blocks = 0;
+  for (let index = 0; index < take; index += 1) {
+    hot[worthIt[index]!.block] = 1;
+    blocks += 1;
+  }
+
+  return {
+    blocks,
+    /*
+     * Asked of the run itself rather than of the box round it. A boundary can be
+     * long and thin — the outline of a face crosses most of the picture — and
+     * the box round one of those touches a hot block wherever the block is, so
+     * asking the box is asking nothing.
+     */
+    runsThrough(points) {
+      for (const point of points) {
+        const column = Math.floor(point.x / size);
+        const row = Math.floor(point.y / size);
+        if (column < 0 || row < 0 || column >= across || row >= down) continue;
+        if (hot[row * across + column]) return true;
+      }
+      return false;
+    },
+    holds(point) {
+      const column = Math.floor(point.x / size);
+      const row = Math.floor(point.y / size);
+      if (column < 0 || row < 0 || column >= across || row >= down) return false;
+      return hot[row * across + column] === 1;
+    },
+  };
 }
 
 /**
@@ -1023,23 +1467,62 @@ export function vectorize(
  */
 export function toBudget(
   points: VectorPoint[],
-  detail: number,
+  detail: Tolerance,
   maxPoints: number,
   minimum: number,
   closed = false,
 ): VectorPoint[] {
-  const reduce = (tolerance: number) =>
-    closed ? simplifyClosed(points, tolerance) : simplify(points, tolerance);
+  // A budget is met by loosening *everything* in proportion, so a boundary that
+  // is tight in one place and loose in another keeps that shape as it gives
+  // points up.
+  const scaled = (by: number): Tolerance =>
+    typeof detail === 'number' ? detail * by : (point) => detail(point) * by;
+  const reduce = (by: number) =>
+    closed ? simplifyClosed(points, scaled(by)) : simplify(points, scaled(by));
+  const cap = Math.max(minimum, maxPoints);
 
-  let out = reduce(detail);
+  let out = reduce(1);
 
-  if (maxPoints > 0) {
-    let tolerance = Math.max(0.2, detail);
-    for (let round = 0; round < 12 && out.length > Math.max(minimum, maxPoints); round += 1) {
-      tolerance *= 1.8;
-      out = reduce(tolerance);
+  if (maxPoints > 0 && out.length > cap) {
+    /*
+     * The *smallest* tolerance that fits the budget, found by bisection.
+     *
+     * The obvious way — double the tolerance until it fits — overshoots, and
+     * overshooting here is not a small matter. A boundary needing twenty-one
+     * points at 0.45 goes 0.81, 1.46, 2.62 and lands at 4.7, which is three
+     * times looser than the setting ever asked for, while the boundary beside it
+     * fits on the first try and stays sharp. The drawing then has some edges
+     * traced and some flattened, and — measured — asking for *more* points came
+     * back with more error than asking for fewer, which is not a thing a setting
+     * should ever do.
+     *
+     * Looser never means more points, so the smallest tolerance that fits can be
+     * found exactly, and no boundary is loosened further than its own budget
+     * requires.
+     */
+    let tight = 1;
+    let loose = 1;
+    let fitted: VectorPoint[] | null = null;
+    for (let step = 0; step < 20 && !fitted; step += 1) {
+      loose = 2 ** (step + 1);
+      const tried = reduce(loose);
+      if (tried.length <= cap) fitted = tried;
+    }
+    if (fitted) {
+      for (let step = 0; step < 12; step += 1) {
+        const middle = (tight + loose) / 2;
+        const tried = reduce(middle);
+        if (tried.length <= cap) {
+          loose = middle;
+          fitted = tried;
+        } else {
+          tight = middle;
+        }
+      }
+      out = fitted;
     }
   }
+
   if (out.length >= minimum) return out;
 
   /*
@@ -1051,10 +1534,10 @@ export function toBudget(
    * shape is simply gone from the drawing, which is never the right answer to
    * "simplify this": losing detail is the deal, losing the shape is not.
    */
-  let tolerance = detail;
-  for (let round = 0; round < 8 && tolerance > 0.01; round += 1) {
-    tolerance /= 2;
-    const tighter = reduce(tolerance);
+  let by = 1;
+  for (let round = 0; round < 8; round += 1) {
+    by /= 2;
+    const tighter = reduce(by);
     if (tighter.length >= minimum) return tighter;
   }
   return points;
@@ -1080,15 +1563,9 @@ function quickLine(
   path: Centreline,
   region: PixelRegion,
   all: Centreline[],
-  options: VectorizeOptions,
+  budget: Budget,
 ): FittedLine | null {
-  const anchors = toBudget(
-    path.points,
-    options.detail,
-    options.maxPoints,
-    path.closed ? 3 : 2,
-    path.closed,
-  );
+  const anchors = toBudget(path.points, budget.detail, budget.maxPoints, path.closed ? 3 : 2, path.closed);
   if (anchors.length < (path.closed ? 3 : 2)) return null;
 
   const total = all.reduce(
@@ -1099,68 +1576,241 @@ function quickLine(
   return { points: anchors, width, closed: path.closed };
 }
 
-/** An area, simplified and then cut into convex pieces only if it needs to be. */
-function quickArea(traced: VectorPoint[], options: VectorizeOptions): VectorPoint[][] {
-  // An outline is a ring, always.
-  const outline = toBudget(traced, options.detail, options.maxPoints, 3, true);
-  if (outline.length < 3) return [];
-  return toConvexPieces(outline);
+/** A region's boundary, holes cut in, as convex pieces that tile it exactly. */
+export function convexPieces(loops: RegionLoops): VectorPoint[][] {
+  if (loops.outer.length < 3) return [];
+  const holes = loops.holes.filter((hole) => hole.length >= 3);
+  if (holes.length === 0) return toConvexPieces(loops.outer);
+  return toConvexPieces(bridgeHoles(loops.outer, holes));
 }
 
 /**
- * How many pixels the finished drawing gets wrong, over the whole picture.
+ * A ring with holes in it, as one ring.
  *
- * Measured once, at the end, rather than per candidate. The old fit asked this
- * question hundreds of times a shape and that was most of what the flow spent
- * its time on; asking it once tells you just as much about whether the answer is
- * any good, and costs one pass.
+ * Ear clipping wants a simple polygon, and a shape with a hole is not one. The
+ * old answer was to ignore the hole and fill the outer boundary, which turns a
+ * black outline into a black disc and a washer into a coin — right only as long
+ * as something is painted over the middle afterwards, and plainly wrong when
+ * what is in the middle is nothing at all.
+ *
+ * So each hole is joined to the outside by a **bridge**: a cut from a hole
+ * vertex to an outer vertex, walked down one side and back up the other. The
+ * ring stays one closed loop, with a slit of zero width where the cut is, and
+ * the hole is genuinely empty.
+ *
+ * The bridge is chosen as the shortest cut that crosses nothing. That is more
+ * work than the usual ray-cast rule and far easier to be sure of, and the lists
+ * are short — a shape has a handful of anchors by the time it gets here, not a
+ * thousand.
  */
-function measureWhole(source: Bitmap, drawn: VectorImage, options: VectorizeOptions): number {
-  const { width, height } = source;
-  const box: Box = { x: 0, y: 0, width, height };
-  const painted = new Int32Array(width * height).fill(-1);
-  const scratch = coverageFor(box);
+export function bridgeHoles(outer: VectorPoint[], holes: VectorPoint[][]): VectorPoint[] {
+  // Holes have to wind against the ring they are cut into, or the slit turns
+  // itself inside out and the "hole" is drawn as another lobe of the shape.
+  const facing = signedArea(outer) > 0 ? 1 : -1;
+  const pending = holes
+    .map((hole) => (signedArea(hole) * facing > 0 ? [...hole].reverse() : [...hole]))
+    // Biggest first: a big hole has the most ways to reach the outside, and
+    // cutting it first leaves the small ones the room they need.
+    .sort((a, b) => Math.abs(signedArea(b)) - Math.abs(signedArea(a)));
 
-  const order = [
-    ...drawn.shapes.filter((shape) => shape.kind === 'polygon'),
-    ...drawn.shapes.filter((shape) => shape.kind === 'line'),
-  ];
-  for (const shape of order) {
-    scratch.fill(0);
-    if (shape.kind === 'polygon') fillInto(shape.points, box, scratch);
-    else strokeInto(shape.points, shape.width, box, scratch);
-    const rgb = fromHex(shape.color);
-    if (!rgb) continue;
-    const packed = (rgb.r << 16) | (rgb.g << 8) | rgb.b;
-    for (let index = 0; index < scratch.length; index += 1) {
-      if (scratch[index]! >= 128) painted[index] = packed;
-    }
+  let ring = [...outer];
+  for (const hole of pending) {
+    const bridge = shortestCut(ring, hole, pending);
+    if (!bridge) continue;
+    const [at, from] = bridge;
+    ring = [
+      ...ring.slice(0, at + 1),
+      ...hole.slice(from),
+      ...hole.slice(0, from + 1),
+      ring[at]!,
+      ...ring.slice(at + 1),
+    ];
   }
-
-  let wrong = 0;
-  for (let index = 0; index < width * height; index += 1) {
-    const at = index * 4;
-    const clear = source.data[at + 3]! <= options.alphaFloor;
-    const got = painted[index]!;
-    if (clear) {
-      // Transparent in the source and painted over is wrong too, or a shape
-      // could score well by spilling into the empty part of the picture.
-      if (got >= 0) wrong += 1;
-      continue;
-    }
-    if (got < 0) {
-      wrong += 1;
-      continue;
-    }
-    const distance = colorDistance(
-      { r: (got >> 16) & 255, g: (got >> 8) & 255, b: got & 255 },
-      { r: source.data[at]!, g: source.data[at + 1]!, b: source.data[at + 2]! },
-    );
-    // Judged by eye rather than by byte: a pixel a shade off is not wrong.
-    if (distance > 8) wrong += 1;
-  }
-  return wrong;
+  return ring;
 }
+
+/** The shortest cut from the ring to a hole that crosses no other edge. */
+function shortestCut(
+  ring: VectorPoint[],
+  hole: VectorPoint[],
+  others: VectorPoint[][],
+): [number, number] | null {
+  const pairs: Array<[number, number, number]> = [];
+  for (let at = 0; at < ring.length; at += 1) {
+    for (let from = 0; from < hole.length; from += 1) {
+      pairs.push([at, from, Math.hypot(ring[at]!.x - hole[from]!.x, ring[at]!.y - hole[from]!.y)]);
+    }
+  }
+  pairs.sort((a, b) => a[2] - b[2]);
+
+  for (const [at, from] of pairs) {
+    const a = ring[at]!;
+    const b = hole[from]!;
+    if (crossesAny(a, b, ring) || crossesAny(a, b, hole)) continue;
+    if (others.some((other) => other !== hole && crossesAny(a, b, other))) continue;
+    return [at, from];
+  }
+  return null;
+}
+
+/** Does the segment cut through any edge of this ring, other than at its ends? */
+function crossesAny(a: VectorPoint, b: VectorPoint, ring: VectorPoint[]): boolean {
+  for (let index = 0; index < ring.length; index += 1) {
+    const c = ring[index]!;
+    const d = ring[(index + 1) % ring.length]!;
+    // An edge that begins or ends at the cut's own endpoints is not a crossing —
+    // that is the cut arriving, which is the whole point of it.
+    if (same(a, c) || same(a, d) || same(b, c) || same(b, d)) continue;
+    if (segmentsCross(a, b, c, d)) return true;
+  }
+  return false;
+}
+
+function segmentsCross(a: VectorPoint, b: VectorPoint, c: VectorPoint, d: VectorPoint): boolean {
+  const side = (p: VectorPoint, q: VectorPoint, r: VectorPoint) =>
+    Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  const one = side(a, b, c);
+  const two = side(a, b, d);
+  const three = side(c, d, a);
+  const four = side(c, d, b);
+  return one !== two && three !== four && one !== 0 && two !== 0 && three !== 0 && four !== 0;
+}
+
+/** How many times longer than it is wide a piece must be to be a mark. */
+const ELONGATED = 3;
+
+/**
+ * Does drawing this piece as a stroke cover its ink at least as well as filling
+ * it does?
+ *
+ * Judged over the piece's own box against the pixels of the region it came from,
+ * so it costs what the piece is worth rather than what the picture is. A tie
+ * goes to the stroke, because two anchors and a width beat three anchors when
+ * they say the same thing.
+ */
+function coversBetter(
+  slim: { points: VectorPoint[]; width: number },
+  piece: VectorPoint[],
+  pixels: Set<number>,
+  imageWidth: number,
+): boolean {
+  const box = boxOf(
+    piece.map((point) => Math.round(point.y) * imageWidth + Math.round(point.x)),
+    imageWidth,
+    2,
+  );
+  if (box.width <= 0 || box.height <= 0) return false;
+
+  const filled = coverageFor(box);
+  fillInto(piece, box, filled);
+  const stroked = coverageFor(box);
+  strokeInto(slim.points, slim.width, box, stroked);
+
+  let asArea = 0;
+  let asMark = 0;
+  for (let row = 0; row < box.height; row += 1) {
+    for (let column = 0; column < box.width; column += 1) {
+      const x = box.x + column;
+      const y = box.y + row;
+      if (x < 0 || y < 0 || x >= imageWidth) continue;
+      const index = y * imageWidth + x;
+      const ink = pixels.has(index);
+      const at = row * box.width + column;
+      if (filled[at]! >= 128 !== ink) asArea += 1;
+      if (stroked[at]! >= 128 !== ink) asMark += 1;
+    }
+  }
+  return asMark <= asArea;
+}
+
+/**
+ * A convex piece measured across its narrowest direction, as a stroke — or
+ * `null` if it is an area: wide enough, or too short to be a mark.
+ *
+ * The narrowest direction of a convex shape is always across one of its edges,
+ * so trying each edge in turn finds it exactly. For a triangle that is its
+ * shortest altitude, which is what "the minimum width of any triangle" means.
+ *
+ * What comes back runs the length of the piece along the middle of it, so the
+ * stroke covers the same ink the polygon did with two anchors instead of three
+ * or more.
+ */
+export function asStroke(
+  piece: VectorPoint[],
+  lineWidth: number,
+): { points: VectorPoint[]; width: number } | null {
+  if (piece.length < 3) return null;
+
+  let width = Infinity;
+  let across: VectorPoint = { x: 1, y: 0 };
+  for (let index = 0; index < piece.length; index += 1) {
+    const a = piece[index]!;
+    const b = piece[(index + 1) % piece.length]!;
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (length < 1e-9) continue;
+    // The edge's outward normal, and how far the furthest vertex is along it.
+    const nx = -(b.y - a.y) / length;
+    const ny = (b.x - a.x) / length;
+    let deepest = 0;
+    for (const point of piece) {
+      deepest = Math.max(deepest, Math.abs((point.x - a.x) * nx + (point.y - a.y) * ny));
+    }
+    if (deepest < width) {
+      width = deepest;
+      across = { x: nx, y: ny };
+    }
+  }
+  if (!Number.isFinite(width) || width > lineWidth) return null;
+
+  // Along the piece is across the narrow way, turned a quarter.
+  const along = { x: -across.y, y: across.x };
+  let low = Infinity;
+  let high = -Infinity;
+  let nearSide = Infinity;
+  let farSide = -Infinity;
+  for (const point of piece) {
+    const t = point.x * along.x + point.y * along.y;
+    const u = point.x * across.x + point.y * across.y;
+    low = Math.min(low, t);
+    high = Math.max(high, t);
+    nearSide = Math.min(nearSide, u);
+    farSide = Math.max(farSide, u);
+  }
+  if (high - low < 1e-6) return null;
+
+  /*
+   * Thin is half the rule here too.
+   *
+   * A mark has a length. A triangle a pixel wide and two long is not a stroke,
+   * it is a scrap of one — and drawn as a stroke it is a round-capped blob of
+   * roughly the right area in roughly the wrong place. At a tight tolerance a
+   * boundary is made of scraps like that by the hundred, and turning them all
+   * into strokes takes a drawing that was 1.2% wrong to 4.7%. Measured.
+   *
+   * Long enough to be a mark is the same question the region test asks, so it
+   * gets the same kind of answer: three times longer than it is wide.
+   */
+  if (high - low < width * ELONGATED) return null;
+
+  const middle = (nearSide + farSide) / 2;
+  const on = (t: number): VectorPoint => ({
+    x: along.x * t + across.x * middle,
+    y: along.y * t + across.y * middle,
+  });
+  /*
+   * Its area over its length, not the width that made it a sliver.
+   *
+   * A triangle tapers: at its base it is as wide as the narrowest measure and at
+   * its point it is nothing, so a band of the widest part covers half again too
+   * much ink and a band of the narrowest covers half too little. Area over
+   * length is the width of the rectangle that covers the same, which is the same
+   * rule a drawn stroke's width is measured by.
+   */
+  const covering = Math.abs(signedArea(piece)) / (high - low);
+  return { points: [on(low), on(high)], width: Math.max(Math.min(covering, width), 0.5) };
+}
+
+
 
 /* ------------------------------------------------------------------ *
  * The slow path
@@ -1171,118 +1821,8 @@ function measureWhole(source: Bitmap, drawn: VectorImage, options: VectorizeOpti
  * drawing you are keeping, not for the twenty you throw away first.
  * ------------------------------------------------------------------ */
 
-/** One box cropped to another, so a tight box never reaches outside the image. */
-function clampBox(inner: Box, outer: Box): Box {
-  const x = Math.max(inner.x, outer.x);
-  const y = Math.max(inner.y, outer.y);
-  return {
-    x,
-    y,
-    width: Math.max(0, Math.min(inner.x + inner.width, outer.x + outer.width) - x),
-    height: Math.max(0, Math.min(inner.y + inner.height, outer.y + outer.height) - y),
-  };
-}
 
-/**
- * One stroke, fitted to the ink it was traced from.
- *
- * The centreline says where the stroke runs; everything else about it is
- * measured. The width is searched from thin up to the configured maximum, which
- * is what "expand until it fills the contrast gap" means in practice — the width
- * that leaves fewest wrong pixels *is* the width of the gap. Then each end is
- * pushed outwards while that keeps helping, because thinning ate them.
- */
-function fitLine(
-  path: Centreline,
-  pixels: Set<number>,
-  box: Box,
-  imageWidth: number,
-  options: VectorizeOptions,
-  weights: FitWeights,
-  hidden?: Hidden,
-): FittedLine | null {
-  const start = path.points;
-  if (start.length < (path.closed ? 3 : 2)) return null;
 
-  // Simplified first, so the search is over a handful of anchors rather than one
-  // per pixel — and then pruned again at the end, once the width is known.
-  const rough = toBudget(
-    start,
-    Math.max(0.6, options.detail),
-    options.maxPoints,
-    path.closed ? 3 : 2,
-    path.closed,
-  );
-  const seed = rough.length >= (path.closed ? 3 : 2) ? rough : start;
-
-  /*
-   * Searched past the limit on purpose.
-   *
-   * Capping the search at the limit would make the "this is a stroke" test
-   * vacuous — the answer could never exceed the threshold it is compared
-   * against, so every candidate would pass and a squat blob would come out as a
-   * very fat line. Asking what width the ink actually wants, and *then* checking
-   * it against the limit, is a question with two possible answers.
-   */
-  // Scored over the stroke's own box rather than the region's. A region of
-  // crossing strokes spans the picture while each stroke spans a corner of it,
-  // and every candidate width was walking all of the former to measure the
-  // latter.
-  const reach = options.lineWidth * 2 + 4;
-  const near = new Set<number>();
-  for (const point of seed) near.add(Math.round(point.y) * imageWidth + Math.round(point.x));
-  const tight = clampBox(boxOf(near, imageWidth, Math.ceil(reach)), box);
-
-  let fit = fitStroke(seed, pixels, tight, imageWidth, options.lineWidth * 2 + 2, weights, {
-    // A closed outline has no ends to push out; pushing one would open it.
-    maxExtend: path.closed ? 0 : undefined,
-    hidden,
-  });
-  fit = pruneStroke(fit, pixels, tight, imageWidth, weights, hidden);
-  if (fit.points.length < (path.closed ? 3 : 2)) return null;
-
-  return { points: fit.points, width: fit.width, closed: path.closed };
-}
-
-/**
- * One filled area, fitted to the color it stands for.
- *
- * A ladder of simplify tolerances is tried, each cut into convex pieces and
- * scored as a fill; the cheapest wins and is then pruned anchor by anchor. The
- * ladder is there because simplifying and then cutting into convex pieces are
- * not independent — a looser outline can need *more* pieces, not fewer — so the
- * only honest way to compare two tolerances is to finish the job at both and
- * look at what came out.
- */
-function fitArea(
-  traced: VectorPoint[],
-  pixels: Set<number>,
-  box: Box,
-  imageWidth: number,
-  options: VectorizeOptions,
-  weights: FitWeights,
-  hidden?: Hidden,
-): PolygonFit {
-  const ladder = [0.4, 0.8, 1.2, 1.8, 2.6, 3.6];
-  let best: PolygonFit | null = null;
-  for (const tolerance of ladder) {
-    const outline = toBudget(traced, tolerance, options.maxPoints, 3, true);
-    if (outline.length < 3) continue;
-    const pieces = toConvexPieces(outline);
-    if (pieces.length === 0) continue;
-    const fit = scorePieces(pieces, pixels, box, imageWidth, weights, undefined, hidden);
-    if (!best || fit.cost < best.cost) best = fit;
-  }
-  if (!best) {
-    return {
-      pieces: [],
-      mismatch: { missed: pixels.size, extra: 0, wrong: pixels.size, target: pixels.size },
-      cost: Infinity,
-    };
-  }
-
-  return prunePoints(best.pieces, pixels, box, imageWidth, weights, 3, hidden);
-}
 
 function describe(region: PixelRegion, width: number): string {
   const first = region.pixels[0] ?? 0;

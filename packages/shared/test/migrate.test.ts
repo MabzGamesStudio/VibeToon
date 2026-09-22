@@ -227,5 +227,5 @@ test('a decomposition saved before the rebuild gets the settings it now needs', 
   assert.equal(migrated.options.detail, DEFAULT_VECTORIZE_OPTIONS.detail);
   assert.equal(migrated.options.edgeThreshold, DEFAULT_VECTORIZE_OPTIONS.edgeThreshold);
   assert.equal(migrated.options.maxPoints, DEFAULT_VECTORIZE_OPTIONS.maxPoints);
-  assert.equal(migrated.options.refine, DEFAULT_VECTORIZE_OPTIONS.refine);
+  assert.equal(migrated.options.refineRounds, DEFAULT_VECTORIZE_OPTIONS.refineRounds);
 });

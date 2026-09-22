@@ -344,6 +344,7 @@ export function PaletteFilterFlowEditor({
 
       <div className="vt-editor-main">
         <Stage
+          zoomable
           title="The result"
           tools={
             <span className="vt-faint" style={{ fontSize: 11 }}>

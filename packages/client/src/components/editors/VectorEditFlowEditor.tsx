@@ -467,6 +467,7 @@ export function VectorEditFlowEditor({
 
       <div className="vt-editor-main">
         <Stage
+          zoomable
           title="The drawing"
           tools={
             <>
