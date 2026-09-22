@@ -178,7 +178,7 @@ test('a counted image becomes a palette and a report', async () => {
   assert.equal(palette.colors[0]!.count, 3, 'commonest first, and carrying its own count');
 });
 
-test('two colours the image has equally often come out in a fixed order', async () => {
+test('two colors the image has equally often come out in a fixed order', async () => {
   // A tie has to break the same way every run or the palette changes under you
   // for no reason anybody edited. It breaks on the hex.
   await setPalette({

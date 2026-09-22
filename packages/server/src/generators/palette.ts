@@ -9,7 +9,7 @@ import { writeArtifact } from '../storage';
 import type { GenerationContext, GenerationResult } from './types';
 
 /**
- * Colours out of an image.
+ * Colors out of an image.
  *
  * The counting happens in the editor, because that is where an image can be
  * decoded: the browser reads a PNG, a JPEG, a WebP or a GIF without this project
@@ -58,22 +58,22 @@ export async function generatePalette(ctx: GenerationContext): Promise<Generatio
 
   if (palette.shortfall) ctx.warn(palette.shortfall);
   if (palette.dropped > 0) {
-    ctx.log(`${palette.dropped} colour group(s) held too little of the image to keep.`);
+    ctx.log(`${palette.dropped} color group(s) held too little of the image to keep.`);
   }
 
   ctx.log(
-    `Read ${histogram.pixels.toLocaleString()} pixel(s) of ${histogram.width}×${histogram.height} as ${histogram.colors.length.toLocaleString()} distinct colour(s).`,
+    `Read ${histogram.pixels.toLocaleString()} pixel(s) of ${histogram.width}×${histogram.height} as ${histogram.colors.length.toLocaleString()} distinct color(s).`,
   );
 
   const report = [
-    `# ${ctx.node.name} — colour palette`,
+    `# ${ctx.node.name} — color palette`,
     '',
     `- Image: **${histogram.source}** (${histogram.width}×${histogram.height})`,
     `- Pixels counted: ${histogram.pixels.toLocaleString()}${
       histogram.transparent > 0 ? ` (${histogram.transparent.toLocaleString()} skipped as transparent)` : ''
     }`,
-    `- Distinct colours at ${histogram.precision} bits a channel: ${histogram.colors.length.toLocaleString()}`,
-    `- Colours asked for: ${data.options.count} · found: **${summary.colors}**`,
+    `- Distinct colors at ${histogram.precision} bits a channel: ${histogram.colors.length.toLocaleString()}`,
+    `- Colors asked for: ${data.options.count} · found: **${summary.colors}**`,
     `- Minimum distance asked for: ${data.options.minDistance} · closest pair: **${summary.closest.toFixed(1)}**`,
     `- Temperature: ${data.options.temperature} · seed: \`${data.options.seed}\``,
     `- Share of the image the palette accounts for: ${(summary.covered * 100).toFixed(1)}%`,
@@ -81,7 +81,7 @@ export async function generatePalette(ctx: GenerationContext): Promise<Generatio
     '',
     '## The palette',
     '',
-    '| | Colour | Share | Pixels | Colours in its group | Mode of the group | Moved | Nearest other |',
+    '| | Color | Share | Pixels | Colors in its group | Mode of the group | Moved | Nearest other |',
     '| --- | --- | --- | --- | --- | --- | --- | --- |',
     ...palette.entries.map(
       (entry, index) =>
@@ -92,21 +92,21 @@ export async function generatePalette(ctx: GenerationContext): Promise<Generatio
     '',
     '## How it was worked out',
     '',
-    'Every pixel was counted, the counts sorted, and the commonest colours taken in',
-    'order. A colour closer than the minimum distance to one already chosen joined',
-    "that colour's group rather than becoming an entry of its own, so a gradient",
+    'Every pixel was counted, the counts sorted, and the commonest colors taken in',
+    'order. A color closer than the minimum distance to one already chosen joined',
+    "that color's group rather than becoming an entry of its own, so a gradient",
     'counts once instead of filling the palette with near neighbours. Distance is',
     'measured in OKLab, where equal numbers look equally different, times 100 — two',
-    'colours you would call the same are under about 2, navy and royal blue about 20.',
+    'colors you would call the same are under about 2, navy and royal blue about 20.',
     '',
     ...(data.options.temperature > 0
       ? [
           `At temperature ${data.options.temperature} each entry moved that far from its`,
-          "group's commonest colour towards another member of the same group, so every",
-          'colour above is still a colour the image contains.',
+          "group's commonest color towards another member of the same group, so every",
+          'color above is still a color the image contains.',
           '',
         ]
-      : ['At temperature 0 every entry is its group’s commonest colour exactly.', '']),
+      : ['At temperature 0 every entry is its group’s commonest color exactly.', '']),
     '## Settings',
     '',
     '```json',
@@ -153,7 +153,7 @@ export async function generatePalette(ctx: GenerationContext): Promise<Generatio
   ];
 
   ctx.log(
-    `${summary.colors} colour(s): ${palette.entries.map((entry) => entry.hex).join(' ')} — closest pair ${summary.closest.toFixed(1)} apart.`,
+    `${summary.colors} color(s): ${palette.entries.map((entry) => entry.hex).join(' ')} — closest pair ${summary.closest.toFixed(1)} apart.`,
   );
   return { outputs };
 }

@@ -1,5 +1,6 @@
 import { generateAnimatic } from './animatic';
 import { generateAssembly } from './assembly';
+import { generateBind } from './bind';
 import { generateBrief } from './brief';
 import { generateCorpus } from './corpus';
 import { generateCutout } from './cutout';
@@ -9,11 +10,14 @@ import { generateGrammar } from './grammar';
 import { generateImage } from './image';
 import { generateLexicon } from './lexicon';
 import { generatePalette } from './palette';
+import { generatePose } from './pose';
 import { generatePaletteFilter } from './paletteFilter';
 import { generateRig } from './rig';
 import { generateDialog } from './dialog';
 import { generateStoryboard } from './storyboard';
 import { generateText } from './text';
+import { generateVectorEdit } from './vectorEdit';
+import { generateVectorize } from './vectorize';
 import type { Generator } from './types';
 
 /**
@@ -34,10 +38,14 @@ const GENERATORS: Record<string, Generator> = {
   'animation.prop.design': generateDesign,
   'animation.animatic': generateAnimatic,
   'animation.rig': generateRig,
+  'animation.bind': generateBind,
+  'animation.pose': generatePose,
   'art.palette': generatePalette,
   'art.palette.filter': generatePaletteFilter,
   'art.image': generateImage,
   'art.cutout': generateCutout,
+  'art.vectorize': generateVectorize,
+  'art.vector.edit': generateVectorEdit,
   'production.edit': generateAssembly,
   'production.render': generateAssembly,
 };

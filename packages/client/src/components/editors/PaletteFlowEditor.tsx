@@ -27,14 +27,14 @@ import { EditorShell } from './EditorShell';
  *
  * A photograph off a phone is a few million pixels and counting all of them in
  * JavaScript takes long enough to notice. Every Nth pixel is taken instead, which
- * is a sample of the real colours rather than a resize — downscaling would
- * interpolate, and interpolation invents colours that are not in the picture,
+ * is a sample of the real colors rather than a resize — downscaling would
+ * interpolate, and interpolation invents colors that are not in the picture,
  * which is exactly what a palette must not contain.
  */
 const SAMPLE_TARGET = 400_000;
 
 /**
- * Colours out of an image.
+ * Colors out of an image.
  *
  * Reading happens here because this is where an image can be decoded: the browser
  * already knows how to read a PNG, a JPEG, a WebP or a GIF, and the alternative is
@@ -73,11 +73,11 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
   );
 
   /**
-   * Decode the image and count its colours.
+   * Decode the image and count its colors.
    *
-   * The canvas is the decoder. Pixels too transparent to have a colour are
+   * The canvas is the decoder. Pixels too transparent to have a color are
    * skipped rather than counted as black, which is what a naive read of a PNG
-   * with a cut-out background gives you: a palette whose commonest colour is the
+   * with a cut-out background gives you: a palette whose commonest color is the
    * hole in the middle.
    */
   const readImage = useCallback(async () => {
@@ -142,7 +142,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
       patch({ ...data, histogram });
       notify(
         'success',
-        `Counted ${counted.toLocaleString()} pixel(s) of ${width}×${height} as ${colors.length.toLocaleString()} distinct colour(s)${
+        `Counted ${counted.toLocaleString()} pixel(s) of ${width}×${height} as ${colors.length.toLocaleString()} distinct color(s)${
           stride > 1 ? `, sampling every ${stride}${stride === 2 ? 'nd' : stride === 3 ? 'rd' : 'th'} pixel` : ''
         }.`,
       );
@@ -182,7 +182,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
       banner={
         blocked ? (
           <div className="vt-sync-banner">
-            <span>{blocked} This flow takes the colours out of a picture; it does not make one.</span>
+            <span>{blocked} This flow takes the colors out of a picture; it does not make one.</span>
           </div>
         ) : state === 'stale' ? (
           <div className="vt-sync-banner">
@@ -218,7 +218,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                       {data.histogram.width}×{data.histogram.height} ·{' '}
                       {data.histogram.pixels.toLocaleString()} pixel(s)
                     </dd>
-                    <dt>Distinct colours</dt>
+                    <dt>Distinct colors</dt>
                     <dd>{data.histogram.colors.length.toLocaleString()}</dd>
                     <dt>Read</dt>
                     <dd>
@@ -253,7 +253,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
         <div className="vt-section">
           <h3>The palette</h3>
           <Slider
-            label="Colours"
+            label="Colors"
             tip="palette.count"
             min={1}
             max={24}
@@ -281,7 +281,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
             step={0.05}
             value={options.temperature}
             onChange={(value) => setOption('temperature', value)}
-            hint="How far each entry may wander from its group's commonest colour — towards another colour in the same group, never out of it."
+            hint="How far each entry may wander from its group's commonest color — towards another color in the same group, never out of it."
           />
           <Field
             label="Seed"
@@ -308,7 +308,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
         <div className="vt-section">
           <h3>Counting</h3>
           <Slider
-            label="Colour precision"
+            label="Color precision"
             tip="palette.precision"
             min={2}
             max={8}
@@ -316,7 +316,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
             value={options.precision}
             format={(value) => `${Math.round(value)} bits · ${2 ** Math.round(value)} levels`}
             onChange={(value) => setOption('precision', Math.round(value))}
-            hint="How finely colours are rounded together before counting. Read the image again for a change here to take effect."
+            hint="How finely colors are rounded together before counting. Read the image again for a change here to take effect."
           />
           {data.histogram && data.histogram.precision !== options.precision ? (
             <div className="vt-hint">
@@ -332,7 +332,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
             value={options.alphaFloor}
             format={(value) => value.toFixed(0)}
             onChange={(value) => setOption('alphaFloor', value)}
-            hint="A cut-out background is not a colour. 0 counts every pixel, transparent ones included."
+            hint="A cut-out background is not a color. 0 counts every pixel, transparent ones included."
           />
           <Slider
             label="Drop groups under"
@@ -343,7 +343,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
             value={options.minShare}
             format={(value) => `${(value * 100).toFixed(1)}% of the image`}
             onChange={(value) => setOption('minShare', value)}
-            hint="Leaves out a colour that barely appears. The commonest is always kept."
+            hint="Leaves out a color that barely appears. The commonest is always kept."
           />
         </div>
 
@@ -351,7 +351,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
           <div className="vt-section">
             <h3>What came out</h3>
             <dl className="vt-kv">
-              <dt>Colours</dt>
+              <dt>Colors</dt>
               <dd>
                 {summary.colors} of {options.count} asked for
               </dd>
@@ -392,8 +392,8 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                     data.pinned[String(index)] ? ' is-pinned' : ''
                   }`}
                   style={{ background: entry.hex, flexGrow: Math.max(0.35, entry.share * palette.entries.length) }}
-                  title={`${entry.hex} — ${(entry.share * 100).toFixed(1)}% of the image, ${entry.members} colour(s) in its group, nearest other entry ${entry.nearest.toFixed(1)} away`}
-                  aria-label={`Colour ${index + 1}, ${entry.hex}`}
+                  title={`${entry.hex} — ${(entry.share * 100).toFixed(1)}% of the image, ${entry.members} color(s) in its group, nearest other entry ${entry.nearest.toFixed(1)} away`}
+                  aria-label={`Color ${index + 1}, ${entry.hex}`}
                   onClick={() => setSelected(selected === index ? null : index)}
                 >
                   <span className="vt-swatch-label">
@@ -407,7 +407,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
             {selected !== null && palette.entries[selected] ? (
               <div className="vt-section">
                 <h3>
-                  <span>Colour {selected + 1}</span>
+                  <span>Color {selected + 1}</span>
                   <span className="vt-faint">{palette.entries[selected]!.hex}</span>
                 </h3>
                 <dl className="vt-kv">
@@ -416,7 +416,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                     {(palette.entries[selected]!.share * 100).toFixed(1)}% ·{' '}
                     {palette.entries[selected]!.count.toLocaleString()} pixel(s)
                   </dd>
-                  <dt>Colours in its group</dt>
+                  <dt>Colors in its group</dt>
                   <dd>{palette.entries[selected]!.members}</dd>
                   <dt>The group's commonest</dt>
                   <dd>
@@ -429,14 +429,14 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                   <dd>{palette.entries[selected]!.nearest.toFixed(1)} away</dd>
                 </dl>
                 <Field
-                  label="Pin this colour"
+                  label="Pin this color"
                   tip="palette.pinned"
-                  hint="A pinned colour is used as it is, whatever the settings do. Clear it to go back to what was counted."
+                  hint="A pinned color is used as it is, whatever the settings do. Clear it to go back to what was counted."
                 >
                   <div className="vt-row">
                     <input
                       type="color"
-                      aria-label="Pin this colour"
+                      aria-label="Pin this color"
                       value={palette.entries[selected]!.hex}
                       onChange={(event) => pin(selected, event.target.value)}
                     />
@@ -460,7 +460,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
               </div>
             ) : (
               <div className="vt-hint">
-                Each band is one colour, as wide as the share of the image it accounts for. Click one to see
+                Each band is one color, as wide as the share of the image it accounts for. Click one to see
                 where it came from, or to pin it.
               </div>
             )}

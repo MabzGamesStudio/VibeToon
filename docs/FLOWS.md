@@ -221,7 +221,7 @@ Line, shading, palette, frame rate and how motion should read.
 
 - **In:** Tone
 - **Out:** Style guide `style.md`, Palette `palette.json`
-- **Fields:** Line & shape, Colour, Motion, Rules
+- **Fields:** Line & shape, Color, Motion, Rules
 
 ### Character Design
 
@@ -271,6 +271,34 @@ A skeleton for the character: what bones it has, and how far each joint may move
 
 - **In:** Design, Spec
 - **Out:** Rig `rig.json`, Rig notes `rig.md`
+
+### Rig Binding
+
+`animation.bind` · **bespoke editor**
+
+Assigns the shapes of a vectorized drawing to the bones of a skeleton.
+
+- **In:** Rig *(required)*, Vector *(required)*
+- **Out:** Bound rig `bound.json`, Preview `bound.svg`, Report `bound.md`
+- **Rules a new wire leaving `bound` starts with:**
+
+  ```
+  keep: bones, shapes, binding
+  ```
+
+### Pose
+
+`animation.pose` · **bespoke editor**
+
+Moves a bound rig: turn a joint, or drag a limb and let the joints work it out.
+
+- **In:** Bound rig *(required)*
+- **Out:** Pose `pose.json`, Drawing `pose.svg`
+- **Rules a new wire leaving `pose` starts with:**
+
+  ```
+  keep: joint angles
+  ```
 
 ### Animatic
 
@@ -340,21 +368,49 @@ Cut a subject out of an image by clicking regions in and out, and cutting across
 
 `art.palette.filter` · **bespoke editor**
 
-Filters an image against a palette: keep those colours, drop them, or snap every pixel to the nearest.
+Filters an image against a palette: keep those colors, drop them, or snap every pixel to the nearest.
 
 - **In:** Image *(required)*, Palette *(required)*
 - **Out:** Filtered image `filtered.png`, Report `filter.md`
 - **Rules a new wire leaving `image` starts with:**
 
   ```
-  keep: transparency, palette colours
+  keep: transparency, palette colors
   ```
 
-### Colour Palette
+### Polygon Decomposition
+
+`art.vectorize` · **bespoke editor**
+
+Turns a picture back into shapes: strokes as lines, areas as convex polygons.
+
+- **In:** Image *(required)*
+- **Out:** Vector `vector.json`, Drawing `vector.svg`, Report `vector.md`
+- **Rules a new wire leaving `vector` starts with:**
+
+  ```
+  keep: shapes, colors
+  ```
+
+### Vector Editor
+
+`art.vector.edit` · **bespoke editor**
+
+Edit a vectorized image: move, add and delete points, and cut shapes apart.
+
+- **In:** Vector *(required)*
+- **Out:** Vector `vector.json`, Drawing `vector.svg`
+- **Rules a new wire leaving `vector` starts with:**
+
+  ```
+  keep: shapes, colors
+  ```
+
+### Color Palette
 
 `art.palette` · **bespoke editor**
 
-Counts the colours in an image and takes the commonest that are far enough apart.
+Counts the colors in an image and takes the commonest that are far enough apart.
 
 - **In:** Image *(required)*
 - **Out:** Palette `palette.json`, Report `report.md`
@@ -365,15 +421,15 @@ Counts the colours in an image and takes the commonest that are far enough apart
   ignore: pixel counts
   ```
 
-### Colour Script
+### Color Script
 
 `art.colorscript` · brief editor
 
-The clip as a strip of colour and light, beat by beat.
+The clip as a strip of color and light, beat by beat.
 
 - **In:** Storyboard, Style
-- **Out:** Colour script `colorscript`, Colour notes `color.md`
-- **Fields:** Colour arc, Keys
+- **Out:** Color script `colorscript`, Color notes `color.md`
+- **Fields:** Color arc, Keys
 
 ### Backgrounds
 
@@ -381,7 +437,7 @@ The clip as a strip of colour and light, beat by beat.
 
 Finished painted backgrounds, one per unique camera setup.
 
-- **In:** Layout, Set design, Colour
+- **In:** Layout, Set design, Color
 - **Out:** Backgrounds `backgrounds`, BG list `backgrounds.md`
 - **Fields:** Background list, Treatment
 
@@ -523,4 +579,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-43 flow kinds.
+47 flow kinds.

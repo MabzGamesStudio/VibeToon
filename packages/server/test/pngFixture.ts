@@ -30,7 +30,7 @@ function chunk(type: string, body: Buffer): Buffer {
 }
 
 /**
- * An opaque truecolour PNG from a grid of `[r, g, b]` rows.
+ * An opaque truecolor PNG from a grid of `[r, g, b]` rows.
  *
  * `pixels[y][x]` is one pixel, and every row must be the same length.
  */
@@ -42,7 +42,7 @@ export function encodePng(pixels: Array<Array<[number, number, number]>>): Buffe
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
   ihdr[8] = 8; // bit depth
-  ihdr[9] = 2; // colour type: truecolour
+  ihdr[9] = 2; // color type: truecolor
 
   // Each scanline is prefixed with its filter type; 0 means "stored as is".
   const raw = Buffer.concat(

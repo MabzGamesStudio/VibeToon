@@ -7,12 +7,15 @@ import {
   inputsForPort,
   labelOf,
   linePoints,
+  regionOutline,
   maskBounds,
   newId,
   objectsOf,
   selectObject,
   setLine,
+  setRegion,
   setSeed,
+  takeSeq,
   summariseCutout,
   type Bitmap,
   type CutLine,
@@ -20,6 +23,7 @@ import {
   type FlowNode,
   type MaskReport,
   type Project,
+  type Region,
   type Seed,
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
@@ -31,7 +35,7 @@ import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
 
 /** What a click does. */
-type Tool = 'fill' | 'straight' | 'curve';
+type Tool = 'fill' | 'cut' | 'region';
 
 /**
  * Hand pixels to a canvas.
@@ -108,6 +112,8 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
    */
   const [zoom, setZoom] = useState(1);
   const [drawing, setDrawing] = useState<number[]>([]);
+  /** Whether the next region is smoothed. A shape's corners are a real choice. */
+  const [regionCurved, setRegionCurved] = useState(true);
   const [loading, setLoading] = useState(false);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const overlay = useRef<HTMLDivElement | null>(null);
@@ -230,26 +236,47 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
   };
 
   const addSeed = (point: { x: number; y: number }, mode: Seed['mode']) => {
+    const { seq, data: bumped } = takeSeq(data);
     const seed: Seed = {
       id: newId('seed'),
       mode,
       x: Math.round(point.x),
       y: Math.round(point.y),
       tolerance: data.options.tolerance,
+      seq,
     };
-    patch({ seeds: [...data.seeds, seed], selected: [seed.id] });
+    patch({ ...bumped, seeds: [...data.seeds, seed], selected: [seed.id] });
   };
 
-  const finishLine = (points: number[], curved: boolean) => {
+  const finishLine = (points: number[]) => {
+    // Two points is a straight cut and more is a curve, which is why there is no
+    // straight tool to choose first.
     if (points.length < 4) return;
     const line: CutLine = {
       id: newId('cut'),
       points,
-      curved,
       width: Math.max(1, Math.round(data.options.tolerance / 6)),
       mode: 'block',
     };
     patch({ lines: [...data.lines, line], selected: [line.id] });
+  };
+
+  const finishRegion = (points: number[], mode: Region['mode']) => {
+    // Three points is the least that encloses anything.
+    if (points.length < 6) return;
+    const { seq, data: bumped } = takeSeq(data);
+    const region: Region = {
+      id: newId('region'),
+      points,
+      curved: regionCurved,
+      mode,
+      seq,
+    };
+    patch({
+      ...bumped,
+      regions: [...(data.regions ?? []), region],
+      selected: [region.id],
+    });
   };
 
   const onCanvasClick = (event: React.MouseEvent) => {
@@ -260,25 +287,27 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
       addSeed(point, 'include');
       return;
     }
-    // A line is built click by click: a straight one ends on its second point, a
-    // curved one keeps going until you double-click or press Enter. Dragging
-    // would be smoother for one stroke and useless for aiming a cut.
-    const next = [...drawing, Math.round(point.x), Math.round(point.y)];
-    if (tool === 'straight' && next.length >= 4) {
-      finishLine(next, false);
-      setDrawing([]);
-      return;
-    }
-    setDrawing(next);
+    // Built click by click, until you double-click, press Enter, or right-click.
+    // Dragging would be smoother for one stroke and useless for aiming a cut.
+    setDrawing([...drawing, Math.round(point.x), Math.round(point.y)]);
+  };
+
+  /** Finish whatever is being drawn. A region right-clicked closed drops its inside. */
+  const finishDrawing = (points: number[], exclude = false) => {
+    if (tool === 'region') finishRegion(points, exclude ? 'exclude' : 'include');
+    else finishLine(points);
+    setDrawing([]);
   };
 
   const onCanvasContextMenu = (event: React.MouseEvent) => {
     event.preventDefault();
     if (tool !== 'fill') {
-      // Right click while drawing a line finishes it, which is what every other
-      // polygon tool does.
-      if (drawing.length >= 4) finishLine(drawing, tool === 'curve');
-      setDrawing([]);
+      // Right click finishes what is being drawn, which is what every other
+      // polygon tool does. For a region it also says which way round it goes:
+      // left-finish keeps the inside, right-finish drops it — the same left and
+      // right as the fill tool, so there is one thing to remember rather than two.
+      if (drawing.length > 0) finishDrawing(drawing, true);
+      else setDrawing([]);
       return;
     }
     const point = pointAt(event);
@@ -288,8 +317,7 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
   const onCanvasDoubleClick = (event: React.MouseEvent) => {
     if (tool === 'fill') return;
     event.preventDefault();
-    if (drawing.length >= 4) finishLine(drawing, tool === 'curve');
-    setDrawing([]);
+    if (drawing.length > 0) finishDrawing(drawing);
   };
 
   /* ---------------- keys ---------------- */
@@ -304,10 +332,9 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
         if (data.selected.length === 0) return;
         event.preventDefault();
         patch(deleteSelected(data));
-      } else if (event.key === 'Enter' && drawing.length >= 4) {
+      } else if (event.key === 'Enter' && drawing.length > 0) {
         event.preventDefault();
-        finishLine(drawing, tool === 'curve');
-        setDrawing([]);
+        finishDrawing(drawing);
       } else if (event.key === 'Escape' && drawing.length > 0) {
         event.preventDefault();
         setDrawing([]);
@@ -398,8 +425,16 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
             {(
               [
                 ['fill', 'Fill', 'Left click includes a region, right click excludes one.'],
-                ['straight', 'Straight cut', 'Click twice to cut a straight line across the outline.'],
-                ['curve', 'Curved cut', 'Click along a curve; double-click or Enter to finish, Esc to abandon.'],
+                [
+                  'cut',
+                  'Cut',
+                  'Click along the cut; two points is a straight one, more is a curve. Double-click or Enter to finish, Esc to abandon.',
+                ],
+                [
+                  'region',
+                  'Region',
+                  'Draw round something. Finish with a double-click or Enter to keep the inside, or right-click to drop it.',
+                ],
               ] as const
             ).map(([value, label, hint]) => (
               <button
@@ -420,10 +455,34 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
             {tool === 'fill'
               ? 'Left click to include a region, right click to exclude one.'
               : drawing.length === 0
-                ? 'Click on the image to start the cut.'
-                : `${drawing.length / 2} point(s) — double-click or Enter to finish, Esc to abandon.`}
+                ? tool === 'cut'
+                  ? 'Click along the cut. Two points is straight, more is a curve.'
+                  : 'Click round the thing you want. The ends join up on their own.'
+                : tool === 'cut'
+                  ? `${drawing.length / 2} point(s) — double-click or Enter to finish, Esc to abandon.`
+                  : `${drawing.length / 2} point(s) — finish to keep the inside, right-click to drop it, Esc to abandon.`}
           </p>
         </div>
+
+        {tool === 'region' ? (
+          <div className="vt-section">
+            <h3>The next region</h3>
+            <Field label="Shape" tip="cutout.region">
+              <label className="vt-row" style={{ gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={regionCurved}
+                  onChange={(event) => setRegionCurved(event.target.checked)}
+                />
+                Smooth through the points
+              </label>
+            </Field>
+            <p className="vt-faint" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.4 }}>
+              Off gives corners, for something with edges. Either can be changed after
+              it is drawn.
+            </p>
+          </div>
+        ) : null}
 
         <div className="vt-section">
           <h3>How far a fill spreads</h3>
@@ -514,6 +573,33 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                   {report?.seeds.find((entry) => entry.id === one.id)?.pixels.toLocaleString() ?? 0} pixels
                 </p>
               </>
+            ) : one.type === 'region' ? (
+              <>
+                <Field label="What it does">
+                  <select
+                    value={one.mode}
+                    onChange={(event) =>
+                      patch(setRegion(data, one.id, { mode: event.target.value as Region['mode'] }))
+                    }
+                  >
+                    <option value="include">Keep everything inside</option>
+                    <option value="exclude">Drop everything inside</option>
+                  </select>
+                </Field>
+                <label className="vt-row" style={{ gap: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={one.curved}
+                    onChange={(event) => patch(setRegion(data, one.id, { curved: event.target.checked }))}
+                  />
+                  Smooth through the points
+                </label>
+                <p className="vt-faint" style={{ fontSize: 11, marginTop: 6 }}>
+                  {one.points.length / 2} points ·{' '}
+                  {report?.seeds.find((entry) => entry.id === one.id)?.pixels.toLocaleString() ?? 0} pixels
+                  inside
+                </p>
+              </>
             ) : (
               <>
                 <Slider
@@ -537,14 +623,9 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                     <option value="erase">Also clear what it covers</option>
                   </select>
                 </Field>
-                <label className="vt-row" style={{ gap: 6 }}>
-                  <input
-                    type="checkbox"
-                    checked={one.curved}
-                    onChange={(event) => patch(setLine(data, one.id, { curved: event.target.checked }))}
-                  />
-                  Smooth through the points
-                </label>
+                <p className="vt-faint" style={{ fontSize: 11, marginTop: 6 }}>
+                  {one.points.length / 2} points · {one.points.length === 4 ? 'straight' : 'curved'}
+                </p>
               </>
             )}
             <div className="vt-row" style={{ gap: 4, marginTop: 8 }}>
@@ -555,7 +636,9 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                   patch(
                     one.type === 'seed'
                       ? setSeed(data, one.id, { muted: !one.muted })
-                      : setLine(data, one.id, { muted: !one.muted }),
+                      : one.type === 'region'
+                        ? setRegion(data, one.id, { muted: !one.muted })
+                        : setLine(data, one.id, { muted: !one.muted }),
                   )
                 }
               >
@@ -612,6 +695,23 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                   viewBox={`0 0 ${scale.width} ${scale.height}`}
                   preserveAspectRatio="xMidYMid meet"
                 >
+                  {(data.regions ?? []).map((region) => (
+                    <polygon
+                      key={region.id}
+                      points={regionOutline(region)
+                        .map((point) => `${point.x},${point.y}`)
+                        .join(' ')}
+                      className={`vt-region${data.selected.includes(region.id) ? ' is-selected' : ''}${
+                        region.muted ? ' is-muted' : ''
+                      } is-${region.mode}`}
+                      strokeWidth={1.5 / zoom}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        patch(selectObject(data, region.id, event.shiftKey));
+                      }}
+                    />
+                  ))}
+
                   {data.lines.map((line) => {
                     const points = linePoints(line)
                       .map((point) => `${point.x},${point.y}`)
@@ -632,15 +732,40 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                     );
                   })}
 
-                  {drawing.length >= 2 ? (
-                    <polyline
-                      className="vt-cut-line is-drafting"
-                      points={Array.from({ length: drawing.length / 2 }, (_, index) =>
-                        `${drawing[index * 2]},${drawing[index * 2 + 1]}`,
-                      ).join(' ')}
-                      strokeWidth={1.5 / zoom}
+                  {drawing.length >= 2
+                    ? (() => {
+                        const drafted = Array.from({ length: drawing.length / 2 }, (_, index) =>
+                          `${drawing[index * 2]},${drawing[index * 2 + 1]}`,
+                        ).join(' ');
+                        // A region is shown already closed while it is drawn, so
+                        // its shape is the thing you are aiming rather than a
+                        // chain of points you have to imagine joining up.
+                        return tool === 'region' && drawing.length >= 6 ? (
+                          <polygon
+                            className="vt-region is-drafting"
+                            points={drafted}
+                            strokeWidth={1.5 / zoom}
+                          />
+                        ) : (
+                          <polyline
+                            className="vt-cut-line is-drafting"
+                            points={drafted}
+                            strokeWidth={1.5 / zoom}
+                          />
+                        );
+                      })()
+                    : null}
+
+                  {/* The points as placed, so one dropped by mistake is visible. */}
+                  {Array.from({ length: drawing.length / 2 }, (_, index) => (
+                    <circle
+                      key={index}
+                      className="vt-draft-point"
+                      cx={drawing[index * 2]}
+                      cy={drawing[index * 2 + 1]}
+                      r={3 / zoom}
                     />
-                  ) : null}
+                  ))}
 
                   {data.seeds.map((seed) => (
                     <g
@@ -701,16 +826,20 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                     }`}
                     onClick={(event) => patch(selectObject(data, object.id, event.shiftKey))}
                   >
-                    <span className={`vt-object-dot is-${object.type === 'seed' ? object.mode : object.mode}`} />
+                    <span className={`vt-object-dot is-${object.mode}`} />
                     <strong>{labelOf(data, object)}</strong>
                     <span className="vt-faint">
                       {object.type === 'seed'
                         ? `${Math.round(object.x)}, ${Math.round(object.y)} · tol ${object.tolerance}${
                             caught ? ` · ${caught.pixels.toLocaleString()}px` : ''
                           }`
-                        : `${object.points.length / 2} points · ${object.curved ? 'curved' : 'straight'} · ${
-                            object.width
-                          }px`}
+                        : object.type === 'region'
+                          ? `${object.points.length / 2} points · ${
+                              object.curved ? 'smoothed' : 'cornered'
+                            }${caught ? ` · ${caught.pixels.toLocaleString()}px` : ''}`
+                          : `${object.points.length / 2} points · ${
+                              object.points.length === 4 ? 'straight' : 'curved'
+                            } · ${object.width}px`}
                     </span>
                     {object.muted ? <span className="vt-pill">off</span> : null}
                   </button>

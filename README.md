@@ -45,10 +45,10 @@ Set `VIBETOON_DATA` to keep them somewhere else.
 
 ## What you can do today
 
-- **Graph overview.** Add flows from a catalogue of 43 kinds, drag a port to
+- **Graph overview.** Add flows from a catalogue of 47 kinds, drag a port to
   another port to connect them, and see at a glance what is up to date, what is
   stale and what failed. Port types are checked and loops are refused.
-- **A filterable catalogue.** Forty-three flow kinds is more than a list you
+- **A filterable catalogue.** Forty-seven flow kinds is more than a list you
   read, so it is a list you narrow: by what a flow *takes*, what it *gives*, and
   where it belongs. Port kind is the useful axis on a graph — the question is
   rarely "what is in the art category" and often "what can I plug this image
@@ -124,25 +124,51 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   network is refused, because the server can reach what your browser cannot.
 - **Image extraction.** Cut a subject out by clicking: left click floods a region
   in, right click takes one out, and a line cuts across whatever the pixels think
-  — which is what separates an arm from the body it shares a shadow with. What is
-  stored is the list of clicks, never the mask, so every one of them stays
-  selectable and deleting the third of twenty takes its region with it. Tolerance
+  — which is what separates an arm from the body it shares a shadow with. For a
+  subject no tolerance can find, draw a **region** round it and keep or drop
+  everything inside. What is stored is the list of those actions, never the mask,
+  so every one stays selectable and deleting the third of twenty takes its region
+  with it. Tolerance
   is measured against the pixel you clicked rather than against each neighbour,
   which is the difference between a tool you can aim and one that selects the
   whole picture. Writes a transparent PNG and the mask beside it.
 - **Palette filter.** A palette and an image in, a filtered image out: keep only
-  those colours, drop them, or snap every pixel to the nearest one. Keep and
+  those colors, drop them, or snap every pixel to the nearest one. Keep and
   remove are exact mirrors; snap has no threshold, because every pixel has a
   nearest. A pixel that was already transparent is left alone in every mode, so
   cutting a subject out first and filtering it second does not undo the cutting.
   See [docs/IMAGE-FLOWS.md](docs/IMAGE-FLOWS.md) for all three.
-- **Colour palette.** An image in, the colours it actually uses most out —
+- **Polygon decomposition.** A picture back into shapes: strokes become lines and
+  areas become convex polygons. A line is a region that is *thin* **and** has
+  different things either side of it — two blocks meeting is not a line, a stroke
+  between them is — so one setting, how wide a stroke may be, decides what the
+  picture is. Shapes are then fitted by **measuring**: each candidate is drawn and
+  compared with the pixels it stands for, and what it gets wrong is weighed
+  against what it costs in anchors and polygons — both of which are prices you
+  set. A stroke widens until it fills the contrast gap it was traced from, and
+  grows at each end while growing keeps helping.
+- **Vector editor.** Where the decomposition gets fixed: drag anchors, add and
+  delete them, cut a shape in two, or delete a run out of a line. The edits are
+  the work, so they are kept rather than recomputed — an upstream re-run is
+  reported, not allowed to throw them away.
+  See [docs/VECTOR-FLOWS.md](docs/VECTOR-FLOWS.md) for both.
+- **Rig binding.** A skeleton and a vectorized drawing in: assign shapes to bones
+  by picking or by lassoing a region, and add or delete bones as you go. The rig
+  is scaled onto the drawing when it arrives, because the two were made in
+  different spaces and a skeleton in the corner has no bone to aim at. One shape
+  belongs to one bone — an outline has to go somewhere whole.
+- **Pose.** Move the bound rig. Turn a joint and everything below it comes along,
+  or drag the end of a limb and the joints above it work out how to get there. A
+  reach it cannot make falls short and says how far out it was, rather than
+  stretching into a pose a body could not hold.
+  See [docs/RIG-FLOWS.md](docs/RIG-FLOWS.md) for both.
+- **Color palette.** An image in, the colors it actually uses most out —
   *counted*, not averaged, which is how palettes avoid coming out as five
   shades of mud. A minimum distance measured in OKLab stops a gradient of near
   neighbours taking every slot: anything closer joins a group, and the palette
-  is one colour picked out of each group. A temperature moves that pick around
-  inside its group, so a palette colour is always a colour the image contains.
-  See [docs/COLOUR-PALETTE.md](docs/COLOUR-PALETTE.md).
+  is one color picked out of each group. A temperature moves that pick around
+  inside its group, so a palette color is always a color the image contains.
+  See [docs/COLOR-PALETTE.md](docs/COLOR-PALETTE.md).
 - **Skeletal rig.** A character type is a skeleton, not a label: `octopus` is
   forty-two bones in eight chains and `human` is nineteen in a different shape.
   The editor draws it over the character design and edits limits — range of
@@ -176,18 +202,20 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   exists. There is no model wired in; every generator is deterministic and local
   — including the random text flow, which walks a word database you can edit
   rather than predicting anything.
-- Bespoke editors exist for sixteen flow kinds so far (corpus, word database,
+- Bespoke editors exist for twenty flow kinds so far (corpus, word database,
   dictionary, grammar database, random text, dialog, storyboard, the three design
-  sheets, image source, image extraction, colour palette, palette filter,
-  skeletal rig and animatic). The rest are real and usable through the brief
-  editor, but they are text and uploads, not purpose-built tools.
+  sheets, image source, image extraction, color palette, palette filter, polygon
+  decomposition, vector editor, rig binding, pose, skeletal rig and animatic).
+  The rest are real and usable through the brief editor, but they are text and
+  uploads, not purpose-built tools.
 - Building a word database from a book needs the network: one download for the
   text, and one dictionary request per word (cached afterwards). Without it the
   bundled sample corpus still works, because the words in it ship with their
   meanings — but a word nothing has answered for stays `unknown` rather than
   falling back to a guess.
 - The image flows do their pixel work in the browser, because that is what
-  decodes a JPEG and composites a mask. So generating one you have not opened
+  decodes a JPEG and composites a mask. Decomposition reads every pixel several
+  times, so it is capped at about four megapixels — scale a photograph down first. So generating one you have not opened
   warns rather than writing a file, and changing the picture upstream marks the
   work stale rather than quietly describing the old one.
 - Rendering an mp4 on the server needs ffmpeg installed separately. The

@@ -383,13 +383,13 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     inputs: [input('tone', 'Tone', ['markdown'], 'Tone and references.')],
     outputs: [
       output('style', 'Style guide', ['markdown'], 'style.md', 'The style guide.'),
-      output('palette', 'Palette', ['json'], 'palette.json', 'Named colours as data.'),
+      output('palette', 'Palette', ['json'], 'palette.json', 'Named colors as data.'),
     ],
     editor: 'brief',
     maturity: 'brief',
     fields: [
       field('line', 'Line & shape', 'text', 'Line weight, shape language, level of detail.'),
-      field('color', 'Colour', 'list', 'One per line: `name #rrggbb — where it is used`.'),
+      field('color', 'Color', 'list', 'One per line: `name #rrggbb — where it is used`.'),
       field('motion', 'Motion', 'text', 'On ones/twos, smear frames, easing, held poses.'),
       field('rules', 'Rules', 'list', 'Hard style rules for every shot.'),
     ],
@@ -412,7 +412,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     maturity: 'editor',
     fields: [
       field('silhouette', 'Silhouette', 'text', 'Readable at thumbnail size — how?'),
-      field('palette', 'Palette', 'list', 'One per line: `part — colour`.'),
+      field('palette', 'Palette', 'list', 'One per line: `part — color`.'),
       field('costume', 'Costume & props', 'list', 'Worn and carried items.'),
       field('expressions', 'Expressions', 'list', 'The expressions this clip needs.'),
       field('constraints', 'Constraints', 'list', 'What must stay consistent across shots.'),
@@ -497,6 +497,40 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     ],
     editor: 'rig',
     maturity: 'editor',
+  },
+  {
+    kind: 'animation.bind',
+    category: 'animation',
+    label: 'Rig Binding',
+    summary: 'Assigns the shapes of a vectorized drawing to the bones of a skeleton.',
+    inputs: [
+      input('rig', 'Rig', ['json'], 'The skeleton to bind to.', { required: true }),
+      input('vector', 'Vector', ['json'], 'The drawing to bind.', { required: true }),
+    ],
+    outputs: [
+      output('bound', 'Bound rig', ['json'], 'bound.json', 'The skeleton, the drawing, and which shape belongs to which bone.'),
+      output('preview', 'Preview', ['image'], 'bound.svg', 'The drawing with its skeleton over it.'),
+      output('report', 'Report', ['markdown'], 'bound.md', 'What is bound to what, and what is not.'),
+    ],
+    editor: 'bind',
+    maturity: 'editor',
+    defaultOutgoingRules: { bound: 'keep: bones, shapes, binding' },
+  },
+  {
+    kind: 'animation.pose',
+    category: 'animation',
+    label: 'Pose',
+    summary: 'Moves a bound rig: turn a joint, or drag a limb and let the joints work it out.',
+    inputs: [
+      input('bound', 'Bound rig', ['json'], 'A rig with a drawing bound to it.', { required: true }),
+    ],
+    outputs: [
+      output('pose', 'Pose', ['json'], 'pose.json', 'The angle of every joint, and where each bone ended up.'),
+      output('drawing', 'Drawing', ['image'], 'pose.svg', 'The drawing in that pose.'),
+    ],
+    editor: 'pose',
+    maturity: 'editor',
+    defaultOutgoingRules: { pose: 'keep: joint angles' },
   },
   {
     kind: 'animation.animatic',
@@ -603,10 +637,10 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     kind: 'art.palette.filter',
     category: 'art',
     label: 'Palette Filter',
-    summary: 'Filters an image against a palette: keep those colours, drop them, or snap every pixel to the nearest.',
+    summary: 'Filters an image against a palette: keep those colors, drop them, or snap every pixel to the nearest.',
     inputs: [
       input('image', 'Image', ['image', 'imageSet'], 'The picture to filter.', { required: true }),
-      input('palette', 'Palette', ['json'], 'The colours to filter against.', { required: true }),
+      input('palette', 'Palette', ['json'], 'The colors to filter against.', { required: true }),
     ],
     outputs: [
       output('image', 'Filtered image', ['image'], 'filtered.png', 'The result, with transparency where pixels were dropped.'),
@@ -614,20 +648,53 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     ],
     editor: 'paletteFilter',
     maturity: 'editor',
-    defaultOutgoingRules: { image: 'keep: transparency, palette colours' },
+    defaultOutgoingRules: { image: 'keep: transparency, palette colors' },
+  },
+  {
+    kind: 'art.vectorize',
+    category: 'art',
+    label: 'Polygon Decomposition',
+    summary: 'Turns a picture back into shapes: strokes as lines, areas as convex polygons.',
+    inputs: [
+      input('image', 'Image', ['image', 'imageSet'], 'The picture to decompose.', { required: true }),
+    ],
+    outputs: [
+      output('vector', 'Vector', ['json'], 'vector.json', 'The lines and polygons, with their colors.'),
+      output('svg', 'Drawing', ['image'], 'vector.svg', 'The same thing as a drawing you can open anywhere.'),
+      output('report', 'Report', ['markdown'], 'vector.md', 'What was found, what was called a line, and why.'),
+    ],
+    editor: 'vectorize',
+    maturity: 'editor',
+    defaultOutgoingRules: { vector: 'keep: shapes, colors' },
+  },
+  {
+    kind: 'art.vector.edit',
+    category: 'art',
+    label: 'Vector Editor',
+    summary: 'Edit a vectorized image: move, add and delete points, and cut shapes apart.',
+    inputs: [
+      input('vector', 'Vector', ['json'], 'The vectorized image to edit.', { required: true }),
+    ],
+    outputs: [
+      output('vector', 'Vector', ['json'], 'vector.json', 'The edited lines and polygons.'),
+      output('svg', 'Drawing', ['image'], 'vector.svg', 'The same thing as a drawing.'),
+    ],
+    editor: 'vectorEdit',
+    maturity: 'editor',
+    defaultOutgoingRules: { vector: 'keep: shapes, colors' },
   },
   {
     kind: 'art.palette',
     category: 'art',
-    label: 'Colour Palette',
-    summary: 'Counts the colours in an image and takes the commonest that are far enough apart.',
+    label: 'Color Palette',
+    summary: 'Counts the colors in an image and takes the commonest that are far enough apart.',
     inputs: [
-      input('image', 'Image', ['image', 'imageSet'], 'The picture to take the colours from.', {
+      input('image', 'Image', ['image', 'imageSet'], 'The picture to take the colors from.', {
         required: true,
       }),
     ],
     outputs: [
-      output('palette', 'Palette', ['json'], 'palette.json', 'The colours, with how much of the image each accounts for.'),
+      output('palette', 'Palette', ['json'], 'palette.json', 'The colors, with how much of the image each accounts for.'),
       output('report', 'Report', ['markdown'], 'report.md', 'What was counted, what was bucketed together, and why.'),
     ],
     editor: 'palette',
@@ -637,20 +704,20 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
   {
     kind: 'art.colorscript',
     category: 'art',
-    label: 'Colour Script',
-    summary: 'The clip as a strip of colour and light, beat by beat.',
+    label: 'Color Script',
+    summary: 'The clip as a strip of color and light, beat by beat.',
     inputs: [
       input('storyboard', 'Storyboard', ['json', 'imageSet'], 'Panels in order.'),
       input('style', 'Style', ['markdown', 'json'], 'Style guide and palette.'),
     ],
     outputs: [
-      output('colorscript', 'Colour script', ['imageSet'], 'colorscript', 'Colour keys per beat.'),
-      output('doc', 'Colour notes', ['markdown'], 'color.md', 'Where the light comes from and why.'),
+      output('colorscript', 'Color script', ['imageSet'], 'colorscript', 'Color keys per beat.'),
+      output('doc', 'Color notes', ['markdown'], 'color.md', 'Where the light comes from and why.'),
     ],
     editor: 'brief',
     maturity: 'brief',
     fields: [
-      field('arc', 'Colour arc', 'text', 'How the palette moves across the clip.'),
+      field('arc', 'Color arc', 'text', 'How the palette moves across the clip.'),
       field('keys', 'Keys', 'list', 'One per line: `scene — key light, palette`.'),
     ],
   },
@@ -662,7 +729,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     inputs: [
       input('layout', 'Layout', ['json', 'markdown'], 'Staging and camera.'),
       input('setDesign', 'Set design', ['image', 'markdown'], 'Set designs.'),
-      input('color', 'Colour', ['markdown', 'imageSet'], 'Colour script.'),
+      input('color', 'Color', ['markdown', 'imageSet'], 'Color script.'),
     ],
     outputs: [
       output('backgrounds', 'Backgrounds', ['imageSet'], 'backgrounds', 'One image per setup.'),
