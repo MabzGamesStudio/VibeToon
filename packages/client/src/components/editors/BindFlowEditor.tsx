@@ -305,6 +305,7 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
 
       <div className="vt-editor-main">
         <Stage
+          zoomable
           title="The drawing and its skeleton"
           tools={
             <span className="vt-faint" style={{ fontSize: 11 }}>

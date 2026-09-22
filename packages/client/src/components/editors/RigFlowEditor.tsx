@@ -254,6 +254,7 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
 
       <div className="vt-editor-main">
         <Stage
+          zoomable
           title={selected ? selected.name : 'The skeleton'}
           tools={
             <>

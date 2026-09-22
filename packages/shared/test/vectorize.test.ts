@@ -7,6 +7,11 @@ import {
   findRegions,
   isLineRegion,
   looksCurved,
+  asStroke,
+  convexPieces,
+  difference,
+  hotBlocks,
+  signedArea,
   simplify,
   simplifyClosed,
   strokeWidth,
@@ -14,11 +19,12 @@ import {
   thin,
   toBudget,
   toConvexPieces,
-  traceOutline,
   vectorize,
   type VectorizeOptions,
 } from '../src/flows/vectorize';
 import { isConvex, type VectorLine, type VectorPolygon } from '../src/flows/vector';
+import { traceShared } from '../src/flows/arcs';
+import { coverageFor, fillInto, type Box } from '../src/flows/fit';
 
 const RED: [number, number, number, number] = [220, 40, 40, 255];
 const BLUE: [number, number, number, number] = [40, 60, 220, 255];
@@ -247,21 +253,6 @@ test('thinning leaves a one-pixel skeleton and does not break it', () => {
 
 /* ---------------- outlines and fitting ---------------- */
 
-test('an outline is traced on the corners, so it lands on the edge of the shape', () => {
-  const width = 6;
-  const pixels = new Set<number>();
-  for (let y = 1; y <= 3; y += 1) for (let x = 1; x <= 3; x += 1) pixels.add(y * width + x);
-  const outline = traceOutline(pixels, width, 6);
-
-  const xs = outline.map((point) => point.x);
-  const ys = outline.map((point) => point.y);
-  // The block covers pixels 1..3, whose outer corners are 1 and 4.
-  assert.equal(Math.min(...xs), 1);
-  assert.equal(Math.max(...xs), 4);
-  assert.equal(Math.min(...ys), 1);
-  assert.equal(Math.max(...ys), 4);
-});
-
 test('simplifying drops points that were not saying anything', () => {
   const straight = Array.from({ length: 20 }, (_, index) => ({ x: index, y: 0 }));
   assert.deepEqual(simplify(straight, 0.5), [
@@ -481,15 +472,253 @@ test('a shape smaller than the tolerance is not simplified out of existence', ()
   // A two-pixel square has no corner more than one and a half pixels off its own
   // diagonal, so a pixel and a half of slack flattens it into a line. Losing
   // detail is the deal; losing the shape is not.
-  const width = 4;
-  const pixels = new Set<number>();
-  for (let y = 1; y <= 2; y += 1) for (let x = 1; x <= 2; x += 1) pixels.add(y * width + x);
-  const traced = traceOutline(pixels, width, 4);
+  const traced = [
+    { x: 1, y: 1 },
+    { x: 2, y: 1 },
+    { x: 3, y: 1 },
+    { x: 3, y: 2 },
+    { x: 3, y: 3 },
+    { x: 2, y: 3 },
+    { x: 1, y: 3 },
+    { x: 1, y: 2 },
+  ];
 
   assert.ok(simplifyClosed(traced, 1.8).length < 3, 'the tolerance really is bigger than the shape');
   const kept = toBudget(traced, 1.8, 20, 3, true);
   assert.ok(kept.length >= 3, `it came back as ${kept.length} point(s)`);
   assert.equal(toConvexPieces(kept).length, 1, 'and it is still a shape that can be filled');
+});
+
+/* ---------------- the shapes fit together ---------------- */
+
+/** How much polygon is laid over each pixel, 255 being exactly one polygon's worth. */
+function paintPerPixel(drawn: ReturnType<typeof run>['image']): Float64Array {
+  const box: Box = { x: 0, y: 0, width: drawn.width, height: drawn.height };
+  const total = new Float64Array(drawn.width * drawn.height);
+  for (const shape of drawn.shapes) {
+    if (shape.kind !== 'polygon') continue;
+    const scratch = coverageFor(box);
+    fillInto(shape.points, box, scratch);
+    for (let index = 0; index < scratch.length; index += 1) total[index]! += scratch[index]!;
+  }
+  return total;
+}
+
+/** A ring of one color with a transparent hole, on a transparent background. */
+function donut(size = 60, inner = 12, outer = 26): Bitmap {
+  const data = new Uint8ClampedArray(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const away = Math.hypot(x - size / 2, y - size / 2);
+      if (away <= inner || away >= outer) continue;
+      const at = (y * size + x) * 4;
+      data[at] = 220;
+      data[at + 1] = 60;
+      data[at + 2] = 60;
+      data[at + 3] = 255;
+    }
+  }
+  return { width: size, height: size, data };
+}
+
+test('no pixel is under two polygons', () => {
+  /*
+   * The shapes are a partition of the picture, not a stack of overlapping ones
+   * that happen to be painted in a lucky order. Before, every boundary was
+   * simplified twice — once by the region on each side, each moving it by up to
+   * the tolerance in whatever direction its own corners wanted — so there was a
+   * sliver of overlap down one side of every boundary and a sliver of gap down
+   * the other.
+   */
+  let n = 0;
+  const image = picture([
+    'RRRRKKBBBB',
+    'RRRRKKBBBB',
+    'RRRRKKBBBB',
+    'KKKKKKKKKK',
+    'BBBBKKRRRR',
+    'BBBBKKRRRR',
+    'BBBBKKRRRR',
+  ]);
+  const result = vectorize(image, options(), (prefix) => `${prefix}_${(n += 1)}`);
+  const paint = paintPerPixel(result.image);
+  const doubled = Array.from(paint).filter((value) => value > 255 * 1.05).length;
+  assert.equal(doubled, 0, `${doubled} pixel(s) have more than one polygon over them`);
+});
+
+test('nothing is drawn where the picture is not there', () => {
+  /*
+   * The bug this is here for: a ring's outline was traced round the outside and
+   * filled, which makes a disc — right only for as long as something is painted
+   * over the middle afterwards, and plainly wrong when what is in the middle is
+   * nothing at all. A washer came out as a coin.
+   */
+  const image = donut();
+  let n = 0;
+  const result = vectorize(image, options(), (prefix) => `${prefix}_${(n += 1)}`);
+  const paint = paintPerPixel(result.image);
+
+  let painted = 0;
+  let clear = 0;
+  for (let index = 0; index < image.width * image.height; index += 1) {
+    if (image.data[index * 4 + 3]! > DEFAULT_VECTORIZE_OPTIONS.alphaFloor) continue;
+    clear += 1;
+    if (paint[index]! >= 128) painted += 1;
+  }
+  assert.ok(clear > 1000, 'the test picture is mostly transparent');
+  // A boundary may still overshoot by a fraction of the tolerance; a filled hole
+  // would be hundreds.
+  assert.ok(painted < clear * 0.03, `${painted} of ${clear} transparent pixels have paint on them`);
+});
+
+test('a region with a hole comes back as a ring', () => {
+  const image = donut();
+  const found = findRegions(image, options());
+  assert.equal(found.regions.length, 1);
+
+  const loops = traceShared(found.labels, image.width, image.height, (points) => points);
+  const ring = loops.get(found.regions[0]!.id)!;
+  assert.ok(ring, 'the ring was not traced');
+  assert.equal(ring.holes.length, 1, `got ${ring.holes.length} hole(s)`);
+  assert.ok(Math.abs(signedArea(ring.outer)) > Math.abs(signedArea(ring.holes[0]!)) * 2);
+});
+
+test('the convex pieces of a shape tile it exactly', () => {
+  // Not approximately: a piece lost to a bad merge is a bite out of the drawing,
+  // and a piece counted twice is an overlap. Areas add or something is wrong.
+  const image = donut();
+  const found = findRegions(image, options());
+  const loops = traceShared(image.width > 0 ? found.labels : found.labels, image.width, image.height, (points) => points);
+  const ring = loops.get(found.regions[0]!.id)!;
+
+  const want = Math.abs(signedArea(ring.outer)) - Math.abs(signedArea(ring.holes[0]!));
+  const pieces = convexPieces(ring);
+  const got = pieces.reduce((sum, piece) => sum + Math.abs(signedArea(piece)), 0);
+  assert.ok(pieces.length > 1, 'a ring cannot be one convex piece');
+  assert.ok(Math.abs(got - want) < 1e-6 * want, `pieces cover ${got.toFixed(1)}, the ring is ${want.toFixed(1)}`);
+  for (const piece of pieces) assert.equal(isConvex(piece), true, 'a piece came out concave');
+});
+
+/* ---------------- thin pieces ---------------- */
+
+test('a piece thinner than a stroke is offered as one, measured across its narrowest way', () => {
+  // A 2 × 30 rectangle: narrowest across is 2, which is under a 3px stroke.
+  const slim = asStroke(
+    [
+      { x: 0, y: 0 },
+      { x: 30, y: 0 },
+      { x: 30, y: 2 },
+      { x: 0, y: 2 },
+    ],
+    3,
+  );
+  assert.ok(slim, 'a 2px band was not offered as a stroke');
+  assert.ok(Math.abs(slim!.width - 2) < 0.01, `width came out ${slim!.width}`);
+  assert.equal(slim!.points.length, 2);
+  assert.ok(Math.abs(slim!.points[0]!.y - 1) < 0.01, 'and it runs down the middle');
+});
+
+test('a piece that is merely small is not a stroke', () => {
+  // Thin is half the rule here as well. A scrap two pixels across and three long
+  // is not a mark, and drawn as one it is a round-capped blob in the wrong place.
+  assert.equal(
+    asStroke(
+      [
+        { x: 0, y: 0 },
+        { x: 3, y: 0 },
+        { x: 3, y: 2 },
+        { x: 0, y: 2 },
+      ],
+      3,
+    ),
+    null,
+  );
+});
+
+test('a piece wider than a stroke is an area', () => {
+  assert.equal(
+    asStroke(
+      [
+        { x: 0, y: 0 },
+        { x: 30, y: 0 },
+        { x: 30, y: 9 },
+        { x: 0, y: 9 },
+      ],
+      3,
+    ),
+    null,
+  );
+});
+
+/* ---------------- refining the worst parts ---------------- */
+
+test('the error is measured per pixel and averaged into blocks', () => {
+  const image = picture(['RRRR', 'RRRR', 'RRRR', 'RRRR']);
+  const drawn = { width: 4, height: 4, shapes: [] };
+  const measured = difference(image, drawn, options());
+  assert.equal(measured.plain, 16, 'nothing drawn is everything wrong');
+
+  const hot = hotBlocks(measured.error, 4, 4, options({ hotspotBlock: 4, hotspotShare: 1 }));
+  assert.equal(hot.blocks, 1);
+  assert.equal(hot.holds({ x: 2, y: 2 }), true);
+  assert.equal(hot.holds({ x: 9, y: 9 }), false, 'outside the picture is not a hotspot');
+});
+
+test('painting over nothing counts for far more than a wrong color', () => {
+  // The whole reason a boundary that has spilled into the empty part of the
+  // picture is the first thing a round of refinement pulls back: on a plain
+  // one-for-one count it is worth the same as a pixel a shade off, and it is
+  // spread thin along a boundary, so it vanishes into a block average.
+  const clear = picture(['....', '....']);
+  const solid = picture(['RRRR', 'RRRR']);
+  const over = {
+    width: 4,
+    height: 2,
+    shapes: [
+      {
+        id: 'p1',
+        kind: 'polygon' as const,
+        color: '#dc2828',
+        points: [
+          { x: 0, y: 0 },
+          { x: 4, y: 0 },
+          { x: 4, y: 2 },
+          { x: 0, y: 2 },
+        ],
+      },
+    ],
+  };
+  const onNothing = difference(clear, over, options());
+  const onInk = difference(solid, { ...over, shapes: [] }, options());
+  assert.equal(onNothing.overNothing, 8);
+  assert.ok(onNothing.wrong > onInk.wrong * 8, `${onNothing.wrong} against ${onInk.wrong}`);
+  assert.equal(onNothing.plain, onInk.plain, 'though as a plain count they are the same eight pixels');
+});
+
+test('a round of refinement is kept only if it is actually better', () => {
+  const image = donut();
+  let n = 0;
+  const once = vectorize(image, options({ refineRounds: 1 }), (prefix) => `${prefix}_${(n += 1)}`);
+  n = 0;
+  const none = vectorize(image, options({ refineRounds: 0 }), (prefix) => `${prefix}_${(n += 1)}`);
+  n = 0;
+  const lots = vectorize(image, options({ refineRounds: 4 }), (prefix) => `${prefix}_${(n += 1)}`);
+
+  assert.ok(once.report.wrongPixels <= none.report.wrongPixels, 'a round made it worse');
+  assert.ok(lots.report.wrongPixels <= once.report.wrongPixels, 'more rounds made it worse');
+  assert.ok(lots.report.rounds <= 4);
+});
+
+test('refinement pulls a boundary back out of the empty part of the picture', () => {
+  const image = donut(80, 18, 34);
+  let n = 0;
+  const none = vectorize(image, options({ refineRounds: 0 }), (prefix) => `${prefix}_${(n += 1)}`);
+  n = 0;
+  const some = vectorize(image, options({ refineRounds: 2 }), (prefix) => `${prefix}_${(n += 1)}`);
+  assert.ok(
+    some.report.overNothing < none.report.overNothing,
+    `${none.report.overNothing} → ${some.report.overNothing}`,
+  );
 });
 
 /* ---------------- speed ---------------- */
@@ -518,56 +747,18 @@ test('a picture of a few hundred pixels a side is decomposed in well under a sec
 
   let n = 0;
   const start = performance.now();
-  const result = vectorize({ width: size, height: size, data }, options(), (prefix) => `${prefix}_${(n += 1)}`);
+  const result = vectorize(
+    { width: size, height: size, data },
+    options({ refineRounds: 0 }),
+    (prefix) => `${prefix}_${(n += 1)}`,
+  );
   const took = performance.now() - start;
 
   assert.ok(result.image.shapes.length > 0, 'it found nothing');
   assert.ok(took < 3000, `it took ${Math.round(took)}ms`);
 
+  // Three nested rings, each a ring rather than a disc, so each needs a handful
+  // of convex pieces rather than one.
   const points = result.image.shapes.reduce((sum, shape) => sum + shape.points.length, 0);
-  assert.ok(points < 200, `it spent ${points} points on three shapes`);
-});
-
-/* ---------------- what covers what ---------------- */
-
-test('an outline round a shape does not swallow the shape', () => {
-  /*
-   * A black outline is a *ring*, and an outline is traced on the outside, so
-   * filling one gives a disc rather than a ring. That is fine — the thing inside
-   * is painted over it and only the rim shows — but only if the ring goes down
-   * first.
-   *
-   * Ordered by how many pixels each region held, it does not: the ring is the
-   * thinner of the two and goes on last, and a face comes back as a black blob.
-   * So areas are ordered by what their outline *encloses*.
-   */
-  const size = 40;
-  const data = new Uint8ClampedArray(size * size * 4);
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      const at = (y * size + x) * 4;
-      const away = Math.hypot(x - size / 2, y - size / 2);
-      const [r, g, b] = away > 15 ? [40, 60, 220] : away > 12 ? [20, 20, 20] : [220, 40, 40];
-      data[at] = r;
-      data[at + 1] = g;
-      data[at + 2] = b;
-      data[at + 3] = 255;
-    }
-  }
-
-  let n = 0;
-  const result = vectorize({ width: size, height: size, data }, options({ lineWidth: 1 }), (prefix) => `${prefix}_${(n += 1)}`);
-
-  const painted = result.image.shapes.map((shape) => shape.color);
-  const black = painted.findIndex((hex) => /^#1/.test(hex));
-  const red = painted.findIndex((hex) => /^#[c-f]/.test(hex));
-  assert.ok(black >= 0, `no outline in ${painted.join(' ')}`);
-  assert.ok(red >= 0, `no inside in ${painted.join(' ')}`);
-  assert.ok(black < red, 'the outline is painted before what it encloses, not over it');
-
-  // And the proof that it looks right: almost nothing is the wrong color.
-  assert.ok(
-    result.report.wrongPixels / result.report.drawnPixels < 0.05,
-    `${((result.report.wrongPixels / result.report.drawnPixels) * 100).toFixed(1)}% of the picture is wrong`,
-  );
+  assert.ok(points < 400, `it spent ${points} points on three rings`);
 });

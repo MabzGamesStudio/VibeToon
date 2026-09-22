@@ -291,8 +291,18 @@ export function toSvg(image: VectorImage): string {
   const lines = image.shapes.filter((shape): shape is VectorLine => shape.kind === 'line');
 
   const body = [
+    /*
+     * Each area is stroked in its own color, hairline thin.
+     *
+     * The areas tile the picture exactly — they share their boundaries point for
+     * point — but a renderer antialiases each one on its own, so two shapes
+     * meeting along an edge each cover about half of the pixels under it and the
+     * background shows through as a hairline. A quarter-pixel of its own color
+     * either side of the boundary closes that without moving anything.
+     */
     ...polygons.map(
-      (shape) => `  <path d="${shapePath(shape)}" fill="${shape.color}" stroke="none"/>`,
+      (shape) =>
+        `  <path d="${shapePath(shape)}" fill="${shape.color}" stroke="${shape.color}" stroke-width="0.5"/>`,
     ),
     ...lines.map(
       (shape) =>

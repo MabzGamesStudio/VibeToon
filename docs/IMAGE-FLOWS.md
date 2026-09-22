@@ -10,6 +10,27 @@ Image Source ──▶ Image Extraction ──▶ Palette Filter ──▶ …
       └──────────▶ Color Palette ───────────┘
 ```
 
+## Looking closely
+
+Every part of an editor that shows a picture fills the screen on request, and once
+it is there it **zooms and pans, right down to one pixel drawn sixty-four across**.
+Scroll to zoom, drag with the middle button — or hold Shift — to move around, and
+the buttons in the header do the same thing with a number on them.
+
+Two details that make it worth having:
+
+- **It zooms about the pointer**, so what is under it stays under it. Zooming about
+  the middle is the thing that makes a zoom control useless for looking at a
+  detail: every step towards a pixel pushes it further off the edge and the whole
+  time goes on dragging it back.
+- **A pixel is a square.** The browser's default is to smooth an image it scales
+  up, which at eight times is a blur of guesses about colors that are not in the
+  picture — the opposite of what looking closely is for.
+
+Clicking still lands where it looks like it lands at any zoom, because every editor
+maps a click through the proportions of the element's own box rather than through
+an assumed scale.
+
 ## Where the pixels are decided
 
 In the editor, in your browser — not on the server.

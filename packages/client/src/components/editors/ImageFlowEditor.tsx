@@ -227,7 +227,7 @@ export function ImageFlowEditor({ project, node }: { project: Project; node: Flo
       </aside>
 
       <div className="vt-editor-main">
-        <Stage title="The picture">
+        <Stage title="The picture" zoomable>
           <div className="vt-image-stage">
             {imageUrl ? (
               <img src={imageUrl} alt={data.description || data.source?.fileName || 'The picture'} />

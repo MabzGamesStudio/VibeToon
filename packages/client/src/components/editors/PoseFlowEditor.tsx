@@ -281,6 +281,7 @@ export function PoseFlowEditor({ project, node }: { project: Project; node: Flow
 
       <div className="vt-editor-main">
         <Stage
+          zoomable
           title="The pose"
           tools={
             <span className="vt-faint" style={{ fontSize: 11 }}>

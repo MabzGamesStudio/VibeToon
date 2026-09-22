@@ -70,12 +70,40 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
     `- Simplified to within ${data.options.detail}px${
       data.options.maxPoints > 0 ? `, at most ${data.options.maxPoints} points a shape` : ''
     }`,
-    ...(data.options.refine
+    ...(data.options.refineRounds > 0
       ? [
-          `- Fitted against the pixels · an anchor worth ${data.options.pointCost}px, a polygon ${data.options.polygonCost}px`,
+          `- Refined over ${data.options.hotspotBlock}px blocks, worst ${(data.options.hotspotShare * 100).toFixed(0)}% of them${
+            found ? ` · ${found.rounds} round(s) helped, ${found.hotBlocks} block(s) worked on` : ''
+          }`,
+        ]
+      : []),
+    ...(found && found.slivers > 0
+      ? [`- Pieces too thin to be areas, given back as strokes: ${found.slivers}`]
+      : []),
+    ...(found
+      ? [
+          `- Painted where the picture is not there: **${found.overNothing.toLocaleString()}** pixel(s)`,
         ]
       : []),
     ...(data.options.minArea > 0 ? [`- Regions under ${data.options.minArea}px dropped`] : []),
+    '',
+    '## The shapes fit together',
+    '',
+    'The areas are a **partition** of the picture: every pixel that is drawn belongs',
+    'to exactly one of them, and no pixel belongs to two. That is not decoration —',
+    'it is what lets a rig bind to shapes, a pose move them, and an editor cut one',
+    'without leaving a hole behind it.',
+    '',
+    'It holds because every boundary in the picture is traced and simplified **once**',
+    'and used by both shapes either side of it, in opposite directions. Simplified',
+    'separately, each side moves the boundary by up to the tolerance in whatever',
+    'direction its own corners want, which leaves a sliver of overlap down one side',
+    'of it and a sliver of gap down the other.',
+    '',
+    'A shape with a hole in it is a shape with a hole in it. The hole is cut out with',
+    'a bridge — a slit from the hole to the outside — so that a black outline round a',
+    'face is a ring rather than a disc, and a shape with nothing in the middle of it',
+    'has nothing in the middle of it.',
     '',
     '## What counts as a line',
     '',
