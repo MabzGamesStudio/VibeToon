@@ -1,5 +1,5 @@
 import {
-  applyPinned,
+  applyEdits,
   derivePalette,
   histogramState,
   summarisePalette,
@@ -53,7 +53,7 @@ export async function generatePalette(ctx: GenerationContext): Promise<Generatio
     );
   }
 
-  const palette = applyPinned(derivePalette(histogram, data.options), data.pinned);
+  const palette = applyEdits(derivePalette(histogram, data.options), data.edits);
   const summary = summarisePalette(palette, data);
 
   if (palette.shortfall) ctx.warn(palette.shortfall);
@@ -77,7 +77,20 @@ export async function generatePalette(ctx: GenerationContext): Promise<Generatio
     `- Minimum distance asked for: ${data.options.minDistance} · closest pair: **${summary.closest.toFixed(1)}**`,
     `- Temperature: ${data.options.temperature} · seed: \`${data.options.seed}\``,
     `- Share of the image the palette accounts for: ${(summary.covered * 100).toFixed(1)}%`,
-    ...(summary.pinned > 0 ? [`- Pinned by hand: ${summary.pinned}`] : []),
+    ...(summary.changed + summary.removed + summary.added > 0
+      ? [
+          `- Edited by hand: ${[
+            ...(summary.changed > 0 ? [`${summary.changed} changed`] : []),
+            ...(summary.removed > 0 ? [`${summary.removed} removed`] : []),
+            ...(summary.added > 0 ? [`${summary.added} added`] : []),
+          ].join(', ')}`,
+        ]
+      : []),
+    ...(summary.waiting > 0
+      ? [
+          `- Edits waiting on a bucket these settings do not produce: ${summary.waiting}. They are kept and come back if the settings do.`,
+        ]
+      : []),
     '',
     '## The palette',
     '',
@@ -85,7 +98,7 @@ export async function generatePalette(ctx: GenerationContext): Promise<Generatio
     '| --- | --- | --- | --- | --- | --- | --- | --- |',
     ...palette.entries.map(
       (entry, index) =>
-        `| ${index + 1} | \`${entry.hex}\` | ${(entry.share * 100).toFixed(1)}% | ${entry.count.toLocaleString()} | ${
+        `| ${index + 1} | \`${entry.hex}\`${entry.byHand ? ' *(by hand)*' : ''} | ${(entry.share * 100).toFixed(1)}% | ${entry.count.toLocaleString()} | ${
           entry.members
         } | \`${entry.modeHex}\` | ${entry.shifted.toFixed(1)} | ${entry.nearest.toFixed(1)} |`,
     ),

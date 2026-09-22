@@ -45,25 +45,78 @@ watching the result.
 On the test picture in `docs/`, at 4px the flow finds 5 lines and 11 polygons; at
 1px it finds 0 lines and 23 polygons, because every stroke has become an area.
 
-The other settings are about grouping and tidiness:
+The other settings are about where the boundaries are and how heavy the result is:
 
 | Setting | What it does |
 | --- | --- |
-| Same-color tolerance | How different two neighbouring pixels may be and still be one region. |
-| Color precision | Rounding applied before anything is grouped. |
-| Drop regions under | The noise floor, in pixels. |
-| Simplify to within | How far an outline may move to lose a point. |
+| Contrast that counts | How steeply the picture must change to be a boundary, in the OKLab-times-100 scale. |
+| …and to keep one going | The weaker threshold, which keeps a boundary unbroken where it softens. |
+| Drop regions under | The noise floor, in pixels. Smaller regions are folded into a neighbour. |
+| Simplify to within | How far an outline may move to lose a point. The main control over how heavy the result is. |
+| At most, per shape | A hard point budget, for when a tolerance alone will not promise one. |
 | Curved if bent by | How bent a run must be, relative to its length, to be a curve. |
+| Spend longer for a closer fit | Off by default. See *fitting to the pixels* below. |
 
-## Shapes are fitted to the pixels, not to the outline
+## Boundaries first, and the fill between them
 
-The first version of this simplified a traced outline by a tolerance in pixels,
-which asks the wrong question. "Is this anchor within 1.2px of the traced path"
-says nothing about whether the shape that comes out **covers the color it stands
-for**. A corner cut off a square is well within any tolerance and leaves a wedge
-of the picture unpainted.
+The version before this one grew regions by **color tolerance**: flood outwards
+while each pixel is near enough the one the fill started from. That asks a
+question with no good answer. Set it low and a face shaded across twenty tones
+becomes two hundred regions; set it high and the fill walks through the outline
+into the background. There is no value in between, because the amount a region
+varies *inside itself* is unrelated to how much it differs from its neighbour.
 
-So every candidate is drawn and compared with the pixels it is meant to be:
+So the boundaries are found first, in one pass, and the regions are whatever they
+enclose. Nothing is measured against a starting pixel, so shading is free.
+
+**Canny, on OKLab.** The gradient has to mean "how different does this look": in
+RGB a boundary between two blues reads as steeper than one between two greens
+plainly further apart, so one threshold could not serve a whole picture. The
+ridges are thinned to one pixel, because a gradient is several pixels wide and a
+boundary is a line — a fat boundary eats the regions either side of it. Then the
+weak parts of strong boundaries are joined back on, because a boundary that fades
+for a pixel and comes back is still one boundary, and a one-pixel gap is all it
+takes for two regions to bleed into one.
+
+**The fill also stops at a plain step** from one pixel to the next, at that same
+threshold. Both barriers are needed and each covers what the other misses:
+
+- The edge map catches a **soft** boundary. An anti-aliased outline is a run of
+  small steps and the step test walks straight through it; the gradient over three
+  pixels sees it plainly.
+- The step test catches a **thin bar**. Canny finds a *step*, and a one-pixel line
+  between two colors is not two steps three pixels apart — it is a single ridge,
+  thinned to whichever side happened to be steeper. Take the ridge out and the
+  line has nothing left to defend it. This matters because a one-pixel line
+  between two colors is the example the whole flow is built around.
+
+**The boundary pixels are then handed back.** They were never nothing: a stroke
+three pixels wide has boundaries down both sides and only its middle survives the
+edge pass, so a region built from the gaps alone is a third of the ink. Each goes
+to whichever neighbouring region its own color is nearest — **unless it is further
+from every neighbour than they are from each other**. That exception is the part
+that took finding. Nearest-of-its-neighbours alone always has an answer, so a
+black ring whose every pixel reads as a boundary is handed to the red it encloses:
+the outline becomes more red and the drawing loses its lines. A pixel half way
+between two colors is their boundary and is claimed; black between red and blue is
+further from both than they are from one another, and is left to become a region of
+its own.
+
+**Whatever is left over becomes a region too.** A shape thin enough that *every*
+one of its pixels is a boundary gets no seed from the fill and no neighbour it
+looks like, so without a final pass for the leftovers it belongs to nothing and
+silently disappears. A two-pixel sliver, and the black ring above, are both
+exactly that.
+
+## Fitting to the pixels, when you ask for it
+
+Simplifying a traced outline by a tolerance asks a slightly wrong question. "Is
+this anchor within 1.2px of the traced path" says nothing about whether the shape
+that comes out **covers the color it stands for**; a corner cut off a square is
+well within any tolerance and leaves a wedge of the picture unpainted.
+
+Measuring it properly answers that, and costs. Every candidate is drawn and
+compared with the pixels it is meant to be:
 
 - **missed** — pixels of this color the shape failed to cover.
 - **extra** — pixels it covers that are not this color.
@@ -77,6 +130,20 @@ loose shapes.
 
 On a test drawing, the same picture comes out at 1.6% of pixels wrong with 65
 anchors, 1.9% with 55, or 2.2% with 53, as those prices move.
+
+**This is off by default**, under *spend longer for a closer fit*, because asking
+it hundreds of times a shape was most of what the flow spent its time on. On a
+640,000-pixel drawing:
+
+| | Time | Polygons | Points | Pixels wrong |
+| --- | --- | --- | --- | --- |
+| Tolerance, before | 4.0s | 124 | 600 | 31.0% |
+| Fitted, before | 22.7s | 21 | 234 | 1.7% |
+| **Boundaries first** | **2.2s** | **22** | **216** | **2.1%** |
+| Boundaries first, then fitted | 4.7s | 19 | 209 | 1.9% |
+
+Ten times faster than the fit it replaces, for a fifth of a percent — and the
+fit is still there for the version you are keeping.
 
 ### A shape is not charged for what covers it
 
@@ -117,10 +184,8 @@ Three things had to be right for that to work at all:
 
 ## How it works
 
-**Regions.** Pixels flood into regions of one color. A candidate is compared
-against the **seed** color rather than its neighbour's — comparing neighbour to
-neighbour walks a gradient across the whole picture one indistinguishable step at
-a time, and would make one region of everything.
+**Regions.** Boundaries, then the fill between them, then the boundary pixels
+handed back, then the leftovers — as above.
 
 **Thickness.** Each region's thickest point, by distance transform. That decides
 which regions are worth measuring properly; the real width is taken afterwards
@@ -143,6 +208,22 @@ corner.
 by how far the run departs from the straight line between its ends *relative to
 its length* — a 2px bow across 10px is a curve, and the same bow across 400px is a
 straight line someone drew by hand.
+
+An outline is a **ring**, and running open RDP round one gets it wrong twice. The
+baseline it starts from joins the first point to the last, which on a ring are
+neighbours, so every point is measured against a one-pixel chord that means
+nothing; and whichever corner the trace happened to stop on is pinned while the
+corner beside it is free to go. A square came out as a triangle. The ring is split
+at the point farthest from the start instead, giving two open halves that between
+them cover it, each with a baseline the length of the shape.
+
+A tolerance alone cannot promise a **point budget** — one fiddly outline will
+always find a way to spend forty — so a shape over budget is simplified harder
+until it fits, which loosens the shapes that need loosening and leaves the rest
+alone. In the other direction, a shape can be smaller than the tolerance: a
+two-pixel square has no corner more than a pixel and a half off its own diagonal,
+so a pixel and a half of slack flattens it into a line. It keeps enough points to
+still be a shape. Losing detail is the deal; losing the shape is not.
 
 **Convex pieces.** An area is ear-clipped to triangles and then glued back
 together wherever the join stays convex. Triangles alone would satisfy "convex"

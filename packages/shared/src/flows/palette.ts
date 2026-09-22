@@ -227,6 +227,8 @@ export interface PaletteEntry {
   shifted: number;
   /** How far this entry is from its nearest neighbour in the palette. */
   nearest: number;
+  /** Put in by hand rather than read out of the image, so it stands for no pixels. */
+  byHand?: boolean;
 }
 
 export interface Palette {
@@ -408,23 +410,48 @@ export function fromOklab({ L, a, b }: Oklab): Rgb {
  * The flow
  * ------------------------------------------------------------------ */
 
+/**
+ * What was done to the palette by hand, after the image was read.
+ *
+ * Kept separate from the palette itself, and applied on top of it every time, so
+ * that turning a setting or reading the picture again re-derives the palette
+ * without throwing the hand work away. A palette stored as a flat list of colors
+ * could not do that: the first change of `count` would either wipe the edits or
+ * ignore the image.
+ *
+ * Edits are keyed by the **bucket** an entry came out of — its commonest color,
+ * which is what `modeHex` holds — rather than by its position in the list.
+ * Position is not identity. Ask for four colors instead of eight and entry three
+ * is a different color than it was, so an edit stored against "3" would quietly
+ * apply to something you never chose. A bucket key either still exists, and the
+ * edit lands on the color you made it for, or it does not, and the edit waits
+ * inert until it does.
+ */
+export interface PaletteEdits {
+  /** Entries changed by hand, keyed by the bucket they came out of. */
+  changed: Record<string, string>;
+  /** Entries taken out by hand, keyed the same way. */
+  removed: string[];
+  /** Colors put in by hand, which no bucket in the image stands behind. */
+  added: string[];
+}
+
+export const NO_PALETTE_EDITS: PaletteEdits = { changed: {}, removed: [], added: [] };
+
 export interface PaletteFlowData {
   editor: 'palette';
   options: PaletteOptions;
   /** The counted image, read in the editor. Absent until one has been read. */
   histogram?: ImageHistogram;
-  /**
-   * Entries pinned by hand, by index, so a palette you like survives a change to
-   * the settings. A pinned entry is used as it is and takes no part in bucketing.
-   */
-  pinned: Record<string, string>;
+  /** Changes made by hand, applied on top of whatever the settings derive. */
+  edits: PaletteEdits;
 }
 
 export function emptyPaletteFlowData(): PaletteFlowData {
   return {
     editor: 'palette',
     options: { ...DEFAULT_PALETTE_OPTIONS },
-    pinned: {},
+    edits: { changed: {}, removed: [], added: [] },
   };
 }
 
@@ -438,19 +465,72 @@ export function histogramState(
   return 'fresh';
 }
 
-/** Apply the pinned overrides to a derived palette, by position. */
-export function applyPinned(palette: Palette, pinned: Record<string, string>): Palette {
-  const entries = palette.entries.map((entry, index) => {
-    const override = fromHex(pinned[String(index)] ?? '');
-    if (!override) return entry;
-    return {
-      ...entry,
-      ...override,
-      hex: toHex(override),
-      shifted: Math.round(colorDistance(override, entry) * 10) / 10,
-    };
+/**
+ * Apply the hand edits to a derived palette.
+ *
+ * Removals first, then changes, then additions on the end — so a color you put in
+ * is never dropped by a removal meant for the bucket it happens to match, and a
+ * change is never applied to something already gone.
+ */
+export function applyEdits(palette: Palette, edits: PaletteEdits = NO_PALETTE_EDITS): Palette {
+  const removed = new Set(
+    edits.removed.map((hex) => fromHex(hex)).filter((rgb): rgb is Rgb => rgb !== undefined).map(toHex),
+  );
+
+  const entries: PaletteEntry[] = palette.entries
+    .filter((entry) => !removed.has(entry.modeHex))
+    .map((entry) => {
+      const override = fromHex(edits.changed[entry.modeHex] ?? '');
+      if (!override) return entry;
+      return {
+        ...entry,
+        ...override,
+        hex: toHex(override),
+        // Still measured from the bucket's commonest color, so the editor can say
+        // how far from the picture you have taken it.
+        shifted: Math.round(colorDistance(override, fromHex(entry.modeHex) ?? entry) * 10) / 10,
+      };
+    });
+
+  for (const hex of edits.added) {
+    const rgb = fromHex(hex);
+    if (!rgb) continue;
+    entries.push({
+      ...rgb,
+      hex: toHex(rgb),
+      // No pixels stand behind a color put in by hand, and saying so is the point:
+      // it keeps `covers` honest about how much of the image the palette accounts
+      // for, rather than crediting an invented color with a share of it.
+      count: 0,
+      share: 0,
+      members: 0,
+      modeHex: toHex(rgb),
+      shifted: 0,
+      nearest: 0,
+      byHand: true,
+    });
+  }
+
+  return { ...palette, entries: withNearest(entries) };
+}
+
+/**
+ * Each entry's nearest neighbour, recomputed.
+ *
+ * Worth doing again after an edit rather than carrying the derived figure over:
+ * this number is how the editor answers "is the minimum distance actually being
+ * met", and two colors you chose by hand can sit far closer together than any
+ * bucketing would have put them.
+ */
+function withNearest(entries: PaletteEntry[]): PaletteEntry[] {
+  return entries.map((entry) => {
+    let nearest = Infinity;
+    for (const other of entries) {
+      if (other === entry) continue;
+      nearest = Math.min(nearest, colorDistance(entry, other));
+    }
+    return { ...entry, nearest: Number.isFinite(nearest) ? Math.round(nearest * 10) / 10 : 0 };
   });
-  return { ...palette, entries };
 }
 
 export interface PaletteSummary {
@@ -459,18 +539,110 @@ export interface PaletteSummary {
   closest: number;
   /** The share of the image the palette accounts for, 0..1. */
   covered: number;
-  pinned: number;
+  /** Derived entries whose color was changed by hand. */
+  changed: number;
+  /** Derived entries taken out by hand. */
+  removed: number;
+  /** Colors put in by hand. */
+  added: number;
+  /**
+   * Edits stored against a bucket the current settings no longer produce. They are
+   * kept, not lost, and come back if the settings come back — but they are doing
+   * nothing now, which is worth saying rather than leaving someone to wonder why
+   * a change they made has no effect.
+   */
+  waiting: number;
 }
 
 export function summarisePalette(palette: Palette, data: PaletteFlowData): PaletteSummary {
+  const edits = data.edits ?? NO_PALETTE_EDITS;
   const closest = palette.entries.reduce(
     (min, entry) => (entry.nearest > 0 ? Math.min(min, entry.nearest) : min),
     Infinity,
   );
+  const buckets = new Set(palette.entries.map((entry) => entry.modeHex));
+  const applies = (hex: string) => {
+    const rgb = fromHex(hex);
+    return rgb !== undefined && buckets.has(toHex(rgb));
+  };
+
+  const changed = Object.keys(edits.changed).filter(
+    (key) => fromHex(edits.changed[key] ?? '') !== undefined && buckets.has(key),
+  ).length;
+  const removed = edits.removed.filter((hex) => fromHex(hex) !== undefined).length;
+  const added = edits.added.filter((hex) => fromHex(hex) !== undefined).length;
+
   return {
     colors: palette.entries.length,
     closest: Number.isFinite(closest) ? closest : 0,
     covered: palette.entries.reduce((sum, entry) => sum + entry.share, 0),
-    pinned: Object.keys(data.pinned).filter((key) => fromHex(data.pinned[key] ?? '')).length,
+    changed,
+    removed,
+    added,
+    waiting:
+      Object.keys(edits.changed).filter((key) => !applies(key)).length +
+      edits.removed.filter((hex) => !applies(hex)).length,
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * Editing
+ * ------------------------------------------------------------------ */
+
+/**
+ * Change one entry's color.
+ *
+ * A color put in by hand is edited where it stands, in `added`, rather than
+ * gaining an override of its own — two records for one color would let them
+ * disagree. Pass an empty string to put a derived entry back to what was counted.
+ */
+export function changeColor(edits: PaletteEdits, entry: PaletteEntry, hex: string): PaletteEdits {
+  const rgb = fromHex(hex);
+
+  if (entry.byHand) {
+    if (!rgb) return edits;
+    const at = edits.added.findIndex((value) => sameColor(value, entry.hex));
+    if (at < 0) return edits;
+    const added = [...edits.added];
+    added[at] = toHex(rgb);
+    return { ...edits, added };
+  }
+
+  const changed = { ...edits.changed };
+  if (rgb) changed[entry.modeHex] = toHex(rgb);
+  else delete changed[entry.modeHex];
+  return { ...edits, changed };
+}
+
+/** Take one entry out. A color put in by hand is simply forgotten. */
+export function removeColor(edits: PaletteEdits, entry: PaletteEntry): PaletteEdits {
+  if (entry.byHand) {
+    return { ...edits, added: edits.added.filter((value) => !sameColor(value, entry.hex)) };
+  }
+  if (edits.removed.some((value) => sameColor(value, entry.modeHex))) return edits;
+  // The override goes with it. Keeping a change for an entry that is no longer
+  // there would come back to life the moment the removal was undone.
+  const changed = { ...edits.changed };
+  delete changed[entry.modeHex];
+  return { ...edits, changed, removed: [...edits.removed, entry.modeHex] };
+}
+
+/** Put a removed entry back, by the bucket it came from. */
+export function restoreColor(edits: PaletteEdits, modeHex: string): PaletteEdits {
+  return { ...edits, removed: edits.removed.filter((value) => !sameColor(value, modeHex)) };
+}
+
+/** Add a color of your own. Refuses one the palette already has. */
+export function addColor(edits: PaletteEdits, hex: string): PaletteEdits {
+  const rgb = fromHex(hex);
+  if (!rgb) return edits;
+  const value = toHex(rgb);
+  if (edits.added.some((other) => sameColor(other, value))) return edits;
+  return { ...edits, added: [...edits.added, value] };
+}
+
+function sameColor(one: string, two: string): boolean {
+  const a = fromHex(one);
+  const b = fromHex(two);
+  return a !== undefined && b !== undefined && toHex(a) === toHex(b);
 }

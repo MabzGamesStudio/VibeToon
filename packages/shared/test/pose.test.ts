@@ -192,7 +192,7 @@ test('a shape does not move when its bone does not', () => {
   }
 });
 
-test('a shape keeps its size and colour when it moves', () => {
+test('a shape keeps its size and color when it moves', () => {
   const placed = posedImage(bound({ p: 'left-upper-arm' }), { 'left-upper-arm': 37 });
   const moved = placed.shapes[0]!;
   assert.equal(moved.color, patch.color);

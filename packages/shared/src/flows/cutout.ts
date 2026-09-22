@@ -70,7 +70,7 @@ export interface CutLine {
  * back — whatever the pixels say.
  *
  * A fill answers "what is this thing", and there are subjects no tolerance can
- * answer that for: a face against a busy background shares colours with it
+ * answer that for: a face against a busy background shares colors with it
  * everywhere. Drawing round it is the honest tool for that, and it is the one
  * thing clicking regions cannot do however many seeds you drop.
  *

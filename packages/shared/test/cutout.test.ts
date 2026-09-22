@@ -402,7 +402,7 @@ test('a region takes everything inside it, whatever the pixels say', () => {
   // Points are corners, not pixels: the box (0,0)-(7,2) encloses the centres of
   // the top two rows of a 7-wide image, which is 14 pixels.
   const { report } = buildMask(TWO_TONE, withRegions(region({ points: [0, 0, 7, 0, 7, 2, 0, 2] })));
-  assert.equal(report.inside, 14, 'the whole top two rows, across all three colours');
+  assert.equal(report.inside, 14, 'the whole top two rows, across all three colors');
 });
 
 test('a region can drop everything inside it instead', () => {

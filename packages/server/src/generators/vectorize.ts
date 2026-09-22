@@ -65,12 +65,16 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
       : []),
     `- Colors: ${summary.colors.length}`,
     `- Widest a stroke may be: ${data.options.lineWidth}px`,
-    `- Same-color tolerance: ${data.options.tolerance}`,
-    ...(data.options.fitToPixels
+    `- Contrast that counts as a boundary: ${data.options.edgeThreshold} (kept going down to ${data.options.edgeFloor})`,
+    ...(found ? [`- Edge pixels found: ${found.edgePixels.toLocaleString()}`] : []),
+    `- Simplified to within ${data.options.detail}px${
+      data.options.maxPoints > 0 ? `, at most ${data.options.maxPoints} points a shape` : ''
+    }`,
+    ...(data.options.refine
       ? [
           `- Fitted against the pixels · an anchor worth ${data.options.pointCost}px, a polygon ${data.options.polygonCost}px`,
         ]
-      : [`- Simplified to within ${data.options.simplify}px (not fitted)`]),
+      : []),
     ...(data.options.minArea > 0 ? [`- Regions under ${data.options.minArea}px dropped`] : []),
     '',
     '## What counts as a line',

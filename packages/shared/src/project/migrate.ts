@@ -5,6 +5,14 @@ import { getFlowKind } from '../registry/flowKinds';
 import { DEFAULT_DERIVE_OPTIONS, DEFAULT_EXTRACT_OPTIONS } from '../text/corpus';
 import { DEFAULT_GRAMMAR_OPTIONS } from '../text/grammarDatabase';
 import { normaliseMeanings } from '../text/senses';
+import {
+  DEFAULT_PALETTE_OPTIONS,
+  derivePalette,
+  type PaletteEdits,
+  type PaletteFlowData,
+  type PaletteOptions,
+} from '../flows/palette';
+import { DEFAULT_VECTORIZE_OPTIONS } from '../flows/vectorize';
 import type { BriefFlowData, FlowData, FlowNode, Project } from '../types/project';
 import { DEFAULT_RANDOM_TEXT_OPTIONS } from '../types/text';
 import { defaultDataForKind } from './factory';
@@ -87,6 +95,22 @@ export function normaliseFlowData(data: FlowData): FlowData {
       const options = fill(data.options, DEFAULT_GRAMMAR_OPTIONS);
       return options.filled ? { ...data, options: options.value } : data;
     }
+    case 'vectorize': {
+      /*
+       * Every one of these settings was renamed when the decomposition was rebuilt
+       * on edge detection, so a flow saved before that has none of them. Reading a
+       * missing one is how `detail` arrives as `undefined` and a whole picture
+       * comes back as one polygon with a thousand points.
+       */
+      const options = fill(data.options, DEFAULT_VECTORIZE_OPTIONS);
+      return options.filled ? { ...data, options: options.value } : data;
+    }
+    case 'palette': {
+      const options = fill(data.options, DEFAULT_PALETTE_OPTIONS);
+      const edits = paletteEdits(data, options.value);
+      if (!options.filled && !edits) return data;
+      return { ...data, options: options.value, ...(edits ? { edits } : {}) };
+    }
     case 'dictionary': {
       const options = fill(data.options, DEFAULT_DICTIONARY_OPTIONS);
       const meanings = normaliseMeanings(data.meanings);
@@ -98,6 +122,38 @@ export function normaliseFlowData(data: FlowData): FlowData {
     default:
       return data;
   }
+}
+
+/**
+ * Palette edits, from a flow that stored pins by position.
+ *
+ * Pins used to be keyed by an entry's index in the list, which is not an
+ * identity: ask for four colors instead of eight and index three is a different
+ * color, so the pin lands on something nobody chose. They are keyed by the bucket
+ * an entry came out of now.
+ *
+ * Converting the two needs the palette those indexes referred to, which means
+ * deriving it here from the histogram the flow already carries. A palette flow
+ * with no counted image has nothing to convert against, so its pins go — there
+ * was no palette for them to have been applied to.
+ */
+function paletteEdits(data: PaletteFlowData, options: PaletteOptions): PaletteEdits | undefined {
+  const legacy = (data as { pinned?: Record<string, string> }).pinned;
+  if (data.edits && !legacy) return undefined;
+
+  const edits: PaletteEdits = {
+    changed: { ...(data.edits?.changed ?? {}) },
+    removed: [...(data.edits?.removed ?? [])],
+    added: [...(data.edits?.added ?? [])],
+  };
+  if (legacy && data.histogram) {
+    const entries = derivePalette(data.histogram, options).entries;
+    for (const [key, hex] of Object.entries(legacy)) {
+      const entry = entries[Number(key)];
+      if (entry && hex) edits.changed[entry.modeHex] = hex;
+    }
+  }
+  return edits;
 }
 
 export function migrateNode(node: FlowNode): FlowNode {

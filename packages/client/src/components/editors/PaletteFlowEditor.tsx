@@ -1,17 +1,24 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
   DEFAULT_PALETTE_OPTIONS,
-  applyPinned,
+  NO_PALETTE_EDITS,
+  addColor,
+  applyEdits,
+  changeColor,
   derivePalette,
   fromHex,
   histogramState,
   inputsForPort,
   quantise,
+  removeColor,
+  restoreColor,
   summarisePalette,
   toHex,
   type ColorCount,
   type FlowNode,
   type ImageHistogram,
+  type PaletteEdits,
+  type PaletteEntry,
   type PaletteFlowData,
   type Project,
 } from '@vibetoon/shared';
@@ -63,9 +70,10 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
     return entry ? `${artifact.path}/${entry}` : artifact.path;
   }, [artifact]);
 
+  const edits = data.edits ?? NO_PALETTE_EDITS;
   const palette = useMemo(
-    () => (data.histogram ? applyPinned(derivePalette(data.histogram, options), data.pinned) : null),
-    [data.histogram, data.pinned, options],
+    () => (data.histogram ? applyEdits(derivePalette(data.histogram, options), edits) : null),
+    [data.histogram, edits, options],
   );
   const summary = useMemo(
     () => (palette ? summarisePalette(palette, data) : null),
@@ -153,18 +161,31 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
     }
   }, [artifact, data, imagePath, notify, options.alphaFloor, options.precision, patch, project.id]);
 
-  const pin = (index: number, hex: string) => {
-    const next = { ...data.pinned };
-    if (fromHex(hex)) next[String(index)] = toHex(fromHex(hex)!);
-    else delete next[String(index)];
-    patch({ ...data, pinned: next });
+  const edit = (next: PaletteEdits) => patch({ ...data, edits: next });
+
+  /**
+   * Which derived buckets were taken out, so they can be offered back.
+   *
+   * A removal you cannot undo is a removal you have to think about before making,
+   * which is the wrong way round for a palette you are still deciding.
+   */
+  const removed = useMemo(() => {
+    if (!data.histogram) return [] as string[];
+    const buckets = new Set(derivePalette(data.histogram, options).entries.map((entry) => entry.modeHex));
+    return edits.removed.filter((hex) => {
+      const rgb = fromHex(hex);
+      return rgb !== undefined && buckets.has(toHex(rgb));
+    });
+  }, [data.histogram, edits.removed, options]);
+
+  const drop = (entry: PaletteEntry) => {
+    edit(removeColor(edits, entry));
+    setSelected(null);
   };
 
-  const unpin = (index: number) => {
-    const next = { ...data.pinned };
-    delete next[String(index)];
-    patch({ ...data, pinned: next });
-  };
+  // Taking a color out shortens the list, so a selection made before it can point
+  // past the end. Read through the palette rather than trusted.
+  const chosen = selected === null ? null : palette?.entries[selected] ?? null;
 
   const blocked = !imageInput
     ? 'Wire an image into the Image input first.'
@@ -364,10 +385,27 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
               </dd>
               <dt>Covers</dt>
               <dd>{(summary.covered * 100).toFixed(1)}% of the image</dd>
-              {summary.pinned > 0 ? (
+              {summary.changed + summary.removed + summary.added > 0 ? (
                 <>
-                  <dt>Pinned</dt>
-                  <dd>{summary.pinned}</dd>
+                  <dt>Edited by hand</dt>
+                  <dd>
+                    {[
+                      summary.changed > 0 ? `${summary.changed} changed` : '',
+                      summary.removed > 0 ? `${summary.removed} removed` : '',
+                      summary.added > 0 ? `${summary.added} added` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(', ')}
+                  </dd>
+                </>
+              ) : null}
+              {summary.waiting > 0 ? (
+                <>
+                  <dt>Waiting</dt>
+                  <dd>
+                    {summary.waiting} edit(s) for a color these settings do not produce. Kept, and back
+                    when the settings are.
+                  </dd>
                 </>
               ) : null}
             </dl>
@@ -387,81 +425,157 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
               {palette.entries.map((entry, index) => (
                 <button
                   type="button"
-                  key={`${entry.hex}-${index}`}
+                  key={`${entry.modeHex}-${index}`}
                   className={`vt-swatch${selected === index ? ' is-selected' : ''}${
-                    data.pinned[String(index)] ? ' is-pinned' : ''
+                    entry.byHand || edits.changed[entry.modeHex] ? ' is-pinned' : ''
                   }`}
-                  style={{ background: entry.hex, flexGrow: Math.max(0.35, entry.share * palette.entries.length) }}
-                  title={`${entry.hex} — ${(entry.share * 100).toFixed(1)}% of the image, ${entry.members} color(s) in its group, nearest other entry ${entry.nearest.toFixed(1)} away`}
+                  style={{
+                    background: entry.hex,
+                    // A color put in by hand has no share to be sized by, so it takes
+                    // an even one. Sized by its share it would be a sliver too narrow
+                    // to read its own hex, which is the one thing it has to show.
+                    flexGrow: entry.byHand ? 1 : Math.max(0.35, entry.share * palette.entries.length),
+                  }}
+                  title={
+                    entry.byHand
+                      ? `${entry.hex} — put in by hand, so it stands for no pixels of the image. Nearest other entry ${entry.nearest.toFixed(1)} away.`
+                      : `${entry.hex} — ${(entry.share * 100).toFixed(1)}% of the image, ${entry.members} color(s) in its group, nearest other entry ${entry.nearest.toFixed(1)} away`
+                  }
                   aria-label={`Color ${index + 1}, ${entry.hex}`}
                   onClick={() => setSelected(selected === index ? null : index)}
                 >
                   <span className="vt-swatch-label">
                     <strong>{entry.hex}</strong>
-                    <span>{(entry.share * 100).toFixed(1)}%</span>
+                    <span>{entry.byHand ? 'by hand' : `${(entry.share * 100).toFixed(1)}%`}</span>
                   </span>
                 </button>
               ))}
             </div>
 
-            {selected !== null && palette.entries[selected] ? (
+            <div className="vt-row" style={{ flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+              <button
+                type="button"
+                className="vt-btn is-small"
+                onClick={() => {
+                  const next = addColor(edits, '#808080');
+                  edit(next);
+                  // Select what was just added, which is always last, so the color
+                  // picker is already pointing at it.
+                  setSelected(palette.entries.length);
+                }}
+              >
+                Add a color
+              </button>
+              {removed.length > 0 ? (
+                <>
+                  <span className="vt-faint" style={{ fontSize: 11 }}>
+                    Taken out:
+                  </span>
+                  {removed.map((hex) => (
+                    <button
+                      type="button"
+                      key={hex}
+                      className="vt-btn is-ghost is-small"
+                      style={{ borderLeft: `10px solid ${hex}` }}
+                      title={`Put ${hex} back in the palette`}
+                      onClick={() => edit(restoreColor(edits, hex))}
+                    >
+                      {hex} ↩
+                    </button>
+                  ))}
+                </>
+              ) : null}
+            </div>
+
+            {chosen ? (
               <div className="vt-section">
                 <h3>
-                  <span>Color {selected + 1}</span>
-                  <span className="vt-faint">{palette.entries[selected]!.hex}</span>
+                  <span>
+                    Color {selected! + 1}
+                    {chosen.byHand ? ' — yours' : ''}
+                  </span>
+                  <span className="vt-faint">{chosen.hex}</span>
                 </h3>
                 <dl className="vt-kv">
-                  <dt>Share of the image</dt>
-                  <dd>
-                    {(palette.entries[selected]!.share * 100).toFixed(1)}% ·{' '}
-                    {palette.entries[selected]!.count.toLocaleString()} pixel(s)
-                  </dd>
-                  <dt>Colors in its group</dt>
-                  <dd>{palette.entries[selected]!.members}</dd>
-                  <dt>The group's commonest</dt>
-                  <dd>
-                    <code>{palette.entries[selected]!.modeHex}</code>
-                    {palette.entries[selected]!.shifted > 0
-                      ? ` — this entry is ${palette.entries[selected]!.shifted.toFixed(1)} away from it`
-                      : ' — which is this entry exactly'}
-                  </dd>
+                  {chosen.byHand ? (
+                    <>
+                      <dt>Where it came from</dt>
+                      <dd>
+                        You put it in, so it stands for none of the image and adds nothing to the share
+                        covered.
+                      </dd>
+                    </>
+                  ) : (
+                    <>
+                      <dt>Share of the image</dt>
+                      <dd>
+                        {(chosen.share * 100).toFixed(1)}% · {chosen.count.toLocaleString()} pixel(s)
+                      </dd>
+                      <dt>Colors in its group</dt>
+                      <dd>{chosen.members}</dd>
+                      <dt>The group's commonest</dt>
+                      <dd>
+                        <code>{chosen.modeHex}</code>
+                        {chosen.shifted > 0
+                          ? ` — this entry is ${chosen.shifted.toFixed(1)} away from it`
+                          : ' — which is this entry exactly'}
+                      </dd>
+                    </>
+                  )}
                   <dt>Nearest other entry</dt>
-                  <dd>{palette.entries[selected]!.nearest.toFixed(1)} away</dd>
+                  <dd>{chosen.nearest.toFixed(1)} away</dd>
                 </dl>
                 <Field
-                  label="Pin this color"
-                  tip="palette.pinned"
-                  hint="A pinned color is used as it is, whatever the settings do. Clear it to go back to what was counted."
+                  label="This color"
+                  tip="palette.edit"
+                  hint={
+                    chosen.byHand
+                      ? 'Yours to set. It survives every change of settings, because no bucket in the image decides it.'
+                      : 'Set it to whatever you like and it stays there, whatever the settings do. Clear it to go back to what was counted.'
+                  }
                 >
                   <div className="vt-row">
                     <input
                       type="color"
-                      aria-label="Pin this color"
-                      value={palette.entries[selected]!.hex}
-                      onChange={(event) => pin(selected, event.target.value)}
+                      aria-label="This color"
+                      value={chosen.hex}
+                      onChange={(event) => edit(changeColor(edits, chosen, event.target.value))}
                     />
                     <input
-                      value={data.pinned[String(selected)] ?? ''}
-                      placeholder={palette.entries[selected]!.modeHex}
-                      aria-label="Pinned hex"
-                      onChange={(event) => pin(selected, event.target.value)}
+                      value={chosen.byHand ? chosen.hex : edits.changed[chosen.modeHex] ?? ''}
+                      placeholder={chosen.modeHex}
+                      aria-label="Hex"
+                      onChange={(event) => edit(changeColor(edits, chosen, event.target.value))}
                     />
-                    {data.pinned[String(selected)] ? (
+                    {!chosen.byHand && edits.changed[chosen.modeHex] ? (
                       <button
                         type="button"
                         className="vt-btn is-ghost is-small"
-                        onClick={() => unpin(selected)}
+                        title="Back to the color that was counted"
+                        onClick={() => edit(changeColor(edits, chosen, ''))}
                       >
-                        Clear
+                        Reset
                       </button>
                     ) : null}
+                    <button
+                      type="button"
+                      className="vt-btn is-ghost is-small"
+                      title={
+                        chosen.byHand
+                          ? 'Forget this color'
+                          : 'Take this color out of the palette. It can be put back.'
+                      }
+                      onClick={() => drop(chosen)}
+                    >
+                      {chosen.byHand ? 'Forget' : 'Take out'}
+                    </button>
                   </div>
                 </Field>
               </div>
             ) : (
               <div className="vt-hint">
-                Each band is one color, as wide as the share of the image it accounts for. Click one to see
-                where it came from, or to pin it.
+                Each band is one color, as wide as the share of the image it accounts for. Click one to
+                change it, take it out, or see where it came from.
               </div>
             )}
           </>

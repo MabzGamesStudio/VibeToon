@@ -1,18 +1,22 @@
 import type { Bitmap } from './cutout';
 import {
   boxOf,
+  coverageFor,
+  fillInto,
   fitStroke,
   mergeHidden,
   prunePoints,
   pruneStroke,
   scorePieces,
   shareInk,
+  strokeInto,
   type Box,
   type FitWeights,
   type Hidden,
   type PolygonFit,
 } from './fit';
-import { colorDistance, quantise, toHex, type Rgb } from './palette';
+import { detectEdges, growRegions, type EdgeMap, type GrownRegion } from './edges';
+import { colorDistance, fromHex, toHex } from './palette';
 import {
   isConvex,
   type VectorImage,
@@ -27,39 +31,67 @@ import {
  *
  * The work goes in four steps, and each one answers a question the next needs:
  *
- * 1. **Which pixels belong together** — flood the image into regions of one color.
- * 2. **Which regions are strokes** — a region that is thin *and* separates two
+ * 1. **Where the edges are** — one Canny pass over the whole picture, in `edges.ts`.
+ *    Finding the boundaries once, up front, is what makes the rest cheap: every
+ *    later step reads the answer instead of re-deriving it from color.
+ * 2. **Which pixels belong together** — flood the space *between* the edges, the
+ *    way a fill tool does, with no color comparison while spreading. The edge
+ *    band is then handed to whichever side it looks like, so a region includes
+ *    the blended boundary of the thing it stands for.
+ * 3. **Which regions are strokes** — a region that is thin *and* separates two
  *    different things is a drawn line; everything else is an area.
- * 3. **Where their edges are** — trace each region's outline, and each stroke's
- *    centreline.
- * 4. **What shape that is** — simplify to anchors, decide straight or curved, and
- *    cut areas into convex pieces.
+ * 4. **What shape that is** — trace the outline (or the centreline), simplify to a
+ *    tolerance and a point budget, decide straight or curved, and cut areas into
+ *    convex pieces.
+ *
+ * Nothing in that path measures a candidate against the pixels. `refine` turns on
+ * a slower pass that does, for when you want the last percent.
  */
 
 export interface VectorizeOptions {
   /**
    * The widest a stroke can be, in pixels, and still be treated as a line.
    *
-   * This is the one setting that decides what the picture *is*. Below it a thin
-   * shape is a drawn mark with a middle; above it the same shape is a long thin
-   * area with an inside. There is no right answer in general — it depends on how
-   * the picture was drawn — so it is a number you turn while watching the result.
+   * The one setting that decides what the picture *is*. Below it a thin region
+   * is a drawn mark with a middle; above it the same region is a long thin area
+   * with an inside.
    */
   lineWidth: number;
   /**
-   * How different two neighbouring pixels may be and still count as the same
-   * color, in the OKLab-times-100 scale used everywhere else here.
+   * How much contrast counts as a boundary, in the OKLab-times-100 scale.
+   *
+   * This replaces the old same-color tolerance, and asks a better question.
+   * Tolerance asked each pixel whether it was near enough the one the fill
+   * started from, which gives a different answer depending on where it started
+   * and leaks wherever shading happens to be gradual. This asks where the
+   * picture *changes*, which is one answer for the whole image.
    */
-  tolerance: number;
-  /** Pixels rounded to this many bits a channel before anything is grouped. */
-  precision: number;
-  /** Regions smaller than this are noise and are dropped. */
-  minArea: number;
+  edgeThreshold: number;
   /**
-   * How far a traced outline may be moved to lose a point, in pixels. Larger
-   * gives fewer anchors and a looser shape.
+   * The weaker threshold. A pixel over this is a boundary only where it joins
+   * one that cleared the stronger one, which keeps a real boundary unbroken
+   * where it briefly softens without letting noise become boundaries.
    */
-  simplify: number;
+  edgeFloor: number;
+  /**
+   * How far a shape's outline may move in order to lose a point, in pixels.
+   *
+   * The direct control over how many points a shape has. Every pixel step of a
+   * traced outline is an anchor to begin with, which is a hundred times more
+   * than any shape needs.
+   */
+  detail: number;
+  /**
+   * The most points any one shape may have. 0 for no limit.
+   *
+   * A budget rather than a tolerance, because "no more than sixteen points" is a
+   * thing you can want and `detail` alone cannot promise it — one fiddly outline
+   * will always find a way to spend forty. Where a shape is over budget the
+   * tolerance is loosened for that shape until it fits.
+   */
+  maxPoints: number;
+  /** Regions smaller than this are folded into whichever neighbour they touch most. */
+  minArea: number;
   /**
    * How bent a run has to be before it is called a curve rather than a straight
    * line, as a fraction of its length.
@@ -68,37 +100,33 @@ export interface VectorizeOptions {
   /** Pixels at or below this alpha are transparent, and are not part of anything. */
   alphaFloor: number;
   /**
-   * What one anchor is worth, measured in wrong pixels.
+   * Spend longer for a closer fit, once the shapes are found.
    *
-   * Shapes are fitted by minimising wrong pixels *plus* what the shape costs, so
-   * this is the exchange rate between the two. At 6, an anchor earns its place by
-   * covering six pixels no cheaper shape would. Raise it for fewer, looser
-   * shapes; drop it to 0 and the fit will trace every pixel exactly.
+   * Off is the fast path: edges, fill, trace, simplify, done. On adds a pass that
+   * draws each candidate and compares it with the pixels it stands for, dropping
+   * anchors that are not paying for themselves and searching a stroke's width
+   * against the ink. Slower by several times, and worth it when the answer
+   * matters more than the wait.
    */
+  refine: boolean;
+  /** With `refine` on: what one anchor is worth, measured in wrong pixels. */
   pointCost: number;
-  /** What one polygon is worth, in the same units, on top of its anchors. */
+  /** With `refine` on: what one polygon is worth, in the same units. */
   polygonCost: number;
-  /**
-   * Fit against the pixels rather than by a distance tolerance.
-   *
-   * Off falls back to simplifying the traced outline by `simplify`, which is
-   * faster on a large picture and asks the wrong question — whether an anchor is
-   * near the traced path, rather than whether the shape covers the color.
-   */
-  fitToPixels: boolean;
 }
 
 export const DEFAULT_VECTORIZE_OPTIONS: VectorizeOptions = {
   lineWidth: 3,
-  tolerance: 8,
-  precision: 5,
+  edgeThreshold: 12,
+  edgeFloor: 5,
+  detail: 1.8,
+  maxPoints: 20,
   minArea: 12,
-  simplify: 1.2,
   curveThreshold: 0.04,
   alphaFloor: 8,
+  refine: false,
   pointCost: 6,
   polygonCost: 40,
-  fitToPixels: true,
 };
 
 export interface VectorizeReport {
@@ -114,173 +142,135 @@ export interface VectorizeReport {
   thinButNotSeparating: number;
   convexPieces: number;
   transparent: number;
+  /** Pixels the edge pass claimed, before they were handed back to regions. */
+  edgePixels: number;
   problems: string[];
 }
 
 /* ------------------------------------------------------------------ *
- * 1. Regions
+ * 1. Regions, from the edges
  * ------------------------------------------------------------------ */
 
-const TRANSPARENT = -1;
-
-export interface PixelRegion {
-  id: number;
-  color: Rgb;
-  pixels: number[];
-  /** Region ids touching this one; `TRANSPARENT` for the outside. */
-  neighbours: Set<number>;
-  /** The thickest the region gets, in pixels: twice its distance transform. */
+/** A grown region, with how thick it gets — which decides what it becomes. */
+export interface PixelRegion extends GrownRegion {
+  /** The widest the region is anywhere, in pixels. */
   thickness: number;
 }
 
-/** Group pixels into runs of one color, four-way connected. */
-export function findRegions(image: Bitmap, options: VectorizeOptions): {
-  labels: Int32Array;
+/**
+ * Find the regions: edges first, then fill between them.
+ *
+ * Replaces growing by color tolerance, which asked each pixel whether it was
+ * near enough the one the fill started from. That gives a different answer
+ * depending on where it started, and it leaks wherever shading is gradual — a
+ * face shaded across twenty tones needed a tolerance wide enough to span the
+ * shading, which was always wide enough to escape past the outline too.
+ */
+export function findRegions(
+  image: Bitmap,
+  options: VectorizeOptions,
+): {
   regions: PixelRegion[];
   transparent: number;
+  edgePixels: number;
+  folded: number;
+  map: EdgeMap;
 } {
-  const { width, height, data } = image;
-  const size = width * height;
-  const labels = new Int32Array(size).fill(-2);
-  const regions: PixelRegion[] = [];
-  let transparent = 0;
-
-  const colorAt = (index: number): Rgb => ({
-    r: quantise(data[index * 4]!, options.precision),
-    g: quantise(data[index * 4 + 1]!, options.precision),
-    b: quantise(data[index * 4 + 2]!, options.precision),
+  const map = detectEdges(image, {
+    edgeThreshold: options.edgeThreshold,
+    edgeFloor: options.edgeFloor,
+    alphaFloor: options.alphaFloor,
   });
-  const clear = (index: number) => data[index * 4 + 3]! <= options.alphaFloor;
-
-  for (let start = 0; start < size; start += 1) {
-    if (clear(start)) {
-      labels[start] = TRANSPARENT;
-      transparent += 1;
-      continue;
-    }
-    if (labels[start] !== -2) continue;
-
-    const id = regions.length;
-    const seed = colorAt(start);
-    const pixels: number[] = [];
-    const stack = [start];
-    labels[start] = id;
-
-    while (stack.length > 0) {
-      const index = stack.pop()!;
-      pixels.push(index);
-      const x = index % width;
-      const y = (index - x) / width;
-      const push = (nx: number, ny: number) => {
-        if (nx < 0 || ny < 0 || nx >= width || ny >= height) return;
-        const next = ny * width + nx;
-        if (labels[next] !== -2 || clear(next)) return;
-        // Against the seed color, not the neighbour's: neighbour-to-neighbour
-        // walks a gradient across the whole picture, the same way a flood fill
-        // does, and would make one region of everything.
-        if (colorDistance(colorAt(next), seed) > options.tolerance) return;
-        labels[next] = id;
-        stack.push(next);
-      };
-      push(x + 1, y);
-      push(x - 1, y);
-      push(x, y + 1);
-      push(x, y - 1);
-    }
-
-    regions.push({ id, color: seed, pixels, neighbours: new Set(), thickness: 0 });
-  }
-
-  // Who touches whom, which is what decides a line from an area.
-  for (let index = 0; index < size; index += 1) {
-    const label = labels[index]!;
-    if (label === TRANSPARENT) continue;
-    const x = index % width;
-    const y = (index - x) / width;
-    const look = (nx: number, ny: number) => {
-      if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
-        regions[label]!.neighbours.add(TRANSPARENT);
-        return;
-      }
-      const other = labels[ny * width + nx]!;
-      if (other !== label) regions[label]!.neighbours.add(other);
-    };
-    look(x + 1, y);
-    look(x - 1, y);
-    look(x, y + 1);
-    look(x, y - 1);
-  }
-
-  for (const region of regions) {
-    region.thickness = thicknessOf(region, width, height);
-  }
-  return { labels, regions, transparent };
+  const grown = growRegions(image, map, options.minArea, options.edgeThreshold);
+  const regions: PixelRegion[] = grown.regions.map((region) => ({
+    ...region,
+    thickness: thicknessOf(region.pixels, image.width),
+  }));
+  return {
+    regions,
+    transparent: grown.transparent,
+    edgePixels: grown.edgePixels,
+    folded: grown.folded,
+    map,
+  };
 }
 
 /**
- * How thick a region gets, by distance transform.
+ * The widest a run of pixels is anywhere, by chamfer distance transform.
  *
- * The largest distance from any of its pixels to something that is not it,
- * doubled. A three-pixel-wide stroke has a middle one and a half pixels from
- * either edge, so it comes out three.
- *
- * Two chamfer passes rather than an exact Euclidean transform: the error is
- * under a tenth of a pixel on the widths that matter here, and the exact version
- * is several times the code for a number that is then compared against a
- * threshold someone set by eye.
+ * Two sweeps over the region's own bounding box rather than over the picture, and
+ * in flat arrays rather than a `Map` keyed by pixel index. That matters more than
+ * it looks: this is asked once per region, and a `Map` of a hundred thousand
+ * entries hashing every lookup was a third of the whole flow's time on its own.
  */
-function thicknessOf(region: PixelRegion, width: number, height: number): number {
-  if (region.pixels.length === 0) return 0;
-  const own = new Set(region.pixels);
-  const distance = new Map<number, number>();
+export function thicknessOf(pixels: readonly number[], width: number): number {
+  if (pixels.length === 0) return 0;
+
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (const index of pixels) {
+    const x = index % width;
+    const y = (index - x) / width;
+    if (x < left) left = x;
+    if (x > right) right = x;
+    if (y < top) top = y;
+    if (y > bottom) bottom = y;
+  }
+  // One cell of margin all round, so "outside the shape" is inside the array and
+  // the sweeps need no bounds test of their own.
+  const span = right - left + 3;
+  const rows = bottom - top + 3;
+
   const BIG = 1e6;
-  for (const index of region.pixels) distance.set(index, BIG);
+  const distance = new Float64Array(span * rows).fill(-1);
+  for (const index of pixels) {
+    const x = index % width;
+    const y = (index - x) / width;
+    distance[(y - top + 1) * span + (x - left + 1)] = BIG;
+  }
 
-  const near = 1;
   const diagonal = Math.SQRT2;
-  const relax = (index: number, from: number, cost: number) => {
-    const source = distance.get(from);
-    if (source === undefined) return;
+  const relax = (at: number, from: number, cost: number) => {
+    const source = distance[from]!;
+    if (source < 0) return;
     const candidate = source + cost;
-    if (candidate < distance.get(index)!) distance.set(index, candidate);
+    if (candidate < distance[at]!) distance[at] = candidate;
   };
-  const outside = (x: number, y: number) =>
-    x < 0 || y < 0 || x >= width || y >= height || !own.has(y * width + x);
 
-  const sorted = [...region.pixels].sort((a, b) => a - b);
-  for (const pass of [sorted, [...sorted].reverse()]) {
-    const forward = pass === sorted;
-    for (const index of pass) {
-      const x = index % width;
-      const y = (index - x) / width;
+  for (let pass = 0; pass < 2; pass += 1) {
+    const forward = pass === 0;
+    for (let step = 0; step < span * rows; step += 1) {
+      const at = forward ? step : span * rows - 1 - step;
+      if (distance[at]! < 0) continue;
+      const x = at % span;
+      const y = (at - x) / span;
       // A pixel on the boundary is half a pixel from the edge of the shape.
-      if (outside(x - 1, y) || outside(x + 1, y) || outside(x, y - 1) || outside(x, y + 1)) {
-        distance.set(index, Math.min(distance.get(index)!, 0.5));
+      if (
+        distance[at - 1]! < 0 ||
+        distance[at + 1]! < 0 ||
+        distance[at - span]! < 0 ||
+        distance[at + span]! < 0
+      ) {
+        if (distance[at]! > 0.5) distance[at] = 0.5;
       }
-      const steps: Array<[number, number, number]> = forward
-        ? [
-            [-1, 0, near],
-            [0, -1, near],
-            [-1, -1, diagonal],
-            [1, -1, diagonal],
-          ]
-        : [
-            [1, 0, near],
-            [0, 1, near],
-            [1, 1, diagonal],
-            [-1, 1, diagonal],
-          ];
-      for (const [dx, dy, cost] of steps) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (outside(nx, ny)) continue;
-        relax(index, ny * width + nx, cost);
+      if (forward) {
+        if (x > 0) relax(at, at - 1, 1);
+        if (y > 0) relax(at, at - span, 1);
+        if (x > 0 && y > 0) relax(at, at - span - 1, diagonal);
+        if (x < span - 1 && y > 0) relax(at, at - span + 1, diagonal);
+      } else {
+        if (x < span - 1) relax(at, at + 1, 1);
+        if (y < rows - 1) relax(at, at + span, 1);
+        if (x < span - 1 && y < rows - 1) relax(at, at + span + 1, diagonal);
+        if (x > 0 && y < rows - 1) relax(at, at + span - 1, diagonal);
       }
     }
   }
 
   let deepest = 0;
-  for (const value of distance.values()) if (value < BIG && value > deepest) deepest = value;
+  for (const value of distance) if (value >= 0 && value < BIG && value > deepest) deepest = value;
   return deepest * 2;
 }
 
@@ -305,7 +295,10 @@ function thicknessOf(region: PixelRegion, width: number, height: number): number
  * them and the black is thin and has red one side and blue the other, so it is a
  * line and the boxes are still areas.
  */
-export function isLineRegion(region: PixelRegion, options: VectorizeOptions): boolean {
+export function isLineRegion(
+  region: { thickness: number; neighbours: Set<number> },
+  options: VectorizeOptions,
+): boolean {
   // A pixel short of the limit, because the distance transform reads an
   // even-width stroke as one pixel thinner than it is — a 2-wide stroke has no
   // pixel more than half a pixel from its edge. The real width is measured from
@@ -680,6 +673,41 @@ export function simplify(points: VectorPoint[], tolerance: number): VectorPoint[
   return points.filter((_, index) => keep[index] === 1);
 }
 
+/**
+ * The same, for a ring, where there is no first point and no last one.
+ *
+ * Running open RDP round a closed outline gets it wrong twice. The chord it
+ * starts from joins the first point to the last, which on a ring are
+ * neighbours — so every point is measured against a one-pixel baseline that
+ * means nothing. And whichever corner the trace happened to stop on is pinned
+ * while the corner beside it is free to go, which is how a two-by-two square
+ * came out as a triangle with a corner missing.
+ *
+ * Splitting at the point farthest from the start gives two open halves that
+ * between them cover the ring, each with a baseline the length of the shape.
+ */
+export function simplifyClosed(points: VectorPoint[], tolerance: number): VectorPoint[] {
+  if (points.length < 4 || tolerance <= 0) return points;
+
+  const first = points[0]!;
+  let far = 0;
+  let worst = -1;
+  for (let index = 1; index < points.length; index += 1) {
+    const away = Math.hypot(points[index]!.x - first.x, points[index]!.y - first.y);
+    if (away > worst) {
+      worst = away;
+      far = index;
+    }
+  }
+  if (far < 1) return points;
+
+  const head = simplify(points.slice(0, far + 1), tolerance);
+  const tail = simplify([...points.slice(far), first], tolerance);
+  // Both halves carry the two split points; the ring closes implicitly, so the
+  // shared ends are counted once.
+  return [...head.slice(0, -1), ...tail.slice(0, -1)];
+}
+
 function perpendicular(point: VectorPoint, a: VectorPoint, b: VectorPoint): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -840,91 +868,102 @@ export function vectorize(
   makeId: (prefix: string) => string,
 ): { image: VectorImage; report: VectorizeReport } {
   const { width, height } = image;
-  const { regions, transparent } = findRegions(image, options);
+  const found = findRegions(image, options);
   const report: VectorizeReport = {
-    regions: regions.length,
-    dropped: 0,
+    regions: found.regions.length,
+    // Specks folded into a neighbour were dropped as surely as one that could not
+    // be traced — they are not shapes in the answer either way.
+    dropped: found.folded,
     lines: 0,
     polygons: 0,
     wrongPixels: 0,
     drawnPixels: 0,
     thinButNotSeparating: 0,
     convexPieces: 0,
-    transparent,
+    transparent: found.transparent,
+    edgePixels: found.edgePixels,
     problems: [],
   };
 
-  const shapes: VectorShape[] = [];
-
   /*
-   * The order shapes are painted in, which is also the order they are fitted in.
+   * Areas by what they cover, biggest first, then strokes.
    *
-   * Areas biggest first, then strokes. That is how the picture was made: a
-   * background is laid down and the subject stands on it, and ink goes on last.
-   * Painting them in that order means an enclosing shape never has to cut itself
-   * around what sits on top of it, and fitting them in that order means each one
-   * is judged on the pixels it is actually responsible for.
+   * That is how the picture was made — a background is laid down, the subject
+   * stands on it, ink goes on last — and painting them back in that order means
+   * an enclosing shape never has to cut itself around what sits on top of it.
+   *
+   * **What an area covers is what its outline encloses**, not how many pixels its
+   * region held, and the difference is the whole of this. A region can be a ring:
+   * a black outline round a face is a closed band of ink with a hole in it. Its
+   * outline is traced on the outside, so filling it gives a disc rather than a
+   * ring — which is right, because the face is painted over it afterwards and
+   * only the rim is left showing. Ordered by pixel count instead, the ring is the
+   * smaller of the two and goes on last, and the face disappears under a black
+   * blob. That is exactly what it did.
    */
-  const kept = regions.filter((region) => {
-    if (region.pixels.length >= options.minArea) return true;
-    report.dropped += 1;
-    return false;
-  });
-  const strokes = new Set(kept.filter((region) => isLineRegion(region, options)));
+  const strokes = new Set(found.regions.filter((region) => isLineRegion(region, options)));
+  // Thin is half the rule, and the half that fails is worth saying out loud: a
+  // sliver of color with only one thing beside it is a shape, and someone
+  // wondering why their stroke came out as a polygon wants to be told which half
+  // it missed.
+  for (const region of found.regions) {
+    if (!strokes.has(region) && region.thickness <= options.lineWidth + 1) {
+      report.thinButNotSeparating += 1;
+    }
+  }
+  // Traced once, here, because the order needs the outline and so does the fit.
+  const outlines = new Map<PixelRegion, VectorPoint[]>();
+  for (const region of found.regions) {
+    if (strokes.has(region)) continue;
+    outlines.set(region, traceOutline(new Set(region.pixels), width, height));
+  }
+  const covers = (region: PixelRegion) => Math.abs(signedArea(outlines.get(region) ?? []));
+
   const order = [
-    ...kept.filter((region) => !strokes.has(region)).sort((a, b) => b.pixels.length - a.pixels.length),
-    ...kept.filter((region) => strokes.has(region)),
+    ...found.regions.filter((region) => !strokes.has(region)).sort((a, b) => covers(b) - covers(a)),
+    ...found.regions.filter((region) => strokes.has(region)),
   ];
 
-  /*
-   * Which shape owns each pixel, in paint order, worked out once.
-   *
-   * A pixel belonging to a shape painted later is not this one's problem, and
-   * asking that is now a lookup rather than a mask built per region — which
-   * matters because the answer is wanted for every candidate a fit considers,
-   * and a fit considers hundreds.
-   */
+  const weights: FitWeights = { pixel: 1, point: options.pointCost, polygon: options.polygonCost };
   const rankOf = new Int32Array(width * height).fill(-1);
-  for (let rank = 0; rank < order.length; rank += 1) {
-    for (const index of order[rank]!.pixels) rankOf[index] = rank;
+  if (options.refine) {
+    for (let rank = 0; rank < order.length; rank += 1) {
+      for (const index of order[rank]!.pixels) rankOf[index] = rank;
+    }
   }
   const hiddenAfter = (rank: number): Hidden => (index: number) => rankOf[index]! > rank;
+
+  const shapes: VectorShape[] = [];
 
   for (let rank = 0; rank < order.length; rank += 1) {
     const region = order[rank]!;
     const color = toHex(region.color);
     const pixels = new Set(region.pixels);
-
-    const weights: FitWeights = {
-      pixel: 1,
-      point: options.pointCost,
-      polygon: options.polygonCost,
-    };
-    // Padded, because a fitted stroke grows past the ink it was traced from and
-    // a shape that covers too much has to be able to show it.
-    const box = boxOf(pixels, width, Math.ceil(options.lineWidth) + 2);
-    const hidden = options.fitToPixels ? hiddenAfter(rank) : undefined;
     report.drawnPixels += pixels.size;
+
+    const box = boxOf(pixels, width, Math.ceil(options.lineWidth) + 2);
+    const hidden = options.refine ? hiddenAfter(rank) : undefined;
 
     if (strokes.has(region)) {
       const paths = centreline(pixels, width, height);
       if (paths.length > 0) {
-        // Strokes that cross are one region, so its ink is divided between the
-        // paths running through it before any of them is measured.
-        const shares = options.fitToPixels
+        const shares = options.refine
           ? shareInk(paths.map((path) => path.points), pixels, width)
           : paths.map(() => undefined);
-        const fitted = paths
+
+        const lines = paths
           .map((path, index) =>
-            fitLine(path, pixels, box, width, options, weights, mergeHidden(hidden, shares[index])),
+            options.refine
+              ? fitLine(path, pixels, box, width, options, weights, mergeHidden(hidden, shares[index]))
+              : quickLine(path, region, paths, options),
           )
           .filter((line): line is FittedLine => line !== null);
 
-        // With the real widths known, a squat blob that the distance transform
-        // let through can still turn out to be an area rather than a stroke.
-        const widest = Math.max(0, ...fitted.map((line) => line.width));
-        if (fitted.length > 0 && widest <= options.lineWidth) {
-          for (const line of fitted) {
+        const widest = Math.max(0, ...lines.map((line) => line.width));
+        // With the real widths known, a squat blob that the thinness test let
+        // through can still turn out to be an area rather than a stroke.
+        if (lines.length > 0 && widest <= options.lineWidth + 0.5) {
+          for (const line of lines) {
             shapes.push({
               id: makeId('line'),
               kind: 'line',
@@ -939,35 +978,198 @@ export function vectorize(
               closed: line.closed,
             } satisfies VectorLine);
             report.lines += 1;
-            report.wrongPixels += line.wrong;
           }
           continue;
         }
       }
+      report.thinButNotSeparating += 1;
     }
 
-    if (region.thickness <= options.lineWidth) report.thinButNotSeparating += 1;
-
-    const traced = traceOutline(pixels, width, height);
+    const traced = outlines.get(region) ?? traceOutline(pixels, width, height);
     if (traced.length < 3) {
       report.dropped += 1;
       continue;
     }
-    const fit = fitArea(traced, pixels, box, width, options, weights, hidden);
-    if (fit.pieces.length === 0) {
+
+    const pieces = options.refine
+      ? fitArea(traced, pixels, box, width, options, weights, hidden).pieces
+      : quickArea(traced, options);
+
+    if (pieces.length === 0) {
       report.problems.push(`An area at ${describe(region, width)} could not be cut into convex pieces.`);
       continue;
     }
-    for (const piece of fit.pieces) {
+    for (const piece of pieces) {
       shapes.push({ id: makeId('poly'), kind: 'polygon', color, points: piece } satisfies VectorPolygon);
       report.polygons += 1;
     }
-    report.convexPieces += fit.pieces.length;
-    report.wrongPixels += fit.mismatch.wrong;
+    report.convexPieces += pieces.length;
   }
 
-  return { image: { width, height, shapes }, report };
+  const drawn: VectorImage = { width, height, shapes };
+  report.wrongPixels = measureWhole(image, drawn, options);
+  return { image: drawn, report };
 }
+
+/**
+ * Simplify to a tolerance, and then to a budget.
+ *
+ * `detail` is the tolerance and does most of the work. The budget is there
+ * because "no more than sixteen points" is a thing you can want and a tolerance
+ * alone cannot promise it — one fiddly outline will always find a way to spend
+ * forty. Where a shape is over budget the tolerance is doubled for that shape
+ * until it fits, which loosens the shapes that need loosening and leaves the
+ * rest alone.
+ */
+export function toBudget(
+  points: VectorPoint[],
+  detail: number,
+  maxPoints: number,
+  minimum: number,
+  closed = false,
+): VectorPoint[] {
+  const reduce = (tolerance: number) =>
+    closed ? simplifyClosed(points, tolerance) : simplify(points, tolerance);
+
+  let out = reduce(detail);
+
+  if (maxPoints > 0) {
+    let tolerance = Math.max(0.2, detail);
+    for (let round = 0; round < 12 && out.length > Math.max(minimum, maxPoints); round += 1) {
+      tolerance *= 1.8;
+      out = reduce(tolerance);
+    }
+  }
+  if (out.length >= minimum) return out;
+
+  /*
+   * Too few to be a shape at all, so tighten until it is one.
+   *
+   * A tolerance is a distance, and a shape can be smaller than it — a two-pixel
+   * square has no corner more than one and a half pixels off its own diagonal,
+   * so a pixel and a half of slack flattens it into a line. Without this the
+   * shape is simply gone from the drawing, which is never the right answer to
+   * "simplify this": losing detail is the deal, losing the shape is not.
+   */
+  let tolerance = detail;
+  for (let round = 0; round < 8 && tolerance > 0.01; round += 1) {
+    tolerance /= 2;
+    const tighter = reduce(tolerance);
+    if (tighter.length >= minimum) return tighter;
+  }
+  return points;
+}
+
+interface FittedLine {
+  points: VectorPoint[];
+  width: number;
+  closed: boolean;
+}
+
+/**
+ * A stroke, measured rather than searched for.
+ *
+ * Its width is its area over the length of its middle — which is the width of a
+ * rectangle and close enough for a wobbly hand-drawn one. That used to be worth
+ * searching for, because regions grown by color tolerance did not include the
+ * blended boundary and came out narrower than the ink. Regions grown between
+ * edges do include it: the edge pass hands its pixels back to whichever side
+ * they look like, so the area being divided here is the whole stroke.
+ */
+function quickLine(
+  path: Centreline,
+  region: PixelRegion,
+  all: Centreline[],
+  options: VectorizeOptions,
+): FittedLine | null {
+  const anchors = toBudget(
+    path.points,
+    options.detail,
+    options.maxPoints,
+    path.closed ? 3 : 2,
+    path.closed,
+  );
+  if (anchors.length < (path.closed ? 3 : 2)) return null;
+
+  const total = all.reduce(
+    (sum, other) => sum + pathLength(other.points) + (other.closed ? closingStep(other.points) : 0),
+    0,
+  );
+  const width = total < 1e-6 ? 1 : region.pixels.length / total;
+  return { points: anchors, width, closed: path.closed };
+}
+
+/** An area, simplified and then cut into convex pieces only if it needs to be. */
+function quickArea(traced: VectorPoint[], options: VectorizeOptions): VectorPoint[][] {
+  // An outline is a ring, always.
+  const outline = toBudget(traced, options.detail, options.maxPoints, 3, true);
+  if (outline.length < 3) return [];
+  return toConvexPieces(outline);
+}
+
+/**
+ * How many pixels the finished drawing gets wrong, over the whole picture.
+ *
+ * Measured once, at the end, rather than per candidate. The old fit asked this
+ * question hundreds of times a shape and that was most of what the flow spent
+ * its time on; asking it once tells you just as much about whether the answer is
+ * any good, and costs one pass.
+ */
+function measureWhole(source: Bitmap, drawn: VectorImage, options: VectorizeOptions): number {
+  const { width, height } = source;
+  const box: Box = { x: 0, y: 0, width, height };
+  const painted = new Int32Array(width * height).fill(-1);
+  const scratch = coverageFor(box);
+
+  const order = [
+    ...drawn.shapes.filter((shape) => shape.kind === 'polygon'),
+    ...drawn.shapes.filter((shape) => shape.kind === 'line'),
+  ];
+  for (const shape of order) {
+    scratch.fill(0);
+    if (shape.kind === 'polygon') fillInto(shape.points, box, scratch);
+    else strokeInto(shape.points, shape.width, box, scratch);
+    const rgb = fromHex(shape.color);
+    if (!rgb) continue;
+    const packed = (rgb.r << 16) | (rgb.g << 8) | rgb.b;
+    for (let index = 0; index < scratch.length; index += 1) {
+      if (scratch[index]! >= 128) painted[index] = packed;
+    }
+  }
+
+  let wrong = 0;
+  for (let index = 0; index < width * height; index += 1) {
+    const at = index * 4;
+    const clear = source.data[at + 3]! <= options.alphaFloor;
+    const got = painted[index]!;
+    if (clear) {
+      // Transparent in the source and painted over is wrong too, or a shape
+      // could score well by spilling into the empty part of the picture.
+      if (got >= 0) wrong += 1;
+      continue;
+    }
+    if (got < 0) {
+      wrong += 1;
+      continue;
+    }
+    const distance = colorDistance(
+      { r: (got >> 16) & 255, g: (got >> 8) & 255, b: got & 255 },
+      { r: source.data[at]!, g: source.data[at + 1]!, b: source.data[at + 2]! },
+    );
+    // Judged by eye rather than by byte: a pixel a shade off is not wrong.
+    if (distance > 8) wrong += 1;
+  }
+  return wrong;
+}
+
+/* ------------------------------------------------------------------ *
+ * The slow path
+ *
+ * Everything below is only reached with `refine` turned on. It measures each
+ * candidate against the pixels instead of trusting the trace, which finds a
+ * better answer and costs far more time — worth it for a final pass over a
+ * drawing you are keeping, not for the twenty you throw away first.
+ * ------------------------------------------------------------------ */
 
 /** One box cropped to another, so a tight box never reaches outside the image. */
 function clampBox(inner: Box, outer: Box): Box {
@@ -979,13 +1181,6 @@ function clampBox(inner: Box, outer: Box): Box {
     width: Math.max(0, Math.min(inner.x + inner.width, outer.x + outer.width) - x),
     height: Math.max(0, Math.min(inner.y + inner.height, outer.y + outer.height) - y),
   };
-}
-
-interface FittedLine {
-  points: VectorPoint[];
-  width: number;
-  closed: boolean;
-  wrong: number;
 }
 
 /**
@@ -1009,15 +1204,15 @@ function fitLine(
   const start = path.points;
   if (start.length < (path.closed ? 3 : 2)) return null;
 
-  if (!options.fitToPixels) {
-    const anchors = simplify(start, options.simplify);
-    if (anchors.length < (path.closed ? 3 : 2)) return null;
-    return { points: anchors, width: 1, closed: path.closed, wrong: 0 };
-  }
-
   // Simplified first, so the search is over a handful of anchors rather than one
   // per pixel — and then pruned again at the end, once the width is known.
-  const rough = simplify(start, Math.max(0.6, options.simplify));
+  const rough = toBudget(
+    start,
+    Math.max(0.6, options.detail),
+    options.maxPoints,
+    path.closed ? 3 : 2,
+    path.closed,
+  );
   const seed = rough.length >= (path.closed ? 3 : 2) ? rough : start;
 
   /*
@@ -1046,7 +1241,7 @@ function fitLine(
   fit = pruneStroke(fit, pixels, tight, imageWidth, weights, hidden);
   if (fit.points.length < (path.closed ? 3 : 2)) return null;
 
-  return { points: fit.points, width: fit.width, closed: path.closed, wrong: fit.mismatch.wrong };
+  return { points: fit.points, width: fit.width, closed: path.closed };
 }
 
 /**
@@ -1068,22 +1263,23 @@ function fitArea(
   weights: FitWeights,
   hidden?: Hidden,
 ): PolygonFit {
-  if (!options.fitToPixels) {
-    const pieces = toConvexPieces(simplify(traced, options.simplify));
-    return scorePieces(pieces, pixels, box, imageWidth, weights);
-  }
-
   const ladder = [0.4, 0.8, 1.2, 1.8, 2.6, 3.6];
   let best: PolygonFit | null = null;
   for (const tolerance of ladder) {
-    const outline = simplify(traced, tolerance);
+    const outline = toBudget(traced, tolerance, options.maxPoints, 3, true);
     if (outline.length < 3) continue;
     const pieces = toConvexPieces(outline);
     if (pieces.length === 0) continue;
     const fit = scorePieces(pieces, pixels, box, imageWidth, weights, undefined, hidden);
     if (!best || fit.cost < best.cost) best = fit;
   }
-  if (!best) return { pieces: [], mismatch: { missed: pixels.size, extra: 0, wrong: pixels.size, target: pixels.size }, cost: Infinity };
+  if (!best) {
+    return {
+      pieces: [],
+      mismatch: { missed: pixels.size, extra: 0, wrong: pixels.size, target: pixels.size },
+      cost: Infinity,
+    };
+  }
 
   return prunePoints(best.pieces, pixels, box, imageWidth, weights, 3, hidden);
 }

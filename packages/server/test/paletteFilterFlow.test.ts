@@ -125,7 +125,7 @@ before(async () => {
         name: 'Palette',
         position: { x: 80, y: 220 },
         notes: '',
-        data: { editor: 'palette', options: {}, histogram: null, pinned: {} } as unknown as FlowNode['data'],
+        data: { editor: 'palette', options: {}, histogram: null, edits: { changed: {}, removed: [], added: [] } } as unknown as FlowNode['data'],
         outputs: [],
       },
       {
