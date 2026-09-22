@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   DEFAULT_PALETTE_OPTIONS,
-  applyPinned,
+  NO_PALETTE_EDITS,
+  addColor,
+  applyEdits,
+  changeColor,
   colorDistance,
   derivePalette,
   emptyPaletteFlowData,
@@ -11,11 +14,14 @@ import {
   histogramState,
   mixOklab,
   quantise,
+  removeColor,
+  restoreColor,
   summarisePalette,
   toHex,
   toOklab,
   type ColorCount,
   type ImageHistogram,
+  type PaletteOptions,
 } from '../src/flows/palette';
 
 function counts(...rows: Array<[string, number]>): ColorCount[] {
@@ -261,28 +267,142 @@ test('a counted image goes stale when the picture behind it changes', () => {
   assert.equal(histogramState(read, undefined), 'stale', 'and an unwired image is not fresh either');
 });
 
-test('an entry can be pinned by hand and survives a change of settings', () => {
-  const sky = histogram(counts(['#ff0000', 100], ['#00ff00', 50]));
-  const pinned = applyPinned(derivePalette(sky, { count: 2, minDistance: 10 }), { '1': '#000000' });
+/* ---------------- editing the palette ---------------- */
 
-  assert.equal(pinned.entries[0]!.hex, '#ff0000', 'the unpinned entry is untouched');
-  assert.equal(pinned.entries[1]!.hex, '#000000');
-  assert.ok(pinned.entries[1]!.shifted > 50, 'and it says how far from the counted color it now is');
+const sky = () => histogram(counts(['#ff0000', 100], ['#00ff00', 50], ['#0000ff', 20]));
+const derived = (over: Partial<PaletteOptions> = {}) =>
+  derivePalette(sky(), { count: 3, minDistance: 10, ...over });
 
-  // Nonsense in the pin table is ignored rather than blanking the entry.
-  const bad = applyPinned(derivePalette(sky, { count: 2, minDistance: 10 }), { '0': 'not a color' });
-  assert.equal(bad.entries[0]!.hex, '#ff0000');
+test('an entry can be changed by hand, and says how far from the image it now is', () => {
+  const edits = changeColor(NO_PALETTE_EDITS, derived().entries[1]!, '#000000');
+  const palette = applyEdits(derived(), edits);
+
+  assert.equal(palette.entries[0]!.hex, '#ff0000', 'the entry beside it is untouched');
+  assert.equal(palette.entries[1]!.hex, '#000000');
+  assert.ok(palette.entries[1]!.shifted > 50, 'and it is measured from the color that was counted');
 });
 
-test('a new flow has settings and no image', () => {
+test('nonsense typed into a hex box leaves the entry alone rather than blanking it', () => {
+  const palette = applyEdits(derived(), { changed: { '#ff0000': 'not a color' }, removed: [], added: [] });
+  assert.equal(palette.entries[0]!.hex, '#ff0000');
+});
+
+test('a change is remembered against its color group, not its position', () => {
+  /*
+   * The reason edits are keyed the way they are. Ask for two colors instead of
+   * three and every position below the change means something else — so an edit
+   * stored against "2" would land on a color nobody chose.
+   */
+  const green = derived().entries[1]!;
+  assert.equal(green.hex, '#00ff00');
+  const edits = changeColor(NO_PALETTE_EDITS, green, '#000000');
+
+  // Reversed, so the position that was green is now blue.
+  const reversed = derivePalette(
+    histogram(counts(['#0000ff', 100], ['#00ff00', 50], ['#ff0000', 20])),
+    { count: 3, minDistance: 10 },
+  );
+  const applied = applyEdits(reversed, edits);
+  const black = applied.entries.filter((entry) => entry.hex === '#000000');
+  assert.equal(black.length, 1, 'the edit was applied once');
+  assert.equal(black[0]!.modeHex, '#00ff00', 'and to the green it was made for');
+});
+
+test('an entry can be taken out, and put back', () => {
+  const green = derived().entries[1]!;
+  const taken = removeColor(NO_PALETTE_EDITS, green);
+  const fewer = applyEdits(derived(), taken);
+
+  assert.equal(fewer.entries.length, 2);
+  assert.ok(!fewer.entries.some((entry) => entry.hex === '#00ff00'), 'the green is gone');
+  assert.ok(fewer.entries.every((entry) => entry.share > 0), 'and what is left still stands for pixels');
+  // What it accounted for is no longer covered, and the summary says so rather
+  // than quietly re-crediting its share to a neighbour.
+  assert.ok(applyEdits(derived()).entries.reduce((sum, e) => sum + e.share, 0) > 0.99);
+  assert.ok(fewer.entries.reduce((sum, entry) => sum + entry.share, 0) < 0.8);
+
+  const back = applyEdits(derived(), restoreColor(taken, '#00ff00'));
+  assert.equal(back.entries.length, 3);
+  assert.ok(back.entries.some((entry) => entry.hex === '#00ff00'));
+});
+
+test('taking an entry out forgets the change made to it', () => {
+  // Otherwise undoing the removal brings back an edit you had stopped thinking
+  // about, and the color comes back as something other than what was counted.
+  const green = derived().entries[1]!;
+  const edited = changeColor(NO_PALETTE_EDITS, green, '#123456');
+  const taken = removeColor(edited, green);
+  assert.deepEqual(taken.changed, {});
+
+  const back = applyEdits(derived(), restoreColor(taken, '#00ff00'));
+  assert.equal(back.entries[1]!.hex, '#00ff00');
+});
+
+test('a color can be added that is not in the picture at all', () => {
+  const edits = addColor(NO_PALETTE_EDITS, '#ff00ff');
+  const palette = applyEdits(derived(), edits);
+
+  assert.equal(palette.entries.length, 4);
+  const added = palette.entries[3]!;
+  assert.equal(added.hex, '#ff00ff');
+  assert.equal(added.byHand, true);
+  assert.equal(added.share, 0, 'it stands for none of the image');
+  assert.equal(added.count, 0);
+  assert.ok(added.nearest > 0, 'and it knows how close it sits to the rest');
+});
+
+test('the same color is not added twice', () => {
+  const once = addColor(NO_PALETTE_EDITS, '#ff00ff');
+  assert.deepEqual(addColor(once, '#FF00FF').added, ['#ff00ff'], 'case and hash do not make it new');
+  assert.deepEqual(addColor(once, 'not a color').added, ['#ff00ff']);
+});
+
+test('a color you added is edited where it stands, and forgotten when dropped', () => {
+  const edits = addColor(NO_PALETTE_EDITS, '#ff00ff');
+  const mine = applyEdits(derived(), edits).entries[3]!;
+
+  const moved = changeColor(edits, mine, '#00ffff');
+  assert.deepEqual(moved.added, ['#00ffff']);
+  assert.deepEqual(moved.changed, {}, 'no second record of the same color');
+
+  assert.deepEqual(removeColor(edits, mine).added, []);
+});
+
+test('an edit for a color the settings no longer produce waits rather than vanishing', () => {
+  const blue = derived().entries[2]!;
+  const edits = changeColor(NO_PALETTE_EDITS, blue, '#000000');
+
+  const two = derived({ count: 2 });
+  assert.equal(two.entries.length, 2, 'the blue is no longer its own entry');
+  const applied = applyEdits(two, edits);
+  assert.ok(!applied.entries.some((entry) => entry.hex === '#000000'), 'the edit does nothing');
+
+  const summary = summarisePalette(applied, { ...emptyPaletteFlowData(), edits });
+  assert.equal(summary.changed, 0);
+  assert.equal(summary.waiting, 1, 'and it is reported as waiting rather than applied');
+
+  // And it comes back when the setting does.
+  assert.ok(applyEdits(derived(), edits).entries.some((entry) => entry.hex === '#000000'));
+});
+
+test('the closest pair is worked out again after an edit', () => {
+  // The figure exists to answer "is the minimum distance being met", and two
+  // colors chosen by hand can sit far closer than any bucketing would put them.
+  const edits = addColor(NO_PALETTE_EDITS, '#fe0000');
+  const palette = applyEdits(derived(), edits);
+  const summary = summarisePalette(palette, { ...emptyPaletteFlowData(), edits });
+  assert.ok(summary.closest < 1, `the closest pair reads ${summary.closest}`);
+});
+
+test('a new flow has settings, no image, and no edits', () => {
   const data = emptyPaletteFlowData();
   assert.deepEqual(data.options, DEFAULT_PALETTE_OPTIONS);
   assert.equal(data.histogram, undefined);
-  assert.deepEqual(data.pinned, {});
+  assert.deepEqual(data.edits, { changed: {}, removed: [], added: [] });
 
   const summary = summarisePalette(derivePalette(histogram(counts(['#ff0000', 10], ['#00ff00', 9]))), data);
   assert.equal(summary.colors, 2);
-  assert.equal(summary.pinned, 0);
+  assert.equal(summary.changed + summary.removed + summary.added + summary.waiting, 0);
   assert.ok(Math.abs(summary.covered - 1) < 1e-9);
   assert.ok(summary.closest > 0);
 });

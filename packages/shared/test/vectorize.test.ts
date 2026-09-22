@@ -8,9 +8,11 @@ import {
   isLineRegion,
   looksCurved,
   simplify,
+  simplifyClosed,
   strokeWidth,
   summariseVectorize,
   thin,
+  toBudget,
   toConvexPieces,
   traceOutline,
   vectorize,
@@ -92,7 +94,9 @@ test('a stroke between the same two blocks is a line, and they are still areas',
   ]);
   assert.equal(result.report.lines, 1);
   assert.equal(result.report.polygons, 2);
-  assert.equal(linesOf(result)[0]!.color, '#101010');
+  // The color the ink actually was, not a value rounded to a quantisation step:
+  // a region wears the average of its own pixels.
+  assert.equal(linesOf(result)[0]!.color, '#141414');
 });
 
 test('a thin shape bordering only one thing is an area, not a stroke', () => {
@@ -146,17 +150,31 @@ test('a region knows what it touches, including the outside', () => {
   assert.equal(regions[0]!.neighbours.has(-1), true, 'the edge of the image counts as outside');
 });
 
-test('color is judged against the region’s seed, not the pixel next to it', () => {
-  // Otherwise a gradient walks the whole picture into one region, exactly as it
-  // would in a flood fill.
-  const width = 40;
-  const data = new Uint8ClampedArray(width * 4);
-  for (let x = 0; x < width; x += 1) {
-    data[x * 4] = data[x * 4 + 1] = data[x * 4 + 2] = 128 + x;
-    data[x * 4 + 3] = 255;
-  }
-  const { regions } = findRegions({ width, height: 1, data }, options({ tolerance: 4, precision: 8 }));
-  assert.ok(regions.length > 1, `the ramp became ${regions.length} region(s)`);
+test('a smooth ramp is one region, and a step in it is two', () => {
+  /*
+   * The difference between growing by contrast and growing by tolerance, in one
+   * test. Tolerance measured each pixel against the one the fill started from,
+   * so a long enough ramp was chopped into arbitrary bands wherever it happened
+   * to drift out of range — bands with no boundary in the picture to justify
+   * them. Contrast asks where the picture *changes*, so the ramp stays whole and
+   * only a real step divides it.
+   */
+  const ramp = (step: number): Bitmap => {
+    const width = 40;
+    const data = new Uint8ClampedArray(width * 4);
+    for (let x = 0; x < width; x += 1) {
+      const level = 100 + x + (x >= 20 ? step : 0);
+      data[x * 4] = data[x * 4 + 1] = data[x * 4 + 2] = level;
+      data[x * 4 + 3] = 255;
+    }
+    return { width, height: 1, data };
+  };
+
+  const smooth = findRegions(ramp(0), options());
+  assert.equal(smooth.regions.length, 1, `the ramp became ${smooth.regions.length} region(s)`);
+
+  const stepped = findRegions(ramp(90), options());
+  assert.equal(stepped.regions.length, 2, `the step became ${stepped.regions.length} region(s)`);
 });
 
 test('noise below the minimum area is dropped', () => {
@@ -349,8 +367,9 @@ test('every shape carries the color it was found in', () => {
     'RRRKBBB',
     'RRRKBBB',
   ]);
-  // Rounded to the color precision before grouping, so these are the rounded
-  // values rather than the exact ones that went in.
+  // Each shape wears its region's average, so these are close to the values
+  // that went in rather than exactly them — the edge band between two colors is
+  // handed back to one side or the other and pulls its average a shade over.
   const colors = [...new Set(result.image.shapes.map((shape) => shape.color))].sort();
   assert.equal(colors.length, 3, colors.join(' '));
   assert.ok(colors.some((hex) => /^#1/.test(hex)), `no black in ${colors.join(' ')}`);
@@ -406,4 +425,149 @@ test('strokeWidth reports one for a path with no length rather than dividing by 
 test('a line region with nothing traceable is reported rather than dropped in silence', () => {
   const region = { id: 0, color: { r: 0, g: 0, b: 0 }, pixels: [], neighbours: new Set([1, 2]), thickness: 1 };
   assert.equal(isLineRegion(region, options()), true, 'thin and separating');
+});
+
+/* ---------------- simplifying a ring ---------------- */
+
+test('a closed outline keeps all four corners of a square', () => {
+  /*
+   * Open RDP on a ring gets it wrong twice. Its baseline joins the first point to
+   * the last, which on a ring are neighbours, so every point is measured against a
+   * one-pixel chord that means nothing; and whichever corner the trace stopped on
+   * is pinned while the corner beside it is free to go. A square came out as a
+   * triangle.
+   */
+  const ring = [
+    { x: 0, y: 0 },
+    { x: 5, y: 0 },
+    { x: 10, y: 0 },
+    { x: 10, y: 5 },
+    { x: 10, y: 10 },
+    { x: 5, y: 10 },
+    { x: 0, y: 10 },
+    { x: 0, y: 5 },
+  ];
+  const closed = simplifyClosed(ring, 1);
+  assert.equal(closed.length, 4, `got ${closed.length} point(s): ${JSON.stringify(closed)}`);
+  for (const corner of [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 10, y: 10 },
+    { x: 0, y: 10 },
+  ]) {
+    assert.ok(
+      closed.some((point) => point.x === corner.x && point.y === corner.y),
+      `${corner.x},${corner.y} was dropped`,
+    );
+  }
+});
+
+test('a budget is met by simplifying harder, not by cutting the list short', () => {
+  // A circle, which has no corners to prefer, so a tolerance alone will happily
+  // spend forty points on it.
+  const circle = Array.from({ length: 120 }, (_, step) => {
+    const angle = (step / 120) * Math.PI * 2;
+    return { x: 50 + Math.cos(angle) * 40, y: 50 + Math.sin(angle) * 40 };
+  });
+  const loose = toBudget(circle, 0.2, 0, 3, true);
+  assert.ok(loose.length > 12, `the tolerance alone kept only ${loose.length}`);
+
+  const budgeted = toBudget(circle, 0.2, 12, 3, true);
+  assert.ok(budgeted.length <= 12, `the budget was missed at ${budgeted.length}`);
+  assert.ok(budgeted.length >= 6, `it went too far and kept ${budgeted.length}`);
+});
+
+test('a shape smaller than the tolerance is not simplified out of existence', () => {
+  // A two-pixel square has no corner more than one and a half pixels off its own
+  // diagonal, so a pixel and a half of slack flattens it into a line. Losing
+  // detail is the deal; losing the shape is not.
+  const width = 4;
+  const pixels = new Set<number>();
+  for (let y = 1; y <= 2; y += 1) for (let x = 1; x <= 2; x += 1) pixels.add(y * width + x);
+  const traced = traceOutline(pixels, width, 4);
+
+  assert.ok(simplifyClosed(traced, 1.8).length < 3, 'the tolerance really is bigger than the shape');
+  const kept = toBudget(traced, 1.8, 20, 3, true);
+  assert.ok(kept.length >= 3, `it came back as ${kept.length} point(s)`);
+  assert.equal(toConvexPieces(kept).length, 1, 'and it is still a shape that can be filled');
+});
+
+/* ---------------- speed ---------------- */
+
+test('a picture of a few hundred pixels a side is decomposed in well under a second', () => {
+  /*
+   * The complaint that prompted this pipeline was that it took far too long, so
+   * the fix deserves a test rather than a claim. Generous on purpose — this runs
+   * on whatever machine happens to be running the suite — but it is two orders of
+   * magnitude off what measuring every candidate against the pixels costs, which
+   * is what this replaced.
+   */
+  const size = 256;
+  const data = new Uint8ClampedArray(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const at = (y * size + x) * 4;
+      const ring = Math.abs(Math.hypot(x - size / 2, y - size / 2) - size / 3);
+      const [r, g, b] = ring < 2 ? [20, 20, 20] : ring < 30 ? [230, 180, 140] : [90, 140, 200];
+      data[at] = r;
+      data[at + 1] = g;
+      data[at + 2] = b;
+      data[at + 3] = 255;
+    }
+  }
+
+  let n = 0;
+  const start = performance.now();
+  const result = vectorize({ width: size, height: size, data }, options(), (prefix) => `${prefix}_${(n += 1)}`);
+  const took = performance.now() - start;
+
+  assert.ok(result.image.shapes.length > 0, 'it found nothing');
+  assert.ok(took < 3000, `it took ${Math.round(took)}ms`);
+
+  const points = result.image.shapes.reduce((sum, shape) => sum + shape.points.length, 0);
+  assert.ok(points < 200, `it spent ${points} points on three shapes`);
+});
+
+/* ---------------- what covers what ---------------- */
+
+test('an outline round a shape does not swallow the shape', () => {
+  /*
+   * A black outline is a *ring*, and an outline is traced on the outside, so
+   * filling one gives a disc rather than a ring. That is fine — the thing inside
+   * is painted over it and only the rim shows — but only if the ring goes down
+   * first.
+   *
+   * Ordered by how many pixels each region held, it does not: the ring is the
+   * thinner of the two and goes on last, and a face comes back as a black blob.
+   * So areas are ordered by what their outline *encloses*.
+   */
+  const size = 40;
+  const data = new Uint8ClampedArray(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const at = (y * size + x) * 4;
+      const away = Math.hypot(x - size / 2, y - size / 2);
+      const [r, g, b] = away > 15 ? [40, 60, 220] : away > 12 ? [20, 20, 20] : [220, 40, 40];
+      data[at] = r;
+      data[at + 1] = g;
+      data[at + 2] = b;
+      data[at + 3] = 255;
+    }
+  }
+
+  let n = 0;
+  const result = vectorize({ width: size, height: size, data }, options({ lineWidth: 1 }), (prefix) => `${prefix}_${(n += 1)}`);
+
+  const painted = result.image.shapes.map((shape) => shape.color);
+  const black = painted.findIndex((hex) => /^#1/.test(hex));
+  const red = painted.findIndex((hex) => /^#[c-f]/.test(hex));
+  assert.ok(black >= 0, `no outline in ${painted.join(' ')}`);
+  assert.ok(red >= 0, `no inside in ${painted.join(' ')}`);
+  assert.ok(black < red, 'the outline is painted before what it encloses, not over it');
+
+  // And the proof that it looks right: almost nothing is the wrong color.
+  assert.ok(
+    result.report.wrongPixels / result.report.drawnPixels < 0.05,
+    `${((result.report.wrongPixels / result.report.drawnPixels) * 100).toFixed(1)}% of the picture is wrong`,
+  );
 });

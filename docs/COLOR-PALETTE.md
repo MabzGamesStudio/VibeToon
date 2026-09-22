@@ -121,9 +121,45 @@ whole point of the minimum distance is that near-duplicates are not colors.
 
 Lower the distance, or ask for fewer.
 
-## Pinning
+## Editing the palette
 
-Any entry can be **pinned** to a color you choose. A pinned entry is used as it
-is, whatever the settings do, and pins are held by position so they survive
-changing the count or the distance. For a brand color, or when the count found
-something almost right.
+What comes out of a photograph is a starting point, not an answer. Once the image
+has been read, every entry is yours:
+
+| | What it does |
+| --- | --- |
+| **Change** | Set an entry to any color you like. It stays there, whatever the settings do. For a brand color, or when the count found something almost right. |
+| **Take out** | Drop an entry the palette should not have spent — a background, or a compression artefact. It can be put back. |
+| **Add** | Put in a color the drawing will need that the picture did not have. |
+
+### Edits are kept apart from the palette
+
+The palette is always **derived from the image**, and the edits are applied on
+top of it — never folded in. That is what lets you turn a setting or read the
+picture again without losing the work: a palette stored as a flat list of colors
+would have to choose between wiping your edits and ignoring the image, and both
+are wrong.
+
+An added color stands for **no pixels**, and says so: its share is zero, and the
+"covers" figure drops accordingly rather than crediting an invented color with
+part of the image. Taking an entry out lowers that figure too, because the
+palette really does account for less of the picture than it did.
+
+### Kept against the color, not the position
+
+Each edit is remembered against the **group it was made for** — the group's
+commonest color, which is what the report calls its mode — rather than against a
+row number.
+
+Position is not identity. Ask for four colors instead of eight and entry three is
+a different color than it was, so an edit stored against "3" would quietly apply
+to something you never chose. Against a group, an edit either lands on the color
+you made it for, or the settings no longer produce that group and the edit
+**waits** — kept, doing nothing, and back the moment the settings are. The editor
+says how many are waiting, so a change with no visible effect is explained rather
+than mysterious.
+
+The closest pair is worked out again after editing, for the same reason it is
+shown at all: two colors chosen by hand can sit far closer together than any
+bucketing would have put them, and a stale figure would say the minimum distance
+was being met when it is not.

@@ -184,25 +184,26 @@ export function VectorizeFlowEditor({
         </div>
 
         <div className="vt-section">
-          <h3>Grouping</h3>
+          <h3>Where the edges are</h3>
           <Slider
-            label="Same-color tolerance"
-            value={data.options.tolerance}
-            min={0}
+            label="Contrast that counts"
+            value={data.options.edgeThreshold}
+            min={2}
             max={40}
             step={0.5}
-            tip="vectorize.tolerance"
-            onChange={(tolerance) => patch({ options: { ...data.options, tolerance } })}
+            tip="vectorize.edgeThreshold"
+            hint="Turn it down to find fainter boundaries, up to ignore shading."
+            onChange={(edgeThreshold) => patch({ options: { ...data.options, edgeThreshold } })}
           />
           <Slider
-            label="Color precision"
-            value={data.options.precision}
-            min={2}
-            max={8}
-            step={1}
-            tip="palette.precision"
-            format={(value) => `${value} bits · ${2 ** value} levels`}
-            onChange={(precision) => patch({ options: { ...data.options, precision } })}
+            label="…and to keep one going"
+            value={data.options.edgeFloor}
+            min={0}
+            max={20}
+            step={0.5}
+            tip="vectorize.edgeFloor"
+            hint="A weaker boundary is kept only where it joins a stronger one."
+            onChange={(edgeFloor) => patch({ options: { ...data.options, edgeFloor } })}
           />
           <Slider
             label="Drop regions under"
@@ -218,19 +219,19 @@ export function VectorizeFlowEditor({
 
         <div className="vt-section">
           <h3>How shapes are fitted</h3>
-          <Field label="Method" tip="vectorize.fit">
+          <Field label="Method" tip="vectorize.refine">
             <label className="vt-row" style={{ gap: 6 }}>
               <input
                 type="checkbox"
-                checked={data.options.fitToPixels}
+                checked={data.options.refine}
                 onChange={(event) =>
-                  patch({ options: { ...data.options, fitToPixels: event.target.checked } })
+                  patch({ options: { ...data.options, refine: event.target.checked } })
                 }
               />
-              Measure against the pixels
+              Spend longer for a closer fit
             </label>
           </Field>
-          {data.options.fitToPixels ? (
+          {data.options.refine ? (
             <>
               <Slider
                 label="What an anchor is worth"
@@ -258,23 +259,28 @@ export function VectorizeFlowEditor({
         </div>
 
         <div className="vt-section">
-          <h3>Shape</h3>
-          {data.options.fitToPixels ? (
-            <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
-              Anchors are chosen by what they cover, so there is no tolerance to set. The
-              two costs above decide how many there are.
-            </p>
-          ) : null}
+          <h3>How many points</h3>
           <Slider
             label="Simplify to within"
-            value={data.options.simplify}
+            value={data.options.detail}
             min={0}
             max={6}
             step={0.1}
-            tip="vectorize.simplify"
+            tip="vectorize.detail"
             format={(value) => (value === 0 ? 'every point' : `${value.toFixed(1)}px`)}
-            hint={data.options.fitToPixels ? 'Only used with the fit switched off.' : undefined}
-            onChange={(simplify) => patch({ options: { ...data.options, simplify } })}
+            hint="The main control over how heavy the result is. Turn it up for fewer points."
+            onChange={(detail) => patch({ options: { ...data.options, detail } })}
+          />
+          <Slider
+            label="At most, per shape"
+            value={data.options.maxPoints}
+            min={0}
+            max={80}
+            step={1}
+            tip="vectorize.maxPoints"
+            format={(value) => (value === 0 ? 'no limit' : `${value} points`)}
+            hint="A shape over budget is simplified harder until it fits."
+            onChange={(maxPoints) => patch({ options: { ...data.options, maxPoints } })}
           />
           <Slider
             label="Curved if bent by"

@@ -585,12 +585,22 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'There is no right answer in general: it depends how the picture was drawn, so turn it and watch the result.',
     ],
   },
-  'vectorize.tolerance': {
-    what: 'How different two neighbouring pixels may be and still count as the same color, in the OKLab-times-100 scale.',
+  'vectorize.edgeThreshold': {
+    what: 'How much contrast counts as a boundary, in the OKLab-times-100 scale.',
     examples: [
-      '0 to 4 — flat artwork where a region really is one color.',
-      '8 to 15 — a drawing with slight shading, or one that has been through a JPEG.',
-      'Too high and separate shapes merge; too low and one shape becomes hundreds.',
+      'This is where the shapes come from. One pass finds every place the picture changes this steeply, and the regions are whatever those boundaries enclose.',
+      '8 to 15 — the useful range for drawn artwork. The default is 12.',
+      'Lower to catch a faint boundary, at the cost of finding boundaries inside shading.',
+      'Higher to ignore shading and gradients, at the cost of merging two shapes that only differ slightly.',
+      'The same number also stops the fill crossing a plain step from one pixel to the next, which is what keeps a one-pixel line from being swallowed by the colors either side of it.',
+    ],
+  },
+  'vectorize.edgeFloor': {
+    what: 'The weaker threshold. Contrast above this counts as a boundary only where it joins a boundary that cleared the stronger one.',
+    examples: [
+      'What keeps a real boundary unbroken where it briefly softens, without letting every faint wobble become a boundary of its own.',
+      'About half the stronger threshold is the usual advice, and the defaults follow it: 5 against 12.',
+      'A gap of one pixel in a boundary is enough for two regions to bleed into one, so lower this before raising the other if shapes are merging.',
     ],
   },
   'pose.chainLength': {
@@ -608,11 +618,12 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'Off — the rig will reach anything within its length, through poses a body could not hold. Useful for finding out whether the limits or the length is what is stopping you.',
     ],
   },
-  'vectorize.fit': {
-    what: 'Fit shapes by measuring how well they cover the color, rather than by how near their anchors are to the traced outline.',
+  'vectorize.refine': {
+    what: 'Spend longer for a closer fit, once the shapes have been found.',
     examples: [
-      'On — every candidate is drawn and compared with the pixels it stands for, and the one that gets fewest wrong wins.',
-      'Off — the old way: simplify the outline to a tolerance and hope. Faster on a large picture, and it asks the wrong question, because an anchor near the path says nothing about whether the shape covers the color.',
+      'Off — the fast path, and the one to work in: find the boundaries, fill between them, trace, simplify. A drawing comes back in a moment.',
+      'On — every candidate is also drawn and compared with the pixels it stands for, anchors that are not paying for themselves are dropped, and a stroke’s width is searched against the ink. Several times slower.',
+      'Turn it on for the version you are keeping, not for the twenty you throw away first.',
     ],
   },
   'vectorize.pointCost': {
@@ -638,12 +649,23 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'Raise it when the shape count is in the thousands.',
     ],
   },
-  'vectorize.simplify': {
+  'vectorize.detail': {
     what: 'How far a traced outline may be moved in order to drop a point.',
     examples: [
-      '0 — every pixel step becomes an anchor, which is far more than a shape needs.',
-      '1 to 2 — the useful range: follows the drawing without recording its jaggies.',
+      'The main control over how heavy the result is. Every pixel step of a traced outline is an anchor to begin with, which is a hundred times more than any shape needs.',
+      '0 — keep every one of them.',
+      '1 to 2 — the useful range: follows the drawing without recording its jaggies. The default is 1.8.',
       '4 and up — a loose shape with very few points.',
+      'A shape smaller than the tolerance is not flattened away; it keeps enough points to still be a shape.',
+    ],
+  },
+  'vectorize.maxPoints': {
+    what: 'The most points any one shape may have.',
+    examples: [
+      'A budget rather than a tolerance, because “no more than sixteen points” is a thing you can want and a tolerance alone cannot promise it — one fiddly outline will always find a way to spend forty.',
+      'A shape over budget is simplified harder until it fits, which loosens the shapes that need loosening and leaves the rest alone.',
+      '0 — no limit; the tolerance decides on its own.',
+      '12 to 24 — a drawing light enough to pose and animate.',
     ],
   },
   'vectorize.curveThreshold': {
@@ -708,10 +730,14 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     examples: ['0% \u2014 keep everything.', '2% \u2014 drops the odd stray highlight.'],
     note: 'The commonest group is always kept, so the palette is never empty.',
   },
-  'palette.pinned': {
-    what: 'A color you chose by hand, used as it is whatever the settings do.',
-    examples: ['For a brand color, or when the count found something almost right.'],
-    note: 'Pinned by position, so it survives changing the count or the distance. Clear it to go back to what was counted.',
+  'palette.edit': {
+    what: 'The palette, once the image has been read, is yours to change: set a color to whatever you like, take one out, or add one that is not in the picture at all.',
+    examples: [
+      'For a brand color, or when the count found something almost right.',
+      'Take one out when the palette spent an entry on something you do not want — a background, or a compression artefact.',
+      'Add one for a color the drawing will need that the photograph did not have.',
+    ],
+    note: 'Edits are kept apart from the palette and applied on top of it, so turning a setting or reading the image again re-derives the colors without throwing your work away. Each edit is remembered against the color group it was made for, not the position in the list — so asking for four colors instead of eight never silently moves your edit onto a different color. An edit whose group the settings no longer produce waits rather than being lost.',
   },
 
   /* ---------------------------------------------------------------- *

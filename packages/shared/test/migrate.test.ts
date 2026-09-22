@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { emptyGrammarFlowData } from '../src/flows/grammar';
 import { emptyLexiconFlowData } from '../src/flows/lexicon';
+import {
+  DEFAULT_PALETTE_OPTIONS,
+  applyEdits,
+  derivePalette,
+  emptyPaletteFlowData,
+  type PaletteFlowData,
+} from '../src/flows/palette';
 import { emptyTextData } from '../src/flows/text';
+import { DEFAULT_VECTORIZE_OPTIONS } from '../src/flows/vectorize';
 import { migrateFlowData, migrateNode, migrateProject, normaliseFlowData } from '../src/project/migrate';
 import { DEFAULT_EXTRACT_OPTIONS } from '../src/text/corpus';
 import { DEFAULT_GRAMMAR_OPTIONS } from '../src/text/grammarDatabase';
@@ -144,4 +152,80 @@ test('data that fits no editor is replaced rather than carried', () => {
   const nonsense = { editor: 'dialog', logline: 'x', characters: [], sets: [], scenes: [] } as FlowData;
   const migrated = migrateFlowData('text.random', nonsense) as { editor: string };
   assert.equal(migrated.editor, 'text', 'the flow gets data its editor can actually open');
+});
+
+/* ---------------- a palette whose pins were kept by position ---------------- */
+
+test('pins kept by position become edits kept by color group', () => {
+  /*
+   * Position is not identity: ask for four colors instead of eight and entry three
+   * is a different color, so a pin stored against "3" would quietly apply to
+   * something nobody chose. Converting the two needs the palette those positions
+   * referred to, which is why this derives it from the histogram the flow carries.
+   */
+  const colors = [
+    { r: 255, g: 0, b: 0, count: 100 },
+    { r: 0, g: 255, b: 0, count: 50 },
+  ];
+  const histogram = {
+    source: 'a.png',
+    hash: 'h1',
+    width: 4,
+    height: 4,
+    pixels: 150,
+    transparent: 0,
+    precision: 8,
+    readAt: '2026-01-01T00:00:00.000Z',
+    colors,
+  };
+  const legacy = {
+    editor: 'palette',
+    options: { ...DEFAULT_PALETTE_OPTIONS, count: 2, minDistance: 10 },
+    histogram,
+    pinned: { '1': '#000000' },
+  } as unknown as FlowData;
+
+  const migrated = normaliseFlowData(legacy) as PaletteFlowData;
+  assert.deepEqual(migrated.edits.changed, { '#00ff00': '#000000' }, 'the pin followed its color');
+  assert.deepEqual(migrated.edits.removed, []);
+  assert.deepEqual(migrated.edits.added, []);
+
+  const palette = applyEdits(derivePalette(histogram, migrated.options), migrated.edits);
+  assert.equal(palette.entries[0]!.hex, '#ff0000');
+  assert.equal(palette.entries[1]!.hex, '#000000');
+});
+
+test('a palette flow with no counted image has nothing for its pins to mean', () => {
+  const legacy = {
+    editor: 'palette',
+    options: { ...DEFAULT_PALETTE_OPTIONS },
+    pinned: { '0': '#000000' },
+  } as unknown as FlowData;
+
+  const migrated = normaliseFlowData(legacy) as PaletteFlowData;
+  assert.deepEqual(migrated.edits, { changed: {}, removed: [], added: [] });
+});
+
+test('a palette flow already on edits is left as it is', () => {
+  const data = { ...emptyPaletteFlowData(), edits: { changed: { '#ff0000': '#123456' }, removed: [], added: [] } };
+  assert.equal(normaliseFlowData(data), data, 'nothing was missing, so nothing was rebuilt');
+});
+
+/* ---------------- a decomposition whose settings were renamed ---------------- */
+
+test('a decomposition saved before the rebuild gets the settings it now needs', () => {
+  // Every option was renamed when the flow moved onto edge detection. Reading a
+  // missing one is how a tolerance arrives as `undefined` and a whole picture
+  // comes back as one polygon with a thousand points in it.
+  const old = {
+    editor: 'vectorize',
+    options: { lineWidth: 4, tolerance: 6, simplify: 1.2, fitToPixels: true, precision: 5 },
+  } as unknown as FlowData;
+
+  const migrated = normaliseFlowData(old) as unknown as { options: Record<string, unknown> };
+  assert.equal(migrated.options.lineWidth, 4, 'a setting that was saved is never overwritten');
+  assert.equal(migrated.options.detail, DEFAULT_VECTORIZE_OPTIONS.detail);
+  assert.equal(migrated.options.edgeThreshold, DEFAULT_VECTORIZE_OPTIONS.edgeThreshold);
+  assert.equal(migrated.options.maxPoints, DEFAULT_VECTORIZE_OPTIONS.maxPoints);
+  assert.equal(migrated.options.refine, DEFAULT_VECTORIZE_OPTIONS.refine);
 });
