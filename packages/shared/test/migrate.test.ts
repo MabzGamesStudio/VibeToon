@@ -280,3 +280,53 @@ test('a binding made before the drawing could be placed gets a place to be in', 
   assert.deepEqual(fixed.placement, { x: 0, y: 0, scale: 1 }, 'where it already was');
   assert.equal(fixed.hideOthers, false);
 });
+
+/* ---------------- a binding made when binding was by shape ---------------- */
+
+const twoSquares = {
+  width: 20,
+  height: 10,
+  shapes: [
+    { id: 'a', kind: 'polygon', color: '#ff0000', points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }, { x: 0, y: 4 }] },
+    { id: 'b', kind: 'polygon', color: '#0000ff', points: [{ x: 10, y: 0 }, { x: 14, y: 0 }, { x: 14, y: 4 }] },
+  ],
+};
+
+test('a binding by whole shapes opens with every point of each shape on its bone', () => {
+  // So it moves exactly as it did: a shape's points all follow the bone the shape
+  // followed.
+  const old = {
+    editor: 'bind',
+    rig: emptyRigFlowData('human'),
+    image: twoSquares,
+    binding: { a: 'hips' },
+    selected: ['a'],
+    boneId: 'hips',
+    placement: { x: 0, y: 0, scale: 1 },
+    hideOthers: false,
+    edits: 3,
+  };
+  const fixed = normaliseFlowData(old as unknown as FlowData) as unknown as {
+    nodes: Record<string, string>;
+    brush: number;
+    binding?: unknown;
+  };
+  assert.deepEqual(fixed.nodes, { '0,0': 'hips', '4,0': 'hips', '4,4': 'hips', '0,4': 'hips' });
+  assert.ok(fixed.brush > 0, 'and a brush to bind with');
+  assert.equal(fixed.binding, undefined, 'the old table is not carried along');
+});
+
+test('a pose flow holding a bound rig from then reads it point by point', () => {
+  const old = {
+    editor: 'pose',
+    bound: { rig: emptyRigFlowData('human'), image: twoSquares, binding: { b: 'hips' } },
+    pose: {},
+    mode: 'forward',
+    selected: null,
+    ik: { chainLength: 3, iterations: 24, tolerance: 0.4, respectLimits: true },
+  };
+  const fixed = normaliseFlowData(old as unknown as FlowData) as unknown as {
+    bound: { points: Record<string, Array<string | null>> };
+  };
+  assert.deepEqual(fixed.bound.points, { b: ['hips', 'hips', 'hips'] });
+});

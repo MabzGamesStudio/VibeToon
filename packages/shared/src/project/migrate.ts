@@ -11,6 +11,7 @@ import {
 } from '../flows/paletteFilter';
 import { DEFAULT_IK_OPTIONS } from '../flows/pose';
 import { DEFAULT_RIG_OPTIONS, emptyRigFlowData } from '../flows/rig';
+import { DEFAULT_BRUSH, nodeKey, readBoundRig } from '../flows/rigBind';
 import {
   DEFAULT_PALETTE_OPTIONS,
   derivePalette,
@@ -128,17 +129,40 @@ export function normaliseFlowData(data: FlowData): FlowData {
        * back: `summariseBinding` walks the binding table on every render, so a
        * flow stored without one takes the editor down with a blank screen.
        */
+      /*
+       * Binding used to be by whole shape. A shape's points each follow the bone
+       * the shape followed, which is what posing it did before — so a binding made
+       * that way opens looking and moving exactly as it did. Where two shapes on
+       * different bones met, their shared nodes go to whichever came last: a node
+       * is one place and can follow one bone.
+       */
+      const legacy = (data as { binding?: Record<string, string> }).binding;
+      let nodes = data.nodes;
+      if (!nodes) {
+        nodes = {};
+        if (legacy && data.image) {
+          for (const shape of data.image.shapes) {
+            const bone = legacy[shape.id];
+            if (!bone) continue;
+            for (const point of shape.points) nodes[nodeKey(point)] = bone;
+          }
+        }
+      }
+      const { binding: _binding, ...rest } = data as typeof data & { binding?: unknown };
       const fixed = {
-        ...data,
-        binding: data.binding ?? {},
+        ...rest,
+        nodes,
         selected: Array.isArray(data.selected) ? data.selected : [],
+        brush: typeof data.brush === 'number' && data.brush > 0 ? data.brush : DEFAULT_BRUSH,
         placement: data.placement ?? { x: 0, y: 0, scale: 1 },
         hideOthers: data.hideOthers ?? false,
         edits: typeof data.edits === 'number' ? data.edits : 0,
       };
       const same =
-        fixed.binding === data.binding &&
+        legacy === undefined &&
+        fixed.nodes === data.nodes &&
         fixed.selected === data.selected &&
+        fixed.brush === data.brush &&
         fixed.placement === data.placement &&
         fixed.hideOthers === data.hideOthers &&
         fixed.edits === data.edits;
@@ -154,14 +178,19 @@ export function normaliseFlowData(data: FlowData): FlowData {
        * opened, and the editor goes blank.
        */
       const ik = fill(data.ik, DEFAULT_IK_OPTIONS);
+      // A bound rig taken in before binding was by node carries a table of whole
+      // shapes; read back, each shape's points follow the bone it did.
+      const bound = data.bound && !data.bound.points ? readBoundRig(data.bound) : data.bound;
       const fixed = {
         ...data,
+        bound,
         pose: data.pose ?? {},
         mode: data.mode ?? 'forward',
         selected: data.selected ?? null,
         ik: ik.value,
       };
       const same =
+        fixed.bound === data.bound &&
         fixed.pose === data.pose &&
         fixed.mode === data.mode &&
         fixed.selected === data.selected &&

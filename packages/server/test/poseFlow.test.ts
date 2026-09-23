@@ -52,7 +52,11 @@ const image: VectorImage = {
   ],
 };
 
-const bound: BoundRig = { rig: emptyRigFlowData('human'), image, binding: { arm: 'left-upper-arm' } };
+const bound: BoundRig = {
+  rig: emptyRigFlowData('human'),
+  image,
+  points: { arm: ['left-upper-arm', 'left-upper-arm', 'left-upper-arm'] },
+};
 
 async function setPose(data: PoseFlowData): Promise<void> {
   const current = await api<Project>('GET', `/api/projects/${project.id}`);
@@ -76,7 +80,7 @@ before(async () => {
   project = await api<Project>('PUT', `/api/projects/${project.id}`, {
     ...project,
     nodes: [
-      { id: BIND, kind: 'animation.bind', name: 'Bound', position: { x: 60, y: 60 }, notes: '', data: { editor: 'bind', rig: null, image: null, binding: {}, selected: [], boneId: null, edits: 0 } as unknown as FlowNode['data'], outputs: [] },
+      { id: BIND, kind: 'animation.bind', name: 'Bound', position: { x: 60, y: 60 }, notes: '', data: { editor: 'bind', rig: null, image: null, nodes: {}, selected: [], boneId: null, edits: 0 } as unknown as FlowNode['data'], outputs: [] },
       { id: POSE, kind: 'animation.pose', name: 'Pose', position: { x: 440, y: 60 }, notes: '', data: emptyPoseFlowData(), outputs: [] },
     ],
     connections: [

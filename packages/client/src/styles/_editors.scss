@@ -1768,3 +1768,34 @@
     fill: #fff;
   }
 }
+
+/*
+ * A node of the drawing, in binding. Unbound nodes are small and pale; a bound
+ * one takes its part's color from the element's own style; the part being worked
+ * on is outlined in white. No stroke-width here — the editor sizes it for the zoom.
+ */
+.vt-node-dot {
+  fill: rgba(255, 255, 255, 0.75);
+  stroke: rgba(20, 20, 26, 0.85);
+  pointer-events: none;
+
+  &.is-taken {
+    opacity: 0.8;
+  }
+
+  &.is-mine {
+    stroke: #fff;
+  }
+}
+
+/* The reach of the add and take-out brush, following the pointer. */
+.vt-brush {
+  fill: rgba(110, 168, 254, 0.12);
+  stroke: rgba(110, 168, 254, 0.9);
+  pointer-events: none;
+
+  &.is-removing {
+    fill: rgba(255, 90, 90, 0.12);
+    stroke: rgba(255, 90, 90, 0.9);
+  }
+}

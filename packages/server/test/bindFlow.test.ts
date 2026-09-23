@@ -11,8 +11,9 @@ process.env.VIBETOON_LOG_FILE = 'off';
 
 const { createApp } = await import('../src/app');
 import {
-  bindShapes,
+  bindNodes,
   emptyBindFlowData,
+  nodeKey,
   emptyRigFlowData,
   readBoundRig,
   type ArtifactRef,
@@ -54,6 +55,10 @@ const drawing: VectorImage = {
     { id: 'b', kind: 'polygon', color: '#2840dc', points: [{ x: 20, y: 0 }, { x: 28, y: 0 }, { x: 28, y: 8 }] },
   ],
 };
+
+/** Every node of the named shapes. */
+const nodesOfShapes = (...ids: string[]) =>
+  drawing.shapes.filter((shape) => ids.includes(shape.id)).flatMap((shape) => shape.points.map(nodeKey));
 
 /** Put a file on a flow's port by hand; what is under test is the binding. */
 async function put(flow: string, portId: string, fileName: string, body: unknown): Promise<ArtifactRef> {
@@ -129,7 +134,7 @@ test('a binding with nothing taken in warns rather than writing an empty one', a
 });
 
 test('a binding writes the map, a preview and a report', async () => {
-  await setBind(bindShapes(held(), ['a'], 'hips'));
+  await setBind(bindNodes(held(), nodesOfShapes('a'), 'hips'));
   const run = (await generate()).runs[0]!;
   assert.equal(run.ok, true, run.warnings.join('; '));
   assert.deepEqual(run.outputs.map((o) => o.fileName).sort(), ['bound.json', 'bound.md', 'bound.svg']);
@@ -139,7 +144,7 @@ test('what is written is the rig, the drawing and the map between them', async (
   const bound = readBoundRig(JSON.parse(await file('bound.json')))!;
   assert.ok(bound.rig.bones.length > 0);
   assert.equal(bound.image.shapes.length, 2);
-  assert.deepEqual(bound.binding, { a: 'hips' });
+  assert.deepEqual(bound.points, { a: ['hips', 'hips', 'hips'] });
 });
 
 test('the preview draws the skeleton over the drawing', async () => {
@@ -148,10 +153,11 @@ test('the preview draws the skeleton over the drawing', async () => {
   assert.match(svg, /^<svg/);
   assert.match(svg, /data-bone="hips"/);
   assert.match(svg, /fill="#de2929"/);
+  assert.equal((svg.match(/<circle[^>]*data-bone="hips"/g) ?? []).length, 3, 'and each bound node as a dot');
   assert.match(svg, /<\/svg>\s*$/);
 });
 
-test('an unbound shape is warned about, because it will not move', async () => {
+test('an unbound node is warned about, because it will not move', async () => {
   const run = (await generate()).runs[0]!;
   assert.ok(
     run.warnings.some((w) => /bound to nothing and will stay put/.test(w)),
@@ -165,25 +171,25 @@ test('binding nothing at all is reported as the bigger problem', async () => {
   assert.ok(run.warnings.some((w) => /Nothing is bound yet/.test(w)), run.warnings.join('; '));
 });
 
-test('the report says what moves with what, and why one shape means one bone', async () => {
-  await setBind(bindShapes(held(), ['a', 'b'], 'spine'));
+test('the report says what moves with what, node by node', async () => {
+  await setBind(bindNodes(held(), nodesOfShapes('a', 'b'), 'spine'));
   await generate();
   const doc = await file('bound.md');
   assert.match(doc, /## What moves with what/);
-  assert.match(doc, /\| Spine \| 2 \|/);
-  assert.match(doc, /at most one bone/);
-  assert.match(doc, /torn between them/);
+  assert.match(doc, /\| Spine \| 6 \| 2 \|/, 'six nodes, across both shapes');
+  assert.match(doc, /bends where they meet/);
+  assert.match(doc, /cannot tear two shapes apart/);
   assert.match(doc, /stays where it was drawn/);
 });
 
 test('a changed input is reported but the binding is kept', async () => {
   // Redoing a binding is an afternoon, and nobody would thank a flow that threw
   // it away on somebody else's re-run.
-  await setBind({ ...bindShapes(held(), ['a'], 'hips'), rigHash: 'an-older-hash' });
+  await setBind({ ...bindNodes(held(), nodesOfShapes('a'), 'hips'), rigHash: 'an-older-hash' });
   const run = (await generate()).runs[0]!;
   assert.ok(run.warnings.some((w) => /has changed since this was bound/.test(w)), run.warnings.join('; '));
   assert.ok(run.outputs.some((o) => o.fileName === 'bound.json'), 'and it still wrote it');
-  assert.deepEqual(readBoundRig(JSON.parse(await file('bound.json')))!.binding, { a: 'hips' });
+  assert.deepEqual(readBoundRig(JSON.parse(await file('bound.json')))!.points, { a: ['hips', 'hips', 'hips'] });
 });
 
 test('each missing input is named, so it is clear which wire to add', async () => {

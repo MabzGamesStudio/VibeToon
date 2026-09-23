@@ -6,14 +6,21 @@ import { containsPoint, emptyVectorImage, type VectorImage, type VectorPoint, ty
  * Binding a drawing to a skeleton.
  *
  * A vectorized drawing is a pile of shapes and a rig is a hierarchy of bones;
- * neither knows about the other. Binding is the map between them: which shapes
- * move when which bone does.
+ * neither knows about the other. Binding is the map between them: which parts of
+ * the drawing move when which bone does.
  *
- * Every shape belongs to at most one bone. A shape belonging to two would have
- * to be torn between them when they move apart, and tearing a shape is a thing
- * only a mesh can do — these are outlines, and an outline has to go somewhere
- * whole. Where a drawing really does need to bend across a joint, the answer is
- * to cut the shape in the vector editor and bind the halves separately.
+ * The parts are **nodes** — the points the shapes are drawn through — not whole
+ * shapes. A shape is often bigger than a part of the body: once a decomposition
+ * joins a region into one polygon, the whole of a skin-colored arm and hand can
+ * be a single shape, and a shape can only go one way. Bound by its points, it
+ * goes several: the points round the upper arm follow the upper arm, the ones
+ * round the hand follow the hand, and the polygon between them bends at the
+ * elbow instead of having to be cut there first.
+ *
+ * A node is a **position**, not a point of one shape. Neighbouring shapes share
+ * the points along the boundary between them — that is how they fit — and two
+ * points in the same place are one node, bound once. So a boundary cannot be
+ * given two bones and torn apart when the rig moves.
  */
 
 /**
@@ -38,16 +45,81 @@ export interface Placement {
 
 export const AS_IS: Placement = { x: 0, y: 0, scale: 1 };
 
+/** How far the brush reaches, in screen pixels, until it is changed. */
+export const DEFAULT_BRUSH = 14;
+
+/* ------------------------------------------------------------------ *
+ * Nodes
+ * ------------------------------------------------------------------ */
+
+/**
+ * A node's name: where it is. Two points in the same place are the same node,
+ * whichever shapes they belong to.
+ */
+export function nodeKey(point: VectorPoint): string {
+  return `${point.x},${point.y}`;
+}
+
+export interface BindNode {
+  key: string;
+  x: number;
+  y: number;
+  /** How many shape points sit here. More than one where shapes meet. */
+  uses: number;
+}
+
+/** Every node of a drawing, once each, in the order the shapes first reach them. */
+export function nodesOf(image: VectorImage): BindNode[] {
+  const byKey = new Map<string, BindNode>();
+  for (const shape of image.shapes) {
+    for (const point of shape.points) {
+      const key = nodeKey(point);
+      const known = byKey.get(key);
+      if (known) known.uses += 1;
+      else byKey.set(key, { key, x: point.x, y: point.y, uses: 1 });
+    }
+  }
+  return [...byKey.values()];
+}
+
+/** The nodes within `radius` of a point, nearest first. */
+export function nodesNear(nodes: readonly BindNode[], at: VectorPoint, radius: number): string[] {
+  const found: Array<[number, string]> = [];
+  for (const node of nodes) {
+    const distance = Math.hypot(node.x - at.x, node.y - at.y);
+    if (distance <= radius) found.push([distance, node.key]);
+  }
+  return found.sort((a, b) => a[0] - b[0]).map(([, key]) => key);
+}
+
+/**
+ * Every node inside a drawn region.
+ *
+ * A node is a point, so it is inside or it is not — which is what makes a lasso
+ * precise here in a way it could not be with whole shapes, where a shape half in
+ * and half out had to be decided one way or the other.
+ */
+export function nodesInRegion(nodes: readonly BindNode[], region: VectorPoint[]): string[] {
+  if (region.length < 3) return [];
+  const asPolygon: VectorShape = { id: '', kind: 'polygon', color: '#000000', points: region };
+  return nodes.filter((node) => containsPoint(asPolygon, node)).map((node) => node.key);
+}
+
 export interface BindFlowData {
   editor: 'bind';
   /** The skeleton, taken in from upstream and editable here. */
   rig: RigFlowData | null;
   /** The drawing, taken in from upstream. */
   image: VectorImage | null;
-  /** Which bone each shape belongs to. A shape not in here is unbound. */
-  binding: Record<string, string>;
-  /** Shapes picked out in the editor. */
+  /**
+   * Which bone each node follows, by node key (see `nodeKey`), in the drawing's
+   * own coordinates. A node not in here is unbound and stays where it was drawn.
+   */
+  nodes: Record<string, string>;
+  /** The nodes touched last, which the editor marks. */
   selected: string[];
+  /** How far the add and take-out brush reaches, in screen pixels. */
+  brush: number;
   /** The bone being assigned to. */
   boneId: string | null;
   /** Where the drawing sits under the skeleton. */
@@ -64,8 +136,9 @@ export function emptyBindFlowData(): BindFlowData {
     editor: 'bind',
     rig: null,
     image: null,
-    binding: {},
+    nodes: {},
     selected: [],
+    brush: DEFAULT_BRUSH,
     boneId: null,
     placement: { ...AS_IS },
     hideOthers: false,
@@ -295,55 +368,36 @@ export function fitRigTo(rig: RigFlowData, image: VectorImage, margin = 0.08): R
  * Assigning
  * ------------------------------------------------------------------ */
 
-export function bindShapes(data: BindFlowData, shapeIds: readonly string[], boneId: string): BindFlowData {
-  if (shapeIds.length === 0) return data;
-  const binding = { ...data.binding };
-  for (const id of shapeIds) binding[id] = boneId;
-  return { ...data, binding, edits: data.edits + 1 };
+export function bindNodes(data: BindFlowData, keys: readonly string[], boneId: string): BindFlowData {
+  const changing = keys.filter((key) => data.nodes[key] !== boneId);
+  if (changing.length === 0) return data;
+  const nodes = { ...data.nodes };
+  for (const key of changing) nodes[key] = boneId;
+  return { ...data, nodes, selected: [...keys], edits: data.edits + 1 };
 }
 
-export function unbindShapes(data: BindFlowData, shapeIds: readonly string[]): BindFlowData {
-  if (shapeIds.length === 0) return data;
-  const binding = { ...data.binding };
-  let changed = false;
-  for (const id of shapeIds) {
-    if (id in binding) {
-      delete binding[id];
-      changed = true;
-    }
-  }
-  return changed ? { ...data, binding, edits: data.edits + 1 } : data;
+export function unbindNodes(data: BindFlowData, keys: readonly string[]): BindFlowData {
+  const bound = keys.filter((key) => key in data.nodes);
+  if (bound.length === 0) return data;
+  const nodes = { ...data.nodes };
+  for (const key of bound) delete nodes[key];
+  return { ...data, nodes, selected: [...keys], edits: data.edits + 1 };
 }
 
-export function shapesFor(data: BindFlowData, boneId: string): VectorShape[] {
-  return imageOfBinding(data).shapes.filter((shape) => data.binding[shape.id] === boneId);
-}
-
-export function unboundShapes(data: BindFlowData): VectorShape[] {
-  return imageOfBinding(data).shapes.filter((shape) => !(shape.id in data.binding));
-}
-
-/** The middle of a shape, for deciding which side of a line it falls. */
-export function centroid(shape: VectorShape): VectorPoint {
-  const points = shape.points;
-  if (points.length === 0) return { x: 0, y: 0 };
-  return {
-    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
-    y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
-  };
+/** The nodes a bone carries. */
+export function nodesFor(data: BindFlowData, boneId: string): string[] {
+  return Object.keys(data.nodes).filter((key) => data.nodes[key] === boneId);
 }
 
 /**
- * Every shape inside a drawn region.
- *
- * By centre rather than by whole shape: a lasso round an arm would otherwise
- * miss every shape whose outline strays a pixel outside it, and asking someone
- * to enclose a shape exactly is asking them to do the binding twice.
+ * How much of a shape a bone carries, 0..1 — by its points, so a shape that
+ * bends across a joint is partly in each part.
  */
-export function shapesInRegion(image: VectorImage, region: VectorPoint[]): string[] {
-  if (region.length < 3) return [];
-  const asPolygon: VectorShape = { id: '', kind: 'polygon', color: '#000000', points: region };
-  return image.shapes.filter((shape) => containsPoint(asPolygon, centroid(shape))).map((shape) => shape.id);
+export function shareOf(data: BindFlowData, shape: VectorShape, boneId: string): number {
+  if (shape.points.length === 0) return 0;
+  let held = 0;
+  for (const point of shape.points) if (data.nodes[nodeKey(point)] === boneId) held += 1;
+  return held / shape.points.length;
 }
 
 /* ------------------------------------------------------------------ *
@@ -389,8 +443,8 @@ export function addBone(
  *
  * Its children are re-hung on its parent, keeping where they are in the world —
  * deleting a bone should take that bone away, not collapse everything below it
- * onto the origin. Shapes bound to it move to the parent for the same reason:
- * they were drawn somewhere and they should stay there.
+ * onto the origin. Nodes bound to it move to the parent for the same reason:
+ * they were drawn somewhere and they should stay with the body they are part of.
  */
 export function deleteBone(data: BindFlowData, boneId: string): BindFlowData {
   if (!data.rig) return data;
@@ -412,17 +466,17 @@ export function deleteBone(data: BindFlowData, boneId: string): BindFlowData {
     })
     .map((candidate) => (bone.parent ? candidate : stripParent(candidate, boneId)));
 
-  const binding = { ...data.binding };
-  for (const [shape, held] of Object.entries(binding)) {
+  const nodes = { ...data.nodes };
+  for (const [key, held] of Object.entries(nodes)) {
     if (held !== boneId) continue;
-    if (bone.parent) binding[shape] = bone.parent;
-    else delete binding[shape];
+    if (bone.parent) nodes[key] = bone.parent;
+    else delete nodes[key];
   }
 
   return {
     ...data,
     rig: { ...data.rig, bones },
-    binding,
+    nodes,
     boneId: data.boneId === boneId ? (bone.parent ?? null) : data.boneId,
     selected: data.selected,
     edits: data.edits + 1,
@@ -457,18 +511,39 @@ export function renameBone(data: BindFlowData, boneId: string, name: string): Bi
 export interface BoundRig {
   rig: RigFlowData;
   image: VectorImage;
-  binding: Record<string, string>;
+  /**
+   * For each shape, the bone each of its points follows, in the shape's own
+   * point order. `null` is a point bound to nothing, which stays put. A shape
+   * missing from here has no bound point at all.
+   *
+   * Per point of each shape rather than per node, so that nothing downstream has
+   * to know how nodes are named or recompute them from coordinates that the
+   * placement has already moved.
+   */
+  points: Record<string, Array<string | null>>;
 }
 
 export function boundRigOf(data: BindFlowData): BoundRig | null {
   if (!data.rig || !data.image) return null;
+  const points: Record<string, Array<string | null>> = {};
+  for (const shape of data.image.shapes) {
+    const bones = shape.points.map((point) => data.nodes[nodeKey(point)] ?? null);
+    if (bones.some((bone) => bone !== null)) points[shape.id] = bones;
+  }
   // The drawing goes out where it was put, so everything downstream sees the
   // picture that was lined up with the skeleton rather than the one that
-  // arrived.
-  return { rig: data.rig, image: placedImage(data), binding: data.binding };
+  // arrived. Placing moves every point and keeps their order, so the bones read
+  // by position in each shape still line up.
+  return { rig: data.rig, image: placedImage(data), points };
 }
 
-/** Read one back, dropping anything that does not refer to something real. */
+/**
+ * Read one back, dropping anything that does not refer to something real.
+ *
+ * A bound rig written before binding was by node has a `binding` of whole shapes
+ * instead; each shape's points all follow the bone the shape did, which is what
+ * posing it used to do.
+ */
 export function readBoundRig(json: unknown): BoundRig | null {
   if (!json || typeof json !== 'object') return null;
   const record = json as Record<string, unknown>;
@@ -477,19 +552,36 @@ export function readBoundRig(json: unknown): BoundRig | null {
   if (!rig || !Array.isArray(rig.bones) || !image || !Array.isArray(image.shapes)) return null;
 
   const bones = new Set(rig.bones.map((bone) => bone.id));
-  const shapes = new Set(image.shapes.map((shape) => shape.id));
-  const binding: Record<string, string> = {};
-  for (const [shape, bone] of Object.entries((record.binding ?? {}) as Record<string, string>)) {
-    if (shapes.has(shape) && bones.has(bone)) binding[shape] = bone;
+  const real = (bone: unknown): string | null => (typeof bone === 'string' && bones.has(bone) ? bone : null);
+  const points: Record<string, Array<string | null>> = {};
+
+  const stored = record.points as Record<string, unknown> | undefined;
+  const legacy = record.binding as Record<string, unknown> | undefined;
+  for (const shape of image.shapes) {
+    let read: Array<string | null> | null = null;
+    const list = stored?.[shape.id];
+    if (Array.isArray(list) && list.length === shape.points.length) read = list.map(real);
+    else if (!stored && legacy && shape.id in legacy) {
+      const bone = real(legacy[shape.id]);
+      read = shape.points.map(() => bone);
+    }
+    if (read && read.some((bone) => bone !== null)) points[shape.id] = read;
   }
-  return { rig, image, binding };
+  return { rig, image, points };
 }
 
 export interface BindSummary {
   bones: number;
   shapes: number;
+  nodes: number;
+  /** Nodes that follow a bone. */
   bound: number;
+  /** Nodes that follow nothing and stay put. */
   unbound: number;
+  /** Shapes whose points follow more than one bone, which bend when the rig moves. */
+  bending: number;
+  /** Shapes with some points bound and some not, which stretch towards where they were drawn. */
+  stretching: number;
   /** Bones with nothing on them, which will move and take nothing with them. */
   empty: number;
   problems: string[];
@@ -498,20 +590,50 @@ export interface BindSummary {
 export function summariseBinding(data: BindFlowData): BindSummary {
   const image = imageOfBinding(data);
   const bones = data.rig?.bones ?? [];
-  const bound = image.shapes.filter((shape) => shape.id in data.binding).length;
-  const used = new Set(Object.values(data.binding));
+  const nodes = nodesOf(image);
+  const bound = nodes.filter((node) => node.key in data.nodes).length;
+  const used = new Set(Object.values(data.nodes));
+
+  let bending = 0;
+  let stretching = 0;
+  for (const shape of image.shapes) {
+    const held = new Set<string>();
+    let loose = 0;
+    for (const point of shape.points) {
+      const bone = data.nodes[nodeKey(point)];
+      if (bone) held.add(bone);
+      else loose += 1;
+    }
+    if (held.size > 1) bending += 1;
+    if (held.size > 0 && loose > 0) stretching += 1;
+  }
 
   const problems: string[] = [];
-  const unbound = image.shapes.length - bound;
-  if (image.shapes.length > 0 && bound === 0) {
+  const unbound = nodes.length - bound;
+  if (nodes.length > 0 && bound === 0) {
     problems.push('Nothing is bound yet, so posing the rig would move an empty skeleton.');
   } else if (unbound > 0) {
-    problems.push(`${unbound} shape(s) are bound to nothing and will stay put when the rig moves.`);
+    problems.push(`${unbound} node(s) are bound to nothing and will stay put when the rig moves.`);
+  }
+  if (stretching > 0 && bound > 0) {
+    problems.push(
+      `${stretching} shape(s) have some points bound and some not, and will stretch between them when the rig moves.`,
+    );
   }
   const empty = bones.filter((bone) => !used.has(bone.id)).length;
   if (empty > 0 && bound > 0) {
     problems.push(`${empty} bone(s) carry nothing.`);
   }
 
-  return { bones: bones.length, shapes: image.shapes.length, bound, unbound, empty, problems };
+  return {
+    bones: bones.length,
+    shapes: image.shapes.length,
+    nodes: nodes.length,
+    bound,
+    unbound,
+    bending,
+    stretching,
+    empty,
+    problems,
+  };
 }

@@ -15,20 +15,36 @@ Vector ────────┘
 
 `animation.bind` · takes a **Rig** and a **Vector** · gives **`bound.json`**, **`bound.svg`** and **`bound.md`**
 
-## One shape, one bone
+## Bound by node, not by shape
 
-Every shape belongs to at most one bone.
+A drawing is bound by its **nodes** — the points its shapes are drawn through —
+and each node follows at most one bone.
 
-A shape belonging to two would have to be torn between them when they move
-apart, and tearing is something only a mesh can do — these are outlines, and an
-outline has to go somewhere whole. Where a drawing really does need to bend
-across a joint, cut the shape in the vector editor and bind the halves
-separately. That is a deliberate limit rather than a missing feature: the
-alternative is a weighting scheme, and weights on an outline produce a shape
+Binding used to be by whole shape, and that stopped working once the
+decomposition joined each region into one polygon: the whole of a skin-colored
+arm and hand can be a single shape now, and a shape can only go one way. Bound by
+its points it goes several — the points round the upper arm follow the upper arm,
+the ones round the hand follow the hand — and when the rig moves, **each point
+moves with its own bone**, so the polygon between them bends at the elbow instead
+of having to be cut there first.
+
+**A node is a place, not a point of one shape.** Neighbouring shapes share the
+points along the boundary between them — that is how they fit — and two points in
+the same place are one node, bound once. So posing can bend a boundary, but it
+cannot give the two sides of one different bones and tear them apart.
+
+A node bound to nothing **stays where it was drawn** when the rig moves, and a
+shape with some points bound and some not stretches between them. The summary
+counts both and the run warns about them: visible, and therefore fixable.
+
+Each node follows one bone, fully. Blending a point between two bones by weight —
+what a mesh would do at a joint — is not done: on an outline it produces a shape
 that crosses itself the first time a joint goes past ninety degrees.
 
-A shape bound to nothing **stays where it was drawn** when the rig moves. That
-is visible, and therefore fixable. Dropping it silently would not be.
+`bound.json` carries, for each shape, the bone each of its points follows in the
+shape's own point order, so nothing downstream has to know how nodes are named. A
+binding or a bound rig saved when binding was by shape opens with every point of
+each shape on the bone that shape had, which moves exactly as it did.
 
 ## The two live in different spaces
 
@@ -71,24 +87,31 @@ and no reason why.
 
 ## Only the part being worked on
 
-A character is a hundred shapes and an arm is four of them. Picking those four
-out of all of them at once is the thing that makes this flow feel impossible, so
-the drawing is **faded back except the part being assigned to**. Shapes another
-part has already taken fade further; a toggle hides them entirely, which leaves
-only what is still to do.
+A character is a hundred shapes and an arm is a few of them. Picking those out of
+all of them at once is the thing that makes this flow feel impossible, so a shape
+is drawn **as plainly as it belongs to the part being assigned to** — by the share
+of its points in the part, so an arm polygon half on the upper arm is half there
+when the upper arm is picked. A toggle hides what other parts have taken, which
+leaves only what is still to do.
 
-Shapes keep their own colors and wear the part's color round the edge. Recoloring
-an assigned shape tells you which part it is in and hides the one thing you are
-actually looking at — whether this really is the arm.
+The nodes are drawn as dots **in their part's color**: the part being worked on
+largest and outlined, other parts smaller, unbound nodes small and pale. The
+shapes keep their own colors — recoloring them would hide the one thing you are
+actually looking at, which is whether this really is the arm.
 
 ## Working
 
 | Tool | What it does |
 | --- | --- |
-| **Add** | Click a shape to put it in this part. Dragging runs across several. |
-| **Take out** | Click a shape to take it out of whatever it is in. |
-| **Area** | Click round a group of shapes. **Enter** finishes it, Backspace undoes a point, Esc abandons it. |
+| **Add** | Brush over nodes to put them in this part. Drag to paint a run of them. |
+| **Take out** | Brush over nodes to take them out of whatever part they are in. |
+| **Area** | Click round a group of nodes. **Enter** puts every node inside into this part, Backspace undoes a point, Esc abandons it. |
 | **Add bone** | Click where a new bone should end. It hangs off the selected one. |
+
+The brush is a circle that follows the pointer, and its size is set **on screen**,
+like the joints and handles: zooming in is how you get at a crowded joint, and a
+brush that grew with the zoom would take in the same crowd however far in you
+went.
 
 Adding and taking away are separate tools rather than one tool with a modifier,
 because binding a character is hundreds of clicks in a row and holding a key
@@ -96,12 +119,13 @@ down for half of them is not a thing anyone should be asked to do. Each tool doe
 its one thing on every click, and assigns straight away rather than making a
 selection you then have to confirm.
 
-An area takes in every shape whose **middle** falls inside it, not every shape
-wholly enclosed. Asking someone to lasso an outline exactly is asking them to do
-the binding twice.
+An area takes in exactly the nodes inside it. A node is a point, so it is in or it
+is not — which is what makes a lasso precise here in a way it could not be with
+whole shapes, where one half in and half out had to be decided one way or the
+other.
 
 Deleting a bone re-hangs its children on its parent **where they already are**,
-and moves its shapes there too. Deleting a bone should take that bone away, not
+and moves its nodes there too. Deleting a bone should take that bone away, not
 collapse everything below it onto the origin.
 
 ## The edits are the work
