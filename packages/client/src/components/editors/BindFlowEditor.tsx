@@ -32,6 +32,7 @@ import {
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
+import { onScreen } from '../common/handles';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
 
@@ -564,6 +565,7 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
             ) : undefined
           }
         >
+          {({ scale }) => (
           <div className="vt-vector-stage">
             {raw.shapes.length > 0 ? (
               <div
@@ -609,7 +611,16 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
                     );
                   })}
 
-                  {/* The skeleton over the top, so a bone can be aimed at. */}
+                  {/*
+                    * The skeleton over the top, so a bone can be aimed at —
+                    * sized in screen pixels rather than in the picture's.
+                    *
+                    * A joint drawn at a fixed size in the picture's own units
+                    * grows with the zoom, and zooming in is exactly what you do
+                    * when you want to put one somewhere precise: at eight times
+                    * the dot is eight times wider than the thing you are aiming
+                    * at, and it covers the place you were trying to see.
+                    */}
                   {[...bones.entries()].map(([id, place]) => (
                     <line
                       key={id}
@@ -617,6 +628,7 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
                       y1={place.from.y}
                       x2={place.to.x}
                       y2={place.to.y}
+                      strokeWidth={onScreen(data.boneId === id ? 3 : 2, scale)}
                       className={`vt-bone${data.boneId === id ? ' is-selected' : ''}`}
                     />
                   ))}
@@ -625,7 +637,8 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
                       key={`${id}-joint`}
                       cx={place.to.x}
                       cy={place.to.y}
-                      r={tool === 'moveJoint' ? 4 : 2.5}
+                      r={onScreen(tool === 'moveJoint' ? 4 : 2.5, scale)}
+                      strokeWidth={onScreen(1, scale)}
                       className={`vt-joint${data.boneId === id ? ' is-selected' : ''}`}
                     />
                   ))}
@@ -634,11 +647,18 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
                     <polygon
                       className="vt-region is-drafting"
                       points={area.map((point) => `${point.x},${point.y}`).join(' ')}
-                      strokeWidth={1}
+                      strokeWidth={onScreen(1, scale)}
                     />
                   ) : null}
                   {area.map((point, index) => (
-                    <circle key={index} cx={point.x} cy={point.y} r={2} className="vt-anchor" />
+                    <circle
+                      key={index}
+                      cx={point.x}
+                      cy={point.y}
+                      r={onScreen(2, scale)}
+                      strokeWidth={onScreen(1, scale)}
+                      className="vt-anchor"
+                    />
                   ))}
                 </svg>
               </div>
@@ -646,6 +666,7 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
               <div className="vt-empty">{blocked ?? 'Nothing taken in yet.'}</div>
             )}
           </div>
+          )}
         </Stage>
 
         <p className="vt-faint" style={{ marginTop: 8, fontSize: 11 }}>

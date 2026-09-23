@@ -104,10 +104,9 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
       ? []
       : [
           `- Tolerance: ${data.options.tolerance}${
-            data.options.softness > 0 ? ` · softened over ±${data.options.softness}` : ' · a hard threshold'
+            data.options.tolerance <= 0 ? ' — an exact match and nothing else' : ''
           }`,
         ]),
-    ...(data.options.hardAlpha ? ['- Alpha: forced to fully on or fully off.'] : []),
     `- Colors in play: ${active.hexes.length} of ${palette.hexes.length}`,
     '',
     '## What the mode does',

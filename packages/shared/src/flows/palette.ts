@@ -26,28 +26,61 @@ export interface Rgb {
   b: number;
 }
 
+/**
+ * A color with an opacity.
+ *
+ * Kept apart from `Rgb` rather than folded into it, because most of what this
+ * project does with color has nothing to say about opacity — a region's average,
+ * the distance between two hues — and a field that is `255` everywhere it is
+ * read is a field nobody maintains.
+ */
+export interface Rgba extends Rgb {
+  /** 0 for see-through, 255 for solid. */
+  a: number;
+}
+
 /** A color the image contained, and how many pixels of it there were. */
 export interface ColorCount extends Rgb {
   count: number;
+  /**
+   * How opaque those pixels were on average, 0..255.
+   *
+   * Averaged rather than taken from one of them because a counted color is a
+   * bucket: the same red drawn solid in one place and half-faded in another is
+   * one entry, and its opacity is what those pixels were between them. Absent on
+   * a histogram counted before this was read, which reads as solid.
+   */
+  a?: number;
 }
 
 function clampByte(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)));
 }
 
-export function toHex({ r, g, b }: Rgb): string {
-  return `#${[r, g, b].map((channel) => clampByte(channel).toString(16).padStart(2, '0')).join('')}`;
+/**
+ * `#rrggbb`, or `#rrggbbaa` when there is an opacity worth writing down.
+ *
+ * Solid colors keep the six-digit form they have always had, so nothing that
+ * reads a palette — or a drawing's shape colors, which have no opacity at all —
+ * sees anything new. Eight digits appear only when something is actually
+ * see-through, where the alternative is a palette that silently forgets it.
+ */
+export function toHex({ r, g, b, a }: Rgb & { a?: number }): string {
+  const channels = [r, g, b];
+  if (a !== undefined && clampByte(a) < 255) channels.push(a);
+  return `#${channels.map((channel) => clampByte(channel).toString(16).padStart(2, '0')).join('')}`;
 }
 
-export function fromHex(hex: string): Rgb | undefined {
-  const match = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(hex.trim());
+export function fromHex(hex: string): Rgba | undefined {
+  const match = /^#?([0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})$/i.exec(hex.trim());
   if (!match) return undefined;
   const digits = match[1]!;
-  const full = digits.length === 3 ? [...digits].map((d) => d + d).join('') : digits;
+  const full = digits.length <= 4 ? [...digits].map((d) => d + d).join('') : digits;
   return {
     r: Number.parseInt(full.slice(0, 2), 16),
     g: Number.parseInt(full.slice(2, 4), 16),
     b: Number.parseInt(full.slice(4, 6), 16),
+    a: full.length === 8 ? Number.parseInt(full.slice(6, 8), 16) : 255,
   };
 }
 
@@ -153,7 +186,8 @@ export interface ImageHistogram {
  * still the color you can see in the picture.
  *
  * The rounded value is expanded back across the full range, so pure white stays
- * `#ffffff` rather than drifting to `#f8f8f8`.
+ * `#ffffff` rather than drifting to `#f8f8f8`. It is a key for grouping and
+ * never a color in its own right — see `countColors` for what a group is named.
  */
 export function quantise(channel: number, precision: number): number {
   const bits = Math.max(1, Math.min(8, Math.round(precision)));
@@ -161,6 +195,94 @@ export function quantise(channel: number, precision: number): number {
   const levels = (1 << bits) - 1;
   const step = 255 / levels;
   return clampByte(Math.round(Math.round(clampByte(channel) / step) * step));
+}
+
+export interface CountedPixels {
+  /** One row per rounded color, commonest first. */
+  colors: ColorCount[];
+  /** Pixels that were counted. */
+  counted: number;
+  /** Pixels skipped for being too transparent to have a color. */
+  transparent: number;
+}
+
+/**
+ * Count the colors of an image, every `stride`th pixel.
+ *
+ * Pixels are **grouped** by their rounded color but **named** by an exact one:
+ * each row is the commonest color that really occurs among the pixels that
+ * rounded together. Rounding is how a photographed wall becomes one color rather
+ * than a hundred thousand, and it is only for grouping. Naming a group after its
+ * rounded value would put a color into the palette that the picture does not
+ * contain — `#dc2828` rounds to `#de2929` at five bits — and then a filter asking
+ * for pixels that are *exactly* a palette color would find none at all, on the
+ * very flat artwork that exact matching exists for.
+ *
+ * The opacity is summed rather than kept per pixel, because that is all the
+ * palette can use it for: a color is one entry whatever its pixels' alphas were,
+ * and the entry's opacity is their average. Alpha is not part of the key — the
+ * same red solid and the same red half-faded are one color.
+ */
+export function countColors(
+  pixels: ArrayLike<number>,
+  options: { precision: number; alphaFloor: number; stride?: number },
+): CountedPixels {
+  const stride = Math.max(1, Math.floor(options.stride ?? 1));
+  const total = Math.floor(pixels.length / 4);
+  const groups = new Map<number, { count: number; alpha: number; exact: Map<number, number> }>();
+  let counted = 0;
+  let transparent = 0;
+
+  for (let index = 0; index < total; index += stride) {
+    const at = index * 4;
+    const alpha = pixels[at + 3]!;
+    if (alpha < options.alphaFloor) {
+      transparent += 1;
+      continue;
+    }
+    const r = pixels[at]!;
+    const g = pixels[at + 1]!;
+    const b = pixels[at + 2]!;
+    const key =
+      (quantise(r, options.precision) << 16) | (quantise(g, options.precision) << 8) | quantise(b, options.precision);
+    const exact = (r << 16) | (g << 8) | b;
+
+    let group = groups.get(key);
+    if (!group) {
+      group = { count: 0, alpha: 0, exact: new Map() };
+      groups.set(key, group);
+    }
+    group.count += 1;
+    group.alpha += alpha;
+    group.exact.set(exact, (group.exact.get(exact) ?? 0) + 1);
+    counted += 1;
+  }
+
+  const colors: ColorCount[] = [];
+  for (const group of groups.values()) {
+    // Ties go to the lower value, so the same image always names a group the
+    // same way whatever order its pixels were met in.
+    let name = -1;
+    let most = 0;
+    for (const [value, count] of group.exact) {
+      if (count > most || (count === most && value < name)) {
+        name = value;
+        most = count;
+      }
+    }
+    const mean = Math.round(group.alpha / group.count);
+    colors.push({
+      r: (name >> 16) & 255,
+      g: (name >> 8) & 255,
+      b: name & 255,
+      count: group.count,
+      // Left off when the color is solid, which most are: writing `a: 255`
+      // against every color in a photograph is a lot of flow file for nothing.
+      ...(mean < 255 ? { a: mean } : {}),
+    });
+  }
+  colors.sort((one, two) => two.count - one.count || toHex(one).localeCompare(toHex(two)));
+  return { colors, counted, transparent };
 }
 
 /* ------------------------------------------------------------------ *
@@ -227,6 +349,8 @@ export interface PaletteEntry {
   shifted: number;
   /** How far this entry is from its nearest neighbour in the palette. */
   nearest: number;
+  /** How opaque this color is, 0..255. Read from the image and editable. */
+  a: number;
   /** Put in by hand rather than read out of the image, so it stands for no pixels. */
   byHand?: boolean;
 }
@@ -310,13 +434,29 @@ export function derivePalette(
 
   const entries: PaletteEntry[] = kept.map((bucket) => {
     const chosen = pickFromBucket(bucket, options.temperature, rng);
+    /*
+     * The bucket's opacity, weighted by how many pixels each member had.
+     *
+     * One color drawn solid across a wall and the same color half-faded in a
+     * shadow are one entry, and the entry's opacity is what those pixels were
+     * between them — not what the one that happened to seed the bucket was.
+     */
+    const seen = bucket.members.reduce((sum, member) => sum + member.count, 0);
+    const opacity =
+      seen > 0
+        ? bucket.members.reduce((sum, member) => sum + (member.a ?? 255) * member.count, 0) / seen
+        : 255;
     return {
       ...chosen,
-      hex: toHex(chosen),
+      a: Math.round(opacity),
+      hex: toHex({ ...chosen, a: Math.round(opacity) }),
       count: bucket.count,
       share: pixels > 0 ? bucket.count / pixels : 0,
       members: bucket.members.length,
-      modeHex: toHex(bucket.seed),
+      // The bucket's identity is its color, not its color and its opacity: an
+      // edit made to an entry should still find it after the picture behind it
+      // has faded.
+      modeHex: toHex({ r: bucket.seed.r, g: bucket.seed.g, b: bucket.seed.b }),
       shifted: Math.round(colorDistance(chosen, bucket.seed) * 10) / 10,
       nearest: 0,
     };
@@ -474,7 +614,7 @@ export function histogramState(
  */
 export function applyEdits(palette: Palette, edits: PaletteEdits = NO_PALETTE_EDITS): Palette {
   const removed = new Set(
-    edits.removed.map((hex) => fromHex(hex)).filter((rgb): rgb is Rgb => rgb !== undefined).map(toHex),
+    edits.removed.map((hex) => fromHex(hex)).filter((rgb): rgb is Rgba => rgb !== undefined).map(toHex),
   );
 
   const entries: PaletteEntry[] = palette.entries
@@ -504,7 +644,7 @@ export function applyEdits(palette: Palette, edits: PaletteEdits = NO_PALETTE_ED
       count: 0,
       share: 0,
       members: 0,
-      modeHex: toHex(rgb),
+      modeHex: toHex({ r: rgb.r, g: rgb.g, b: rgb.b }),
       shifted: 0,
       nearest: 0,
       byHand: true,

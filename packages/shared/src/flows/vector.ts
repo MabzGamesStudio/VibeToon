@@ -683,7 +683,7 @@ export function summariseVector(image: VectorImage): VectorSummary {
 }
 
 export function averageColor(colors: string[]): Rgb | undefined {
-  const values = colors.map((hex) => fromHex(hex)).filter((rgb): rgb is Rgb => rgb !== undefined);
+  const values = colors.map((hex) => fromHex(hex)).filter((rgb) => rgb !== undefined);
   if (values.length === 0) return undefined;
   return {
     r: Math.round(values.reduce((sum, rgb) => sum + rgb.r, 0) / values.length),

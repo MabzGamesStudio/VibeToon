@@ -547,30 +547,32 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     ],
   },
 
+  'palette.opacity': {
+    what: 'How opaque one palette entry is, 0 to 100%. Read out of the image as the average of the pixels the entry stands for, and editable like its color.',
+    examples: [
+      'solid — the ordinary case, and what a color read off flat artwork comes back as.',
+      '50% — snapping a pixel to this entry leaves it half see-through, which is how you fade one color of a picture.',
+      '0% — every pixel that snaps to this entry is erased, which is how you drop one color of a picture.',
+    ],
+    note: 'Keep mode ignores it: keeping asks a question about color, and hands the pixel back with the opacity it already had.',
+  },
+
   /* Palette filter -------------------------------------------------- */
 
   'paletteFilter.mode': {
     what: 'What the filter does with a pixel once it knows how close that pixel is to the palette.',
     examples: [
-      'Keep — pixels near a palette color stay, the rest go transparent. For finding where a color is used.',
-      'Remove — the other way round. For dropping a background whose color you sampled into the palette.',
-      'Snap — nothing goes transparent; every pixel becomes its nearest palette color. This is the one that makes a photograph look drawn.',
+      'Keep — a pixel that matches a palette color stays exactly as it was, and everything else goes transparent. For finding where a color is used.',
+      'Snap — nothing goes transparent for not matching; every pixel becomes its nearest palette color, opacity and all. This is the one that makes a photograph look drawn.',
+      'To drop a color rather than find it, keep the others: an inverted answer is the same question asked about the rest of the palette.',
     ],
   },
   'paletteFilter.tolerance': {
     what: 'How close a pixel has to be to a palette color to count as that color. Same OKLab scale the palette’s own minimum distance uses.',
     examples: [
-      'under 2 — only pixels that are essentially that exact color.',
+      '0 — only pixels that are that exact color, which is what a drawing made from a palette contains.',
       '15 to 25 — the useful range on artwork: takes in shading without taking in the neighbouring color.',
       'Snap ignores this: every pixel has a nearest, so there is no threshold to set.',
-    ],
-  },
-  'paletteFilter.softness': {
-    what: 'How wide a band around the tolerance is partly transparent instead of wholly in or out.',
-    examples: [
-      '0 — a hard decision. Right for flat artwork.',
-      '4 to 8 — stops a filtered photograph looking cut out with scissors.',
-      'Ignored when alpha is forced fully on or off.',
     ],
   },
 

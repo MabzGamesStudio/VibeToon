@@ -105,12 +105,38 @@ that are not in the image, which is the one thing a palette must not contain.
 
 | Port | File | What it is |
 | --- | --- | --- |
-| Palette | `palette.json` | Each color as hex and RGB, with the share of the image it accounts for, its pixel count, how many counted colors were in its group, and that group's commonest color. |
+| Palette | `palette.json` | Each color as hex and RGB, with how opaque it is, the share of the image it accounts for, its pixel count, how many counted colors were in its group, and that group's commonest color. |
 | Report | `report.md` | The palette as a table, plus what was counted, what was grouped, and why. |
 
 Shares always add up to the whole image: a color with no group near enough joins
 the nearest one anyway rather than being dropped, so the numbers describe the
 picture completely.
+
+## Opacity is part of a color
+
+An entry is a color **and how see-through it is**, not just a color. The opacity
+is read out of the picture along with everything else: it is the average of the
+pixels the entry stands for, weighted by how many there were. One color drawn
+solid across a wall and the same color half-faded in a shadow are one entry, and
+its opacity is what those pixels were between them — not what the pixel that
+happened to seed the group was.
+
+The hex says so: `#4a6fd4` is solid, `#4a6fd480` is the same blue at about half.
+Eight digits are written only when there is an opacity worth writing, so a palette
+off flat artwork looks exactly as it always did. The editor draws every swatch
+over a checker, because otherwise a half-transparent white and a pale grey are the
+same square.
+
+A **group is keyed on color alone**, though — `modeHex` never carries an opacity.
+An entry you have edited should still be found after the artwork behind it has
+faded, and if the opacity were part of a group's identity every edit would be
+stranded by the fade.
+
+What the opacity is *for* is the Palette Filter's snap mode, which takes it along
+with the color: naming a half-transparent color is how you fade the part of a
+picture that is that color, and an entry at 0% erases it. Keep mode ignores it,
+because keeping asks a question about color and hands the pixel back with the
+opacity it already had. See [IMAGE-FLOWS.md](IMAGE-FLOWS.md).
 
 ## When it will not give you what you asked for
 
@@ -129,6 +155,7 @@ has been read, every entry is yours:
 | | What it does |
 | --- | --- |
 | **Change** | Set an entry to any color you like. It stays there, whatever the settings do. For a brand color, or when the count found something almost right. |
+| **Opacity** | Set how see-through an entry is, 0 to 100%. Not a separate kind of edit: it lives in the same hex the change records, so resetting an entry puts its opacity back along with its color. |
 | **Take out** | Drop an entry the palette should not have spent — a background, or a compression artefact. It can be put back. |
 | **Add** | Put in a color the drawing will need that the picture did not have. |
 

@@ -94,11 +94,13 @@ export async function generatePalette(ctx: GenerationContext): Promise<Generatio
     '',
     '## The palette',
     '',
-    '| | Color | Share | Pixels | Colors in its group | Mode of the group | Moved | Nearest other |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| | Color | Opacity | Share | Pixels | Colors in its group | Mode of the group | Moved | Nearest other |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
     ...palette.entries.map(
       (entry, index) =>
-        `| ${index + 1} | \`${entry.hex}\`${entry.byHand ? ' *(by hand)*' : ''} | ${(entry.share * 100).toFixed(1)}% | ${entry.count.toLocaleString()} | ${
+        `| ${index + 1} | \`${entry.hex}\`${entry.byHand ? ' *(by hand)*' : ''} | ${
+          entry.a >= 255 ? 'solid' : `${Math.round((entry.a / 255) * 100)}%`
+        } | ${(entry.share * 100).toFixed(1)}% | ${entry.count.toLocaleString()} | ${
           entry.members
         } | \`${entry.modeHex}\` | ${entry.shifted.toFixed(1)} | ${entry.nearest.toFixed(1)} |`,
     ),
@@ -143,8 +145,11 @@ export async function generatePalette(ctx: GenerationContext): Promise<Generatio
           pixels: histogram.pixels,
           options: data.options,
           colors: palette.entries.map((entry) => ({
+            // Eight digits when the color is see-through, six when it is not, so
+            // a reader that knows nothing about opacity sees what it always saw.
             hex: entry.hex,
             rgb: [entry.r, entry.g, entry.b],
+            alpha: entry.a,
             share: Math.round(entry.share * 10000) / 10000,
             count: entry.count,
             members: entry.members,

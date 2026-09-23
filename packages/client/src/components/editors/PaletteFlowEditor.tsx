@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import {
   DEFAULT_PALETTE_OPTIONS,
   NO_PALETTE_EDITS,
@@ -9,12 +9,11 @@ import {
   fromHex,
   histogramState,
   inputsForPort,
-  quantise,
+  countColors,
   removeColor,
   restoreColor,
   summarisePalette,
   toHex,
-  type ColorCount,
   type FlowNode,
   type ImageHistogram,
   type PaletteEdits,
@@ -39,6 +38,22 @@ import { EditorShell } from './EditorShell';
  * which is exactly what a palette must not contain.
  */
 const SAMPLE_TARGET = 400_000;
+
+/**
+ * An entry's color without its opacity.
+ *
+ * `<input type="color">` takes six digits and nothing else — hand it an
+ * eight-digit hex and it quietly shows black. The opacity has its own control, so
+ * splitting them is what the markup wants anyway.
+ */
+function solidHex(entry: PaletteEntry): string {
+  return toHex({ r: entry.r, g: entry.g, b: entry.b });
+}
+
+/** An opacity as something worth reading: `solid`, or a percentage. */
+function opacityLabel(a: number): string {
+  return a >= 255 ? 'solid' : `${Math.round((a / 255) * 100)}% opaque`;
+}
 
 /**
  * Colors out of an image.
@@ -114,27 +129,11 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
 
       const total = width * height;
       const stride = Math.max(1, Math.floor(total / SAMPLE_TARGET));
-      const tally = new Map<number, number>();
-      let counted = 0;
-      let transparent = 0;
-
-      for (let index = 0; index < total; index += stride) {
-        const at = index * 4;
-        if (pixels[at + 3]! < options.alphaFloor) {
-          transparent += 1;
-          continue;
-        }
-        const r = quantise(pixels[at]!, options.precision);
-        const g = quantise(pixels[at + 1]!, options.precision);
-        const b = quantise(pixels[at + 2]!, options.precision);
-        const key = (r << 16) | (g << 8) | b;
-        tally.set(key, (tally.get(key) ?? 0) + 1);
-        counted += 1;
-      }
-
-      const colors: ColorCount[] = [...tally.entries()]
-        .map(([key, count]) => ({ r: (key >> 16) & 255, g: (key >> 8) & 255, b: key & 255, count }))
-        .sort((a, b) => b.count - a.count);
+      const { colors, counted, transparent } = countColors(pixels, {
+        precision: options.precision,
+        alphaFloor: options.alphaFloor,
+        stride,
+      });
 
       const histogram: ImageHistogram = {
         source: imagePath.split('/').pop() ?? imagePath,
@@ -177,6 +176,17 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
       return rgb !== undefined && buckets.has(toHex(rgb));
     });
   }, [data.histogram, edits.removed, options]);
+
+  /**
+   * Set an entry's opacity, keeping its color.
+   *
+   * Opacity is not a separate kind of edit: an entry is a color and how
+   * see-through it is, and both live in the one hex the edit records. So this goes
+   * through `changeColor` like any other change, and resetting an entry puts its
+   * opacity back along with its color.
+   */
+  const setOpacity = (entry: PaletteEntry, a: number) =>
+    edit(changeColor(edits, entry, toHex({ r: entry.r, g: entry.g, b: entry.b, a })));
 
   const drop = (entry: PaletteEntry) => {
     edit(removeColor(edits, entry));
@@ -429,24 +439,31 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                   className={`vt-swatch${selected === index ? ' is-selected' : ''}${
                     entry.byHand || edits.changed[entry.modeHex] ? ' is-pinned' : ''
                   }`}
-                  style={{
-                    background: entry.hex,
-                    // A color put in by hand has no share to be sized by, so it takes
-                    // an even one. Sized by its share it would be a sliver too narrow
-                    // to read its own hex, which is the one thing it has to show.
-                    flexGrow: entry.byHand ? 1 : Math.max(0.35, entry.share * palette.entries.length),
-                  }}
+                  style={
+                    {
+                      // Laid over the checker the stylesheet draws, so an entry that is
+                      // not solid looks like one rather than looking pale.
+                      '--vt-swatch': entry.hex,
+                      // A color put in by hand has no share to be sized by, so it takes
+                      // an even one. Sized by its share it would be a sliver too narrow
+                      // to read its own hex, which is the one thing it has to show.
+                      flexGrow: entry.byHand ? 1 : Math.max(0.35, entry.share * palette.entries.length),
+                    } as CSSProperties
+                  }
                   title={
                     entry.byHand
-                      ? `${entry.hex} — put in by hand, so it stands for no pixels of the image. Nearest other entry ${entry.nearest.toFixed(1)} away.`
-                      : `${entry.hex} — ${(entry.share * 100).toFixed(1)}% of the image, ${entry.members} color(s) in its group, nearest other entry ${entry.nearest.toFixed(1)} away`
+                      ? `${entry.hex} — ${opacityLabel(entry.a)}, put in by hand, so it stands for no pixels of the image. Nearest other entry ${entry.nearest.toFixed(1)} away.`
+                      : `${entry.hex} — ${opacityLabel(entry.a)}, ${(entry.share * 100).toFixed(1)}% of the image, ${entry.members} color(s) in its group, nearest other entry ${entry.nearest.toFixed(1)} away`
                   }
                   aria-label={`Color ${index + 1}, ${entry.hex}`}
                   onClick={() => setSelected(selected === index ? null : index)}
                 >
                   <span className="vt-swatch-label">
                     <strong>{entry.hex}</strong>
-                    <span>{entry.byHand ? 'by hand' : `${(entry.share * 100).toFixed(1)}%`}</span>
+                    <span>
+                      {entry.byHand ? 'by hand' : `${(entry.share * 100).toFixed(1)}%`}
+                      {entry.a < 255 ? ` · ${Math.round((entry.a / 255) * 100)}% opaque` : ''}
+                    </span>
                   </span>
                 </button>
               ))}
@@ -524,6 +541,13 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                   )}
                   <dt>Nearest other entry</dt>
                   <dd>{chosen.nearest.toFixed(1)} away</dd>
+                  <dt>Opacity</dt>
+                  <dd>
+                    {opacityLabel(chosen.a)}
+                    {chosen.byHand
+                      ? ' — yours to set'
+                      : ' — the average of the pixels in its group, weighted by how many there were'}
+                  </dd>
                 </dl>
                 <Field
                   label="This color"
@@ -538,8 +562,13 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                     <input
                       type="color"
                       aria-label="This color"
-                      value={chosen.hex}
-                      onChange={(event) => edit(changeColor(edits, chosen, event.target.value))}
+                      value={solidHex(chosen)}
+                      onChange={(event) => {
+                        // Keeping the opacity: the picker only has six digits to give,
+                        // and dragging it should not quietly make a faded entry solid.
+                        const rgb = fromHex(event.target.value);
+                        if (rgb) edit(changeColor(edits, chosen, toHex({ ...rgb, a: chosen.a })));
+                      }}
                     />
                     <input
                       value={chosen.byHand ? chosen.hex : edits.changed[chosen.modeHex] ?? ''}
@@ -571,6 +600,17 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                     </button>
                   </div>
                 </Field>
+                <Slider
+                  label="Opacity"
+                  tip="palette.opacity"
+                  hint="How much of what is behind this color shows through it. A filter that snaps to the palette fades a pixel by this much, so naming a see-through color is how you fade the part of a picture that is it."
+                  value={chosen.a}
+                  min={0}
+                  max={255}
+                  step={1}
+                  format={opacityLabel}
+                  onChange={(value) => setOpacity(chosen, Math.round(value))}
+                />
               </div>
             ) : (
               <div className="vt-hint">

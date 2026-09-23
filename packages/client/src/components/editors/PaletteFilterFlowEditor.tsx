@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   FILTER_MODES,
   FILTER_MODE_HINT,
@@ -258,8 +258,9 @@ export function PaletteFilterFlowEditor({
           <div className="vt-section">
             <h3>Closeness</h3>
             <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
-              Snapping has no threshold to set: every pixel has a nearest palette color and gets it. Nothing
-              is made transparent, so a cutout wired in keeps its shape.
+              Snapping has no threshold to set: every pixel has a nearest palette color and gets it —
+              including that color&rsquo;s opacity, so a see-through palette entry fades whatever lands on
+              it.
             </p>
           </div>
         ) : (
@@ -272,29 +273,15 @@ export function PaletteFilterFlowEditor({
               max={80}
               step={0.5}
               tip="paletteFilter.tolerance"
+              format={(value) => (value === 0 ? 'exactly, and nothing else' : `within ${value}`)}
               hint="In OKLab, times 100: under 2 is invisible, 20 is navy against royal blue."
               onChange={(tolerance) => patch({ options: { ...data.options, tolerance } })}
             />
-            <Slider
-              label="Softness"
-              value={data.options.softness}
-              min={0}
-              max={20}
-              step={0.5}
-              tip="paletteFilter.softness"
-              format={(value) => (value === 0 ? 'a hard edge' : `±${value}`)}
-              onChange={(softness) => patch({ options: { ...data.options, softness } })}
-            />
-            <label className="vt-row" style={{ gap: 6 }}>
-              <input
-                type="checkbox"
-                checked={data.options.hardAlpha}
-                onChange={(event) =>
-                  patch({ options: { ...data.options, hardAlpha: event.target.checked } })
-                }
-              />
-              Force alpha fully on or off
-            </label>
+            <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
+              A pixel that matches is kept <em>exactly as it is</em> — it is not recolored to the entry it
+              matched, because it already is that color and replacing it would throw away the shading that
+              made the tolerance necessary.
+            </p>
           </div>
         )}
 
@@ -315,7 +302,9 @@ export function PaletteFilterFlowEditor({
                       key={hex}
                       type="button"
                       className={`vt-filter-color${on ? ' is-on' : ''}`}
-                      style={{ background: hex }}
+                      // Over the checker the stylesheet draws, so an entry with an
+                      // opacity of its own reads as one rather than as a dark color.
+                      style={{ '--vt-swatch': hex } as CSSProperties}
                       aria-pressed={on}
                       title={`${hex}${on ? '' : ' — switched off'}${
                         landed ? ` · ${landed.pixels.toLocaleString()} pixels` : ''
@@ -389,10 +378,12 @@ export function PaletteFilterFlowEditor({
                       <div
                         key={entry.hex}
                         className="vt-swatch"
-                        style={{
-                          background: entry.hex,
-                          flexGrow: Math.max(entry.pixels, 1),
-                        }}
+                        style={
+                          {
+                            '--vt-swatch': entry.hex,
+                            flexGrow: Math.max(entry.pixels, 1),
+                          } as CSSProperties
+                        }
                         title={`${entry.hex} — ${entry.pixels.toLocaleString()} pixels (${(
                           (entry.pixels / Math.max(1, report.considered)) *
                           100

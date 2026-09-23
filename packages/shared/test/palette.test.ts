@@ -7,6 +7,7 @@ import {
   applyEdits,
   changeColor,
   colorDistance,
+  countColors,
   derivePalette,
   emptyPaletteFlowData,
   fromHex,
@@ -46,12 +47,26 @@ function histogram(colors: ColorCount[], over: Partial<ImageHistogram> = {}): Im
 /* ---------------- measuring color ---------------- */
 
 test('hex round-trips, in both the long and the short form', () => {
-  assert.deepEqual(fromHex('#ff8800'), { r: 255, g: 136, b: 0 });
-  assert.deepEqual(fromHex('f80'), { r: 255, g: 136, b: 0 }, 'three digits expand');
+  assert.deepEqual(fromHex('#ff8800'), { r: 255, g: 136, b: 0, a: 255 }, 'a color with no opacity written is solid');
+  assert.deepEqual(fromHex('f80'), { r: 255, g: 136, b: 0, a: 255 }, 'three digits expand');
   assert.equal(toHex({ r: 255, g: 136, b: 0 }), '#ff8800');
   assert.equal(toHex({ r: -5, g: 300, b: 7.6 }), '#00ff08', 'and anything out of range is clamped');
   assert.equal(fromHex('nonsense'), undefined);
-  assert.equal(fromHex('#ff88'), undefined);
+  assert.equal(fromHex('#ff88f'), undefined, 'five digits is not a color');
+});
+
+test('an opacity is written down only when there is one worth writing', () => {
+  /*
+   * Six digits for a solid color, so nothing that reads a palette — or a
+   * drawing's shape colors, which have no opacity at all — sees anything new.
+   * Eight only when something is actually see-through, where the alternative is
+   * a palette that silently forgets it.
+   */
+  assert.equal(toHex({ r: 255, g: 136, b: 0, a: 255 }), '#ff8800');
+  assert.equal(toHex({ r: 255, g: 136, b: 0, a: 128 }), '#ff880080');
+  assert.equal(toHex({ r: 255, g: 136, b: 0, a: 0 }), '#ff880000');
+  assert.deepEqual(fromHex('#ff880080'), { r: 255, g: 136, b: 0, a: 128 });
+  assert.deepEqual(fromHex('#f808'), { r: 255, g: 136, b: 0, a: 136 }, 'four digits expand too');
 });
 
 /**
@@ -89,8 +104,12 @@ test('OKLab round-trips back to the color it came from', () => {
 test('blending happens in OKLab, so a blend of two blues stays blue', () => {
   const mid = mixOklab(fromHex('#0000ff')!, fromHex('#00ffff')!, 0.5);
   assert.ok(mid.b > mid.r, `${toHex(mid)} should still be blue-ish`);
-  assert.deepEqual(mixOklab(fromHex('#123456')!, fromHex('#654321')!, 0), fromHex('#123456'), 'at 0 nothing moves');
-  assert.deepEqual(mixOklab(fromHex('#123456')!, fromHex('#654321')!, 1), fromHex('#654321'), 'at 1 it arrives');
+  const plain = (hex: string) => {
+    const { r, g, b } = fromHex(hex)!;
+    return { r, g, b };
+  };
+  assert.deepEqual(mixOklab(fromHex('#123456')!, fromHex('#654321')!, 0), plain('#123456'), 'at 0 nothing moves');
+  assert.deepEqual(mixOklab(fromHex('#123456')!, fromHex('#654321')!, 1), plain('#654321'), 'at 1 it arrives');
 });
 
 test('rounding groups near-identical pixels without moving the extremes', () => {
@@ -111,6 +130,62 @@ test('rounding groups near-identical pixels without moving the extremes', () => 
   // A coarser setting groups harder, which is the whole point of the control.
   const coarse = new Set(Array.from({ length: 256 }, (_, value) => quantise(value, 2)));
   assert.equal(coarse.size, 4);
+});
+
+/* ---------------- counting ---------------- */
+
+function rgba(...pixels: Array<[number, number, number, number]>): Uint8ClampedArray {
+  return new Uint8ClampedArray(pixels.flat());
+}
+
+test('a counted color is one the picture really contains, not its rounded value', () => {
+  /*
+   * The bug this guards: `#dc2828` rounds to `#de2929` at five bits, and naming
+   * the group after that put a color in the palette that no pixel has. A filter
+   * keeping pixels that are exactly a palette color then kept nothing, on the flat
+   * artwork exact matching exists for.
+   */
+  assert.equal(toHex({ r: quantise(0xdc, 5), g: quantise(0x28, 5), b: quantise(0x28, 5) }), '#de2929');
+  const { colors } = countColors(rgba([0xdc, 0x28, 0x28, 255], [0xdc, 0x28, 0x28, 255]), {
+    precision: 5,
+    alphaFloor: 8,
+  });
+  assert.deepEqual(colors.map((color) => toHex(color)), ['#dc2828']);
+});
+
+test('pixels that round together are one group, named after the commonest of them', () => {
+  const { colors } = countColors(
+    rgba([100, 100, 100, 255], [101, 100, 100, 255], [101, 100, 100, 255], [102, 101, 100, 255]),
+    { precision: 5, alphaFloor: 8 },
+  );
+  assert.equal(colors.length, 1, 'still grouped, which is what rounding is for');
+  assert.equal(colors[0]!.count, 4);
+  assert.equal(toHex(colors[0]!), '#656464', 'and named after the one seen twice');
+});
+
+test('a group is named the same way whatever order its pixels come in', () => {
+  const one = countColors(rgba([100, 100, 100, 255], [101, 100, 100, 255]), { precision: 5, alphaFloor: 8 });
+  const two = countColors(rgba([101, 100, 100, 255], [100, 100, 100, 255]), { precision: 5, alphaFloor: 8 });
+  assert.deepEqual(one.colors, two.colors);
+});
+
+test('counting keeps an average opacity, and leaves it off a solid color', () => {
+  const { colors, counted, transparent } = countColors(
+    rgba([10, 20, 30, 255], [200, 0, 0, 100], [200, 0, 0, 200], [5, 5, 5, 3]),
+    { precision: 8, alphaFloor: 8 },
+  );
+  assert.equal(counted, 3);
+  assert.equal(transparent, 1, 'below the floor is not a color');
+  const red = colors.find((color) => color.r === 200)!;
+  assert.equal(red.a, 150);
+  assert.equal('a' in colors.find((color) => color.r === 10)!, false);
+});
+
+test('a stride counts every nth pixel and nothing else', () => {
+  const pixels = rgba([255, 0, 0, 255], [0, 0, 255, 255], [255, 0, 0, 255], [0, 0, 255, 255]);
+  const { colors, counted } = countColors(pixels, { precision: 5, alphaFloor: 8, stride: 2 });
+  assert.equal(counted, 2);
+  assert.deepEqual(colors.map((color) => toHex(color)), ['#ff0000']);
 });
 
 /* ---------------- the palette ---------------- */
@@ -272,6 +347,69 @@ test('a counted image goes stale when the picture behind it changes', () => {
 const sky = () => histogram(counts(['#ff0000', 100], ['#00ff00', 50], ['#0000ff', 20]));
 const derived = (over: Partial<PaletteOptions> = {}) =>
   derivePalette(sky(), { count: 3, minDistance: 10, ...over });
+
+/* ---------------- opacity ---------------- */
+
+test('a color read out of the image carries how opaque its pixels were', () => {
+  const palette = derivePalette(histogram(counts(['#ff000080', 100], ['#00ff00', 50])), {
+    count: 2,
+    minDistance: 10,
+  });
+  assert.equal(palette.entries[0]!.a, 0x80);
+  assert.equal(palette.entries[0]!.hex, '#ff000080', 'and the hex says so');
+  assert.equal(palette.entries[1]!.a, 255);
+  assert.equal(palette.entries[1]!.hex, '#00ff00', 'a solid color is still six digits');
+});
+
+test('a group’s opacity is its pixels’ average, weighted by how many there were', () => {
+  /*
+   * One color drawn solid across a wall and the same color half-faded in a shadow
+   * are one entry. Its opacity is what those pixels were between them — not what
+   * the one that happened to seed the bucket was.
+   */
+  const palette = derivePalette(histogram(counts(['#4a6fd4', 300], ['#4b70d500', 100])), {
+    count: 1,
+    minDistance: 10,
+  });
+  assert.equal(palette.entries.length, 1, 'the two are one group');
+  assert.equal(palette.entries[0]!.a, Math.round((255 * 300 + 0 * 100) / 400));
+});
+
+test('an entry is found by its color, so a faded picture keeps the edits made to it', () => {
+  // The reason a group is keyed on color alone. Fade the artwork and every edit
+  // would otherwise be stored against a bucket that no longer exists.
+  const solid = derivePalette(histogram(counts(['#ff0000', 100])), { count: 1, minDistance: 10 });
+  const faded = derivePalette(histogram(counts(['#ff000080', 100])), { count: 1, minDistance: 10 });
+  assert.equal(solid.entries[0]!.modeHex, faded.entries[0]!.modeHex);
+});
+
+test('opacity is edited the same way a color is, and reset the same way', () => {
+  const entry = derived().entries[1]!;
+  const edits = changeColor(NO_PALETTE_EDITS, entry, toHex({ r: entry.r, g: entry.g, b: entry.b, a: 64 }));
+  const palette = applyEdits(derived(), edits);
+
+  assert.equal(palette.entries[1]!.a, 64);
+  assert.equal(palette.entries[1]!.hex, '#00ff0040');
+  assert.equal(palette.entries[1]!.shifted, 0, 'the color did not move, only the opacity');
+
+  const back = applyEdits(derived(), changeColor(edits, entry, ''));
+  assert.equal(back.entries[1]!.a, 255, 'and resetting puts the opacity back with the color');
+});
+
+test('a color added by hand can be see-through, which is how you erase one', () => {
+  const palette = applyEdits(derived(), addColor(NO_PALETTE_EDITS, '#33445500'));
+  const added = palette.entries.at(-1)!;
+  assert.equal(added.a, 0);
+  assert.equal(added.hex, '#33445500');
+  assert.ok(added.byHand);
+});
+
+test('the same color at two opacities is two entries, because it filters differently', () => {
+  const edits = addColor(addColor(NO_PALETTE_EDITS, '#334455'), '#33445580');
+  assert.deepEqual(edits.added, ['#334455', '#33445580']);
+});
+
+/* ---------------- changing, taking out, adding ---------------- */
 
 test('an entry can be changed by hand, and says how far from the image it now is', () => {
   const edits = changeColor(NO_PALETTE_EDITS, derived().entries[1]!, '#000000');

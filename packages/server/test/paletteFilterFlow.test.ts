@@ -190,26 +190,27 @@ test('snap is reported as having no threshold, because it has none', async () =>
   assert.ok(!/- Tolerance:/.test(body), 'a tolerance line would be a lie in this mode');
 });
 
-test('a tolerance and its softness are both reported when they apply', async () => {
+test('the tolerance is reported where it applies, and spelled out at zero', async () => {
   const data = emptyPaletteFilterFlowData();
   await setFilter({
     ...data,
-    options: { ...data.options, mode: 'keep', tolerance: 25, softness: 6 },
+    options: { ...data.options, mode: 'keep', tolerance: 25 },
     imageHash,
     paletteHash,
   });
   await generate(png());
-  const body = await report();
-  assert.match(body, /Tolerance: 25 · softened over ±6/);
+  assert.match(await report(), /Tolerance: 25$/m);
 
+  // Zero is the value worth a sentence: it is the one a drawing wants, and it is
+  // the one that looks broken if you do not know it means "exactly".
   await setFilter({
     ...data,
-    options: { ...data.options, mode: 'keep', tolerance: 25, softness: 0 },
+    options: { ...data.options, mode: 'keep', tolerance: 0 },
     imageHash,
     paletteHash,
   });
   await generate(png());
-  assert.match(await report(), /Tolerance: 25 · a hard threshold/);
+  assert.match(await report(), /Tolerance: 0 — an exact match and nothing else/);
 });
 
 test('a color switched off is written as switched off', async () => {

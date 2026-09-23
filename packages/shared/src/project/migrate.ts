@@ -5,6 +5,10 @@ import { getFlowKind } from '../registry/flowKinds';
 import { DEFAULT_DERIVE_OPTIONS, DEFAULT_EXTRACT_OPTIONS } from '../text/corpus';
 import { DEFAULT_GRAMMAR_OPTIONS } from '../text/grammarDatabase';
 import { normaliseMeanings } from '../text/senses';
+import {
+  DEFAULT_PALETTE_FILTER_OPTIONS,
+  type PaletteFilterOptions,
+} from '../flows/paletteFilter';
 import { DEFAULT_IK_OPTIONS } from '../flows/pose';
 import { DEFAULT_RIG_OPTIONS, emptyRigFlowData } from '../flows/rig';
 import {
@@ -173,6 +177,28 @@ export function normaliseFlowData(data: FlowData): FlowData {
        */
       const options = fill(data.options, DEFAULT_VECTORIZE_OPTIONS);
       return options.filled ? { ...data, options: options.value } : data;
+    }
+    case 'paletteFilter': {
+      /*
+       * The mode that removed the palette's colors is gone, and so are the two
+       * settings that only existed to soften the edge it left. A flow saved with
+       * either keeps working: removing is what you get by keeping the *other*
+       * colors, so there is nothing to translate it into — it becomes a keep,
+       * and the note in the flow's report says the picking is now the other way
+       * round.
+       */
+      const options = fill(data.options, DEFAULT_PALETTE_FILTER_OPTIONS);
+      const mode = options.value.mode === 'keep' || options.value.mode === 'snap' ? options.value.mode : 'keep';
+      const clean: PaletteFilterOptions = {
+        mode,
+        tolerance: options.value.tolerance,
+        only: Array.isArray(options.value.only) ? options.value.only : [],
+      };
+      const same =
+        !options.filled &&
+        Object.keys(data.options ?? {}).length === 3 &&
+        clean.mode === data.options?.mode;
+      return same ? data : { ...data, options: clean };
     }
     case 'palette': {
       const options = fill(data.options, DEFAULT_PALETTE_OPTIONS);

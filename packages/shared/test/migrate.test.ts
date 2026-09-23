@@ -9,6 +9,7 @@ import {
   emptyPaletteFlowData,
   type PaletteFlowData,
 } from '../src/flows/palette';
+import { emptyPaletteFilterFlowData, type PaletteFilterFlowData } from '../src/flows/paletteFilter';
 import { DEFAULT_RIG_OPTIONS, emptyRigFlowData } from '../src/flows/rig';
 import { emptyTextData } from '../src/flows/text';
 import { DEFAULT_VECTORIZE_OPTIONS } from '../src/flows/vectorize';
@@ -209,6 +210,24 @@ test('a palette flow with no counted image has nothing for its pins to mean', ()
 
 test('a palette flow already on edits is left as it is', () => {
   const data = { ...emptyPaletteFlowData(), edits: { changed: { '#ff0000': '#123456' }, removed: [], added: [] } };
+  assert.equal(normaliseFlowData(data), data, 'nothing was missing, so nothing was rebuilt');
+});
+
+/* ---------------- a palette filter saved with the old modes ---------------- */
+
+test('a filter saved in remove mode opens as keep, without the settings that went with it', () => {
+  // Remove is gone, and so are softness and hard alpha, which only existed to
+  // soften the edge it left. A flow saved with them must still open.
+  const old = {
+    editor: 'paletteFilter',
+    options: { mode: 'remove', tolerance: 20, softness: 6, hardAlpha: true, only: ['#ff0000'] },
+  } as unknown as FlowData;
+  const migrated = normaliseFlowData(old) as PaletteFilterFlowData;
+  assert.deepEqual(migrated.options, { mode: 'keep', tolerance: 20, only: ['#ff0000'] });
+});
+
+test('a filter already on the new modes is left as it is', () => {
+  const data = { ...emptyPaletteFilterFlowData(), options: { mode: 'snap' as const, tolerance: 3, only: [] } };
   assert.equal(normaliseFlowData(data), data, 'nothing was missing, so nothing was rebuilt');
 });
 

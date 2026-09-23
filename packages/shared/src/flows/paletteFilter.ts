@@ -1,59 +1,62 @@
 import type { Bitmap } from './cutout';
-import { colorDistance, fromHex, toHex, type Rgb } from './palette';
+import { colorDistance, fromHex, toHex, type Rgb, type Rgba } from './palette';
 
 /**
  * Filtering an image against a palette.
  *
- * Three different jobs wear the same hat, so they are three modes rather than
- * three flows: keeping only what is on-palette, removing what is, and snapping
- * everything to the nearest palette entry. The first two answer "where is this
- * color in my picture", the third is what makes a photograph look drawn.
+ * Two jobs wear the same hat, so they are two modes rather than two flows.
+ *
+ * **Keeping** answers "where is this color in my picture". A pixel that matches
+ * a palette entry stays exactly as it was — the same color it always had, the
+ * same opacity — and everything else goes transparent. It does not recolor
+ * anything: the palette is the question, and the picture is the answer.
+ *
+ * **Snapping** answers "make this picture use only these colors". Every pixel
+ * becomes the palette entry it is nearest, including that entry's opacity, so a
+ * palette with a see-through color can fade part of a picture by naming it.
+ *
+ * There used to be a third, which removed the palette's colors instead of
+ * keeping them. It is gone. It was the keep mode with the answer inverted, and
+ * an inverted answer is a thing you can get by picking the other colors — while
+ * having it as a mode meant every setting and every report had to say which way
+ * round it was reading.
  */
-export type FilterMode = 'keep' | 'remove' | 'snap';
+export type FilterMode = 'keep' | 'snap';
 
-export const FILTER_MODES: readonly FilterMode[] = ['keep', 'remove', 'snap'];
+export const FILTER_MODES: readonly FilterMode[] = ['keep', 'snap'];
 
 export const FILTER_MODE_LABEL: Record<FilterMode, string> = {
   keep: 'Keep only palette colors',
-  remove: 'Remove palette colors',
   snap: 'Snap every pixel to the palette',
 };
 
 export const FILTER_MODE_HINT: Record<FilterMode, string> = {
-  keep: 'A pixel within the tolerance of some palette color stays; everything else goes transparent.',
-  remove: 'The other way round: a pixel near a palette color goes transparent. For dropping a background you sampled.',
-  snap: 'Nothing goes transparent. Every pixel is replaced by the palette color nearest to it.',
+  keep: 'A pixel that matches a palette color is kept exactly as it is; everything else goes transparent.',
+  snap: 'Nothing goes transparent for not matching. Every pixel becomes the palette color nearest to it, opacity and all.',
 };
 
 export interface PaletteFilterOptions {
   mode: FilterMode;
   /**
-   * How close a pixel must be to a palette color to count as that color, in
-   * the same OKLab-times-100 units the palette's own minimum distance uses.
-   * Ignored by `snap`, which has no threshold — every pixel has a nearest.
+   * How far a pixel may be from a palette color and still count as it, in the
+   * same OKLab-times-100 units the palette's own minimum distance uses.
+   *
+   * 0 means exactly, which is what flat artwork wants — a drawing made from a
+   * palette contains those colors and no others. Anything photographic needs
+   * room: the same red is a hundred slightly different reds once it has been
+   * through a camera and a JPEG.
+   *
+   * `snap` ignores it, because every pixel has a nearest whatever the distance.
    */
   tolerance: number;
-  /**
-   * Soften the decision at the boundary. Within `softness` of the threshold a
-   * pixel is partly transparent rather than wholly in or out, which stops a
-   * filtered photograph looking like it was cut with scissors.
-   */
-  softness: number;
   /** Keep only these palette entries, by hex. Empty means all of them. */
   only: string[];
-  /**
-   * Snap the alpha channel too, so a soft edge becomes a hard one. What you want
-   * when the result is going to be indexed color or a sprite.
-   */
-  hardAlpha: boolean;
 }
 
 export const DEFAULT_PALETTE_FILTER_OPTIONS: PaletteFilterOptions = {
   mode: 'keep',
-  tolerance: 18,
-  softness: 4,
+  tolerance: 8,
   only: [],
-  hardAlpha: false,
 };
 
 export interface PaletteFilterFlowData {
@@ -69,9 +72,9 @@ export function emptyPaletteFilterFlowData(): PaletteFilterFlowData {
   return { editor: 'paletteFilter', options: { ...DEFAULT_PALETTE_FILTER_OPTIONS } };
 }
 
-/** A palette as this flow needs it: just the colors, in order. */
+/** A palette as this flow needs it: the colors and their opacity, in order. */
 export interface FilterPalette {
-  colors: Rgb[];
+  colors: Rgba[];
   hexes: string[];
 }
 
@@ -211,55 +214,59 @@ export function filterImage(
     }
 
     if (options.mode === 'snap') {
+      /*
+       * The entry's opacity as well as its color.
+       *
+       * Which is the whole of what an opacity in a palette is for: naming a
+       * see-through color and snapping to it is how you fade part of a picture
+       * by saying which part. Multiplied by what the pixel already had, so a
+       * half-faded edge snapped to a half-faded color does not come back solid.
+       */
       const target = active.colors[near.index]!;
       if (target.r !== r || target.g !== g || target.b !== b) report.recolored += 1;
       out[index] = target.r;
       out[index + 1] = target.g;
       out[index + 2] = target.b;
-      out[index + 3] = alpha;
-      report.kept += 1;
+      out[index + 3] = Math.round((alpha * target.a) / 255);
+      if (out[index + 3]! > 0) report.kept += 1;
+      else report.dropped += 1;
       report.perEntry[near.index]!.pixels += 1;
       continue;
     }
 
-    const onPalette = weigh(near.distance, options.tolerance, options.softness);
-    const weight = options.mode === 'keep' ? onPalette : 1 - onPalette;
-    const next = options.hardAlpha ? (weight >= 0.5 ? alpha : 0) : alpha * weight;
-    out[index + 3] = next;
-    if (next > 0) {
+    /*
+     * Kept exactly as it was, or gone.
+     *
+     * The pixel is not recolored to the entry it matched — it already *is* that
+     * color, to within the tolerance, and replacing it would throw away the
+     * shading that made the tolerance necessary in the first place.
+     */
+    if (near.distance <= options.tolerance) {
+      out[index + 3] = alpha;
       report.kept += 1;
-      if (options.mode === 'keep') report.perEntry[near.index]!.pixels += 1;
+      report.perEntry[near.index]!.pixels += 1;
     } else {
+      out[index + 3] = 0;
       report.dropped += 1;
     }
   }
 
-  if (report.considered > 0 && report.kept === 0) {
+  if (report.considered > 0 && report.kept === 0 && options.mode === 'keep') {
     report.problems.push(
-      options.mode === 'keep'
-        ? 'Nothing matched. Raise the tolerance, or check the palette came from this image.'
-        : 'Everything matched, so everything was removed. Lower the tolerance.',
+      options.tolerance <= 0
+        ? 'Nothing matched exactly. Raise the tolerance, or check the palette came from this image.'
+        : 'Nothing matched. Raise the tolerance, or check the palette came from this image.',
     );
   }
   return { pixels: out, report };
-}
-
-/**
- * 1 well inside the tolerance, 0 well outside, and a ramp between. With softness
- * 0 it is a step, which is what you want for flat art and wrong for a photograph.
- */
-export function weigh(distance: number, tolerance: number, softness: number): number {
-  if (softness <= 0) return distance <= tolerance ? 1 : 0;
-  if (distance <= tolerance - softness) return 1;
-  if (distance >= tolerance + softness) return 0;
-  return (tolerance + softness - distance) / (2 * softness);
 }
 
 export function summariseFilter(report: FilterReport, options: PaletteFilterOptions): string {
   if (report.considered === 0) return 'Nothing to filter — every pixel is already transparent.';
   const share = (count: number) => `${((count / report.considered) * 100).toFixed(1)}%`;
   if (options.mode === 'snap') {
-    return `${share(report.recolored)} of the image was recolored; nothing was made transparent.`;
+    const faded = report.dropped > 0 ? `, ${share(report.dropped)} faded away by a see-through entry` : '';
+    return `${share(report.recolored)} of the image was recolored${faded}.`;
   }
-  return `${share(report.kept)} kept, ${share(report.dropped)} made transparent.`;
+  return `${share(report.kept)} kept as it was, ${share(report.dropped)} made transparent.`;
 }

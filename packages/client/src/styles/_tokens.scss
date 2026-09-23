@@ -53,6 +53,30 @@ $categories: (
   border-radius: $radius;
 }
 
+/*
+ * A color laid over a checker, so that one which is not fully opaque looks it.
+ *
+ * The color arrives as `--vt-swatch` rather than as a background, because a
+ * background set on the element would cover the checker instead of sitting on it.
+ * Without this a half-transparent white and a pale grey are the same swatch, and
+ * which of the two you picked is the one thing a palette has to show.
+ */
+@mixin checkered($size: 14px) {
+  background-color: #1b1b1f;
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.13) 25%, transparent 25% 75%, rgba(255, 255, 255, 0.13) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.13) 25%, transparent 25% 75%, rgba(255, 255, 255, 0.13) 75%);
+  background-size: $size $size;
+  background-position: 0 0, calc($size / 2) calc($size / 2);
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--vt-swatch, transparent);
+  }
+}
+
 @mixin scroll {
   scrollbar-width: thin;
   scrollbar-color: $bg-4 transparent;
