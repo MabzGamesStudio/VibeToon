@@ -1,6 +1,7 @@
 import {
   applyEdits,
   derivePalette,
+  histogramOutdated,
   histogramState,
   summarisePalette,
   type PaletteFlowData,
@@ -47,6 +48,11 @@ export async function generatePalette(ctx: GenerationContext): Promise<Generatio
   }
 
   const histogram = data.histogram!;
+  if (histogramOutdated(histogram)) {
+    ctx.warn(
+      'This image was counted before colors were read exactly, so an entry can be a step off the color in the picture. Open the editor and read it again.',
+    );
+  }
   if (histogram.precision !== data.options.precision) {
     ctx.warn(
       `The image was counted at ${histogram.precision} bits a channel but the setting is now ${data.options.precision}. Read it again for the setting to take effect.`,
@@ -98,8 +104,8 @@ export async function generatePalette(ctx: GenerationContext): Promise<Generatio
     '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
     ...palette.entries.map(
       (entry, index) =>
-        `| ${index + 1} | \`${entry.hex}\`${entry.byHand ? ' *(by hand)*' : ''} | ${
-          entry.a >= 255 ? 'solid' : `${Math.round((entry.a / 255) * 100)}%`
+        `| ${index + 1} | \`${entry.hex}\`${entry.byHand ? ' *(by hand)*' : entry.clear ? ' *(the transparent pixels)*' : ''} | ${
+          entry.a >= 255 ? 'solid' : entry.a === 0 ? 'clear' : `${Math.round((entry.a / 255) * 100)}%`
         } | ${(entry.share * 100).toFixed(1)}% | ${entry.count.toLocaleString()} | ${
           entry.members
         } | \`${entry.modeHex}\` | ${entry.shifted.toFixed(1)} | ${entry.nearest.toFixed(1)} |`,
@@ -113,12 +119,27 @@ export async function generatePalette(ctx: GenerationContext): Promise<Generatio
     'counts once instead of filling the palette with near neighbours. Distance is',
     'measured in OKLab, where equal numbers look equally different, times 100 — two',
     'colors you would call the same are under about 2, navy and royal blue about 20.',
+    'Opacity counts too, measured apart from color: fully clear against solid is 50,',
+    'so a half-faded red is apart from a solid one and clear is never taken for black.',
+    '',
+    'Each entry is the **commonest exact pixel** of its group — color and opacity —',
+    'so it is a value the picture really holds, and a filter looking for exactly this',
+    'value finds it.',
+    ...(palette.entries.some((entry) => entry.clear)
+      ? [
+          '',
+          `The pixels more transparent than ${data.options.alphaFloor} have an entry of their own,`,
+          '`#00000000`, on top of the colors asked for. A filter snapping to this palette',
+          'snaps transparent pixels to it, so the clear around a cut-out stays clear.',
+        ]
+      : []),
     '',
     ...(data.options.temperature > 0
       ? [
           `At temperature ${data.options.temperature} each entry moved that far from its`,
-          "group's commonest color towards another member of the same group, so every",
-          'color above is still a color the image contains.',
+          "group's commonest color towards another member of the same group — a blend of",
+          'the two, which keeps it in the family but can be a color between two the image',
+          'contains rather than one it does.',
           '',
         ]
       : ['At temperature 0 every entry is its group’s commonest color exactly.', '']),

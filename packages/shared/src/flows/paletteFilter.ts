@@ -1,19 +1,30 @@
 import type { Bitmap } from './cutout';
-import { colorDistance, fromHex, toHex, type Rgb, type Rgba } from './palette';
+import { fromHex, swatchDistance, swatchOf, toHex, type Rgb, type Rgba, type Swatch } from './palette';
 
 /**
  * Filtering an image against a palette.
  *
- * Two jobs wear the same hat, so they are two modes rather than two flows.
+ * Two jobs wear the same hat, so they are two modes rather than two flows. Both
+ * are exact about what they write, because exactness is what they are for.
  *
- * **Keeping** answers "where is this color in my picture". A pixel that matches
- * a palette entry stays exactly as it was — the same color it always had, the
- * same opacity — and everything else goes transparent. It does not recolor
- * anything: the palette is the question, and the picture is the answer.
+ * **Keeping** answers "where is this color in my picture". Every pixel comes out
+ * as one of two things: the source pixel exactly as it was, color and opacity,
+ * if it is within the tolerance of a palette color — or fully transparent,
+ * `(0, 0, 0, 0)`, if it is not (or if it was transparent to begin with, whatever
+ * color numbers it carried). Nothing is recolored and nothing is faded: the
+ * palette is the question, and the picture is the answer.
  *
  * **Snapping** answers "make this picture use only these colors". Every pixel
- * becomes the palette entry it is nearest, including that entry's opacity, so a
- * palette with a see-through color can fade part of a picture by naming it.
+ * becomes exactly one palette entry — its color *and* its opacity, whichever
+ * entry is nearest — so a palette of five colors and a transparent one gives a
+ * picture with six RGBA values in it and no others. A transparent pixel snaps
+ * like any other, to the entry that looks most like nothing: the palette's clear
+ * entry, when it has one.
+ *
+ * Nearness counts opacity as well as color (see `swatchDistance`): an edge pixel
+ * of red is nearest red, and becomes red or clear depending on which side of half
+ * opacity it is — never a neighbouring color — and a clear pixel is nowhere near
+ * black, whatever color numbers it happens to carry.
  *
  * There used to be a third, which removed the palette's colors instead of
  * keeping them. It is gone. It was the keep mode with the answer inverted, and
@@ -31,20 +42,21 @@ export const FILTER_MODE_LABEL: Record<FilterMode, string> = {
 };
 
 export const FILTER_MODE_HINT: Record<FilterMode, string> = {
-  keep: 'A pixel that matches a palette color is kept exactly as it is; everything else goes transparent.',
-  snap: 'Nothing goes transparent for not matching. Every pixel becomes the palette color nearest to it, opacity and all.',
+  keep: 'A pixel within the tolerance of a palette color is kept exactly as it is, color and opacity. Every other pixel becomes fully transparent.',
+  snap: 'Every pixel becomes exactly one of the palette colors, opacity included — whichever is nearest. Six colors in play means six values in the result, and no others.',
 };
 
 export interface PaletteFilterOptions {
   mode: FilterMode;
   /**
    * How far a pixel may be from a palette color and still count as it, in the
-   * same OKLab-times-100 units the palette's own minimum distance uses.
+   * same OKLab-times-100 units the palette's own minimum distance uses, opacity
+   * included.
    *
-   * 0 means exactly, which is what flat artwork wants — a drawing made from a
-   * palette contains those colors and no others. Anything photographic needs
-   * room: the same red is a hundred slightly different reds once it has been
-   * through a camera and a JPEG.
+   * 0 means exactly — the same color at the same opacity — which is what flat
+   * artwork wants: a drawing made from a palette contains those colors and no
+   * others. Anything photographic needs room: the same red is a hundred slightly
+   * different reds once it has been through a camera and a JPEG.
    *
    * `snap` ignores it, because every pixel has a nearest whatever the distance.
    */
@@ -122,13 +134,11 @@ export interface Nearest {
   distance: number;
 }
 
-/** The palette entry closest to a color, and how far away it is. */
-export function nearestEntry(color: Rgb, palette: FilterPalette): Nearest | null {
-  if (palette.colors.length === 0) return null;
+function nearestSwatch(swatch: Swatch, swatches: readonly Swatch[]): Nearest {
   let index = 0;
   let distance = Infinity;
-  for (let candidate = 0; candidate < palette.colors.length; candidate += 1) {
-    const measured = colorDistance(color, palette.colors[candidate]!);
+  for (let candidate = 0; candidate < swatches.length; candidate += 1) {
+    const measured = swatchDistance(swatch, swatches[candidate]!);
     if (measured < distance) {
       distance = measured;
       index = candidate;
@@ -137,15 +147,31 @@ export function nearestEntry(color: Rgb, palette: FilterPalette): Nearest | null
   return { index, distance };
 }
 
+/** The palette entry closest to a color, opacity included, and how far away it is. */
+export function nearestEntry(color: Rgb & { a?: number }, palette: FilterPalette): Nearest | null {
+  if (palette.colors.length === 0) return null;
+  return nearestSwatch(swatchOf(color), palette.colors.map(swatchOf));
+}
+
 export interface FilterReport {
-  /** Pixels that were opaque enough to be considered at all. */
+  /** Pixels with any opacity at all — the part of the picture you can see. */
   considered: number;
-  /** Pixels left with any opacity. */
+  /**
+   * Of those, the ones still visible afterwards: kept as they were by `keep`, or
+   * given a visible palette color by `snap`.
+   */
   kept: number;
-  /** Pixels made fully transparent. */
+  /** Of those, the ones made fully transparent. */
   dropped: number;
-  /** Pixels whose color was changed, which only `snap` does. */
+  /** Visible pixels that now look different, which only `snap` does. */
   recolored: number;
+  /** Pixels that were fully transparent to begin with. */
+  clearIn: number;
+  /**
+   * Transparent pixels that `snap` gave a visible color, because no clear entry
+   * was in play to snap them to. Almost always a surprise, so it is reported.
+   */
+  filled: number;
   /** How many pixels landed on each palette entry, by hex. */
   perEntry: Array<{ hex: string; pixels: number }>;
   problems: string[];
@@ -154,9 +180,10 @@ export interface FilterReport {
 /**
  * Run the filter.
  *
- * A pixel that is already transparent is left alone in every mode: this flow
- * takes the cutout flow's output as its input, and re-deciding pixels that were
- * deliberately cut away would undo that work.
+ * Nothing is multiplied, blended or rounded on the way: `snap` writes a palette
+ * entry's four numbers, and `keep` writes the source pixel's four numbers or four
+ * zeros. So the output can be checked by counting, which is how the tests check
+ * it.
  */
 export function filterImage(
   image: Bitmap,
@@ -164,12 +191,15 @@ export function filterImage(
   options: PaletteFilterOptions,
 ): { pixels: Uint8ClampedArray; report: FilterReport } {
   const active = activePalette(palette, options);
+  // Zeros to start with, which is fully transparent — what `keep` leaves behind.
   const out = new Uint8ClampedArray(image.data.length);
   const report: FilterReport = {
     considered: 0,
     kept: 0,
     dropped: 0,
     recolored: 0,
+    clearIn: 0,
+    filled: 0,
     perEntry: active.hexes.map((hex) => ({ hex, pixels: 0 })),
     problems: [],
   };
@@ -186,87 +216,95 @@ export function filterImage(
     return { pixels: out, report };
   }
 
-  // A cache pays for itself many times over: a drawing uses a few thousand
-  // distinct colors across a million pixels, and each lookup is a walk over the
-  // whole palette in OKLab.
-  const cache = new Map<number, { index: number; distance: number }>();
+  const swatches = active.colors.map(swatchOf);
+  const tolerance = Math.max(0, options.tolerance);
+  /*
+   * A cache pays for itself many times over: a drawing uses a few thousand
+   * distinct values across a million pixels, and each lookup is a trip through
+   * OKLab and a walk over every entry. Every fully transparent pixel is one key,
+   * whatever color numbers it carries, because none of them show.
+   */
+  const cache = new Map<number, Nearest>();
+  const clear = swatchOf({ r: 0, g: 0, b: 0, a: 0 });
 
   for (let index = 0; index < image.data.length; index += 4) {
-    const alpha = image.data[index + 3]!;
-    out[index] = image.data[index]!;
-    out[index + 1] = image.data[index + 1]!;
-    out[index + 2] = image.data[index + 2]!;
-
-    if (alpha === 0) {
-      out[index + 3] = 0;
-      continue;
-    }
-    report.considered += 1;
-
     const r = image.data[index]!;
     const g = image.data[index + 1]!;
     const b = image.data[index + 2]!;
-    const key = (r << 16) | (g << 8) | b;
+    const a = image.data[index + 3]!;
+    const key = a === 0 ? -1 : ((r << 16) | (g << 8) | b) * 256 + a;
     let near = cache.get(key);
     if (!near) {
-      near = nearestEntry({ r, g, b }, active)!;
+      near = nearestSwatch(a === 0 ? clear : swatchOf({ r, g, b, a }), swatches);
       cache.set(key, near);
     }
+    if (a === 0) report.clearIn += 1;
+    else report.considered += 1;
 
     if (options.mode === 'snap') {
-      /*
-       * The entry's opacity as well as its color.
-       *
-       * Which is the whole of what an opacity in a palette is for: naming a
-       * see-through color and snapping to it is how you fade part of a picture
-       * by saying which part. Multiplied by what the pixel already had, so a
-       * half-faded edge snapped to a half-faded color does not come back solid.
-       */
       const target = active.colors[near.index]!;
-      if (target.r !== r || target.g !== g || target.b !== b) report.recolored += 1;
       out[index] = target.r;
       out[index + 1] = target.g;
       out[index + 2] = target.b;
-      out[index + 3] = Math.round((alpha * target.a) / 255);
-      if (out[index + 3]! > 0) report.kept += 1;
-      else report.dropped += 1;
+      out[index + 3] = target.a;
       report.perEntry[near.index]!.pixels += 1;
+      if (a === 0) {
+        if (target.a > 0) report.filled += 1;
+      } else {
+        if (target.a > 0) report.kept += 1;
+        else report.dropped += 1;
+        if (near.distance > 1e-9) report.recolored += 1;
+      }
       continue;
     }
 
-    /*
-     * Kept exactly as it was, or gone.
-     *
-     * The pixel is not recolored to the entry it matched — it already *is* that
-     * color, to within the tolerance, and replacing it would throw away the
-     * shading that made the tolerance necessary in the first place.
-     */
-    if (near.distance <= options.tolerance) {
-      out[index + 3] = alpha;
-      report.kept += 1;
+    if (near.distance <= tolerance) {
+      // A pixel with no opacity is written as the one clear value, not with the
+      // color numbers it happened to carry: they show nowhere, and leaving them
+      // would fill the result with values that only look like one.
+      if (a > 0) {
+        out[index] = r;
+        out[index + 1] = g;
+        out[index + 2] = b;
+        out[index + 3] = a;
+        report.kept += 1;
+      }
       report.perEntry[near.index]!.pixels += 1;
-    } else {
-      out[index + 3] = 0;
+    } else if (a > 0) {
       report.dropped += 1;
     }
   }
 
   if (report.considered > 0 && report.kept === 0 && options.mode === 'keep') {
     report.problems.push(
-      options.tolerance <= 0
+      tolerance <= 0
         ? 'Nothing matched exactly. Raise the tolerance, or check the palette came from this image.'
         : 'Nothing matched. Raise the tolerance, or check the palette came from this image.',
+    );
+  }
+  if (report.filled > 0) {
+    report.problems.push(
+      `${report.filled.toLocaleString()} transparent pixel(s) were given a color, because no transparent entry is in play to snap them to. Give the palette one — the Color Palette flow adds it for a picture with transparent pixels — or switch it back on.`,
     );
   }
   return { pixels: out, report };
 }
 
 export function summariseFilter(report: FilterReport, options: PaletteFilterOptions): string {
-  if (report.considered === 0) return 'Nothing to filter — every pixel is already transparent.';
-  const share = (count: number) => `${((count / report.considered) * 100).toFixed(1)}%`;
-  if (options.mode === 'snap') {
-    const faded = report.dropped > 0 ? `, ${share(report.dropped)} faded away by a see-through entry` : '';
-    return `${share(report.recolored)} of the image was recolored${faded}.`;
+  if (report.considered === 0 && report.clearIn === 0) return 'Nothing to filter — the picture is empty.';
+  if (report.considered === 0 && options.mode === 'keep') {
+    return 'Nothing to filter — every pixel is already transparent.';
   }
-  return `${share(report.kept)} kept as it was, ${share(report.dropped)} made transparent.`;
+  const share = (count: number) => `${((count / Math.max(1, report.considered)) * 100).toFixed(1)}%`;
+  if (options.mode === 'snap') {
+    const used = report.perEntry.filter((entry) => entry.pixels > 0).length;
+    const parts = [
+      `Every pixel is one of ${used} palette value(s)`,
+      `${share(report.recolored)} of what shows was recolored`,
+    ];
+    if (report.dropped > 0) parts.push(`${share(report.dropped)} snapped to transparent`);
+    if (report.filled > 0) parts.push(`${report.filled.toLocaleString()} transparent pixel(s) given a color`);
+    return `${parts.join(', ')}.`;
+  }
+  return `${share(report.kept)} kept exactly as it was, ${share(report.dropped)} made transparent.`;
 }

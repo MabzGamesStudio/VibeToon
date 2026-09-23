@@ -1,8 +1,11 @@
+import { inflateSync } from 'node:zlib';
 import {
   FILTER_MODE_HINT,
   FILTER_MODE_LABEL,
   activePalette,
+  decodePng,
   readPalette,
+  type Bitmap,
   type PaletteFilterFlowData,
 } from '@vibetoon/shared';
 import { writeArtifact } from '../storage';
@@ -93,7 +96,36 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
     }),
   ];
 
+  /*
+   * Checked, not trusted. The pixels were decided in the editor; here the file is
+   * decoded and counted, so the report can say what is actually in it — and a
+   * snap that let a value through that is not a palette color, which is what a
+   * canvas does to half-transparent pixels on the way out, is caught rather than
+   * written up as exact.
+   */
   const mode = data.options.mode;
+  let written: Bitmap | null = null;
+  try {
+    written = await decodePng(new Uint8Array(rendered.bytes), (bytes) => new Uint8Array(inflateSync(bytes)));
+  } catch (error) {
+    ctx.warn(`The filtered picture could not be read back to check it: ${(error as Error).message}`);
+  }
+  const values = new Map<number, number>();
+  if (written) {
+    const { data: pixels } = written;
+    for (let at = 0; at < pixels.length; at += 4) {
+      const value = ((pixels[at]! << 16) | (pixels[at + 1]! << 8) | pixels[at + 2]!) * 256 + pixels[at + 3]!;
+      values.set(value, (values.get(value) ?? 0) + 1);
+    }
+  }
+  const allowed = new Set(active.colors.map(({ r, g, b, a }) => ((r << 16) | (g << 8) | b) * 256 + a));
+  const strays = [...values.keys()].filter((value) => !allowed.has(value));
+  if (written && mode === 'snap' && strays.length > 0) {
+    ctx.warn(
+      `The filtered picture holds ${strays.length} value(s) that are not palette colors, so it was not written exactly — open the editor and generate from there again.`,
+    );
+  }
+
   const lines = [
     `# ${ctx.node.name} — filtered against a palette`,
     '',
@@ -108,6 +140,17 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
           }`,
         ]),
     `- Colors in play: ${active.hexes.length} of ${palette.hexes.length}`,
+    ...(written
+      ? [
+          `- The result holds **${values.size.toLocaleString()}** distinct RGBA value(s)${
+            mode === 'snap'
+              ? strays.length === 0
+                ? ', every one of them a palette color'
+                : `, **${strays.length} of them not palette colors**`
+              : ''
+          }`,
+        ]
+      : []),
     '',
     '## What the mode does',
     '',
@@ -129,19 +172,31 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
     'blue and two obviously different greens are the same distance apart in RGB, so',
     'one tolerance could not serve both.',
     '',
+    'Opacity counts, measured apart from color: fully clear against solid is 50 on',
+    'the same scale. So a half-faded red is not the solid red entry, a clear pixel is',
+    'nowhere near black whatever color numbers it carries, and a soft edge is always',
+    'nearest its own color — it becomes that color or clear, never a neighbour.',
+    '',
   ];
 
+  const clearInPlay = active.colors.some((color) => color.a === 0);
   if (mode === 'snap') {
     lines.push(
-      'Snapping has no threshold: every pixel has a nearest palette color, and gets',
-      'it. A pixel that was already transparent stays transparent, so a cutout wired',
-      'in keeps its shape.',
+      'Snapping has no threshold: every pixel has a nearest palette color, and becomes',
+      'exactly that — its four numbers, not a blend with what the pixel was. So the',
+      'result holds no value that is not in the palette.',
+      '',
+      clearInPlay
+        ? 'The palette has a transparent entry, so a pixel that was already transparent snaps to it and a cutout wired in keeps its shape.'
+        : 'The palette has no transparent entry in play, so a pixel that was transparent had to become one of its colors. The Color Palette flow adds a transparent entry for a picture with transparent pixels.',
       '',
     );
   } else {
     lines.push(
-      'A pixel that was already transparent is left alone, so cutting a subject out',
-      'first and filtering it second does not undo the cutting.',
+      'Every pixel is written as one of two things: the source pixel exactly as it was,',
+      'or fully transparent (0, 0, 0, 0). A pixel that was already transparent stays',
+      'transparent, so cutting a subject out first and filtering it second does not',
+      'undo the cutting.',
       '',
     );
   }

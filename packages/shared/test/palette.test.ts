@@ -6,17 +6,21 @@ import {
   addColor,
   applyEdits,
   changeColor,
+  COUNTING_VERSION,
+  OPACITY_SPAN,
   colorDistance,
   countColors,
   derivePalette,
   emptyPaletteFlowData,
   fromHex,
   fromOklab,
+  histogramOutdated,
   histogramState,
   mixOklab,
   quantise,
   removeColor,
   restoreColor,
+  rgbaDistance,
   summarisePalette,
   toHex,
   toOklab,
@@ -169,16 +173,19 @@ test('a group is named the same way whatever order its pixels come in', () => {
   assert.deepEqual(one.colors, two.colors);
 });
 
-test('counting keeps an average opacity, and leaves it off a solid color', () => {
+test('a counted color is named after its commonest exact pixel, opacity and all', () => {
+  // Not an average of opacities, which would be a value no pixel has — and a
+  // filter looking for exactly this color would then find nothing.
   const { colors, counted, transparent } = countColors(
-    rgba([10, 20, 30, 255], [200, 0, 0, 100], [200, 0, 0, 200], [5, 5, 5, 3]),
+    rgba([10, 20, 30, 255], [200, 0, 0, 100], [200, 0, 0, 200], [200, 0, 0, 200], [5, 5, 5, 3]),
     { precision: 8, alphaFloor: 8 },
   );
-  assert.equal(counted, 3);
+  assert.equal(counted, 4);
   assert.equal(transparent, 1, 'below the floor is not a color');
   const red = colors.find((color) => color.r === 200)!;
-  assert.equal(red.a, 150);
-  assert.equal('a' in colors.find((color) => color.r === 10)!, false);
+  assert.equal(red.a, 200);
+  assert.equal(red.count, 3, 'the fainter pixel is still counted in the group');
+  assert.equal('a' in colors.find((color) => color.r === 10)!, false, 'a solid color carries no opacity');
 });
 
 test('a stride counts every nth pixel and nothing else', () => {
@@ -361,18 +368,110 @@ test('a color read out of the image carries how opaque its pixels were', () => {
   assert.equal(palette.entries[1]!.hex, '#00ff00', 'a solid color is still six digits');
 });
 
-test('a group’s opacity is its pixels’ average, weighted by how many there were', () => {
+test('an entry’s opacity is that of the pixels it is named after, not an average', () => {
   /*
-   * One color drawn solid across a wall and the same color half-faded in a shadow
-   * are one entry. Its opacity is what those pixels were between them — not what
-   * the one that happened to seed the bucket was.
+   * A red drawn solid with soft edges is a solid red: its edge pixels are the
+   * same red fading, and averaging them in would give an opacity no pixel of the
+   * picture has.
    */
-  const palette = derivePalette(histogram(counts(['#4a6fd4', 300], ['#4b70d500', 100])), {
+  const soft = derivePalette(histogram(counts(['#4a6fd4', 300], ['#4a6fd480', 100])), {
     count: 1,
     minDistance: 10,
   });
-  assert.equal(palette.entries.length, 1, 'the two are one group');
-  assert.equal(palette.entries[0]!.a, Math.round((255 * 300 + 0 * 100) / 400));
+  assert.equal(soft.entries.length, 1, 'the two are one group');
+  assert.equal(soft.entries[0]!.hex, '#4a6fd4');
+
+  // And a pane of glass drawn at half opacity is a half-opaque entry.
+  const glass = derivePalette(histogram(counts(['#4a6fd480', 300], ['#4a6fd4', 100])), {
+    count: 1,
+    minDistance: 10,
+  });
+  assert.equal(glass.entries[0]!.hex, '#4a6fd480');
+});
+
+test('opacity is part of how far apart two colors are', () => {
+  const red = { r: 220, g: 40, b: 40 };
+  assert.equal(
+    Math.round(rgbaDistance({ ...red, a: 255 }, { r: 40, g: 60, b: 220, a: 255 }) * 1000),
+    Math.round(colorDistance(red, { r: 40, g: 60, b: 220 }) * 1000),
+    'two solid colors are exactly as far apart as they always were',
+  );
+  assert.equal(rgbaDistance({ r: 0, g: 0, b: 0, a: 0 }, { r: 255, g: 255, b: 255, a: 0 }), 0, 'clear is clear');
+  assert.equal(
+    rgbaDistance({ r: 0, g: 0, b: 0, a: 0 }, { r: 0, g: 0, b: 0, a: 255 }),
+    OPACITY_SPAN,
+    'clear is not black: it is as far from any solid color as clear is from solid',
+  );
+  const half = rgbaDistance({ ...red, a: 128 }, { ...red, a: 255 });
+  assert.ok(Math.abs(half - (OPACITY_SPAN * 127) / 255) < 1e-9, `${half}`);
+});
+
+test('a soft edge is nearest its own color, whatever the other colors are', () => {
+  /*
+   * What going by how a color *looks* over black and white got wrong: a
+   * half-transparent yellow over black is a dark olive, nearer green than yellow,
+   * so every soft yellow edge came out with a green fringe. Measured apart, a
+   * fading color is always nearer itself than any other solid color.
+   */
+  const yellow = { r: 230, g: 200, b: 40 };
+  const green = { r: 40, g: 160, b: 60 };
+  for (let a = 1; a < 255; a += 1) {
+    assert.ok(rgbaDistance({ ...yellow, a }, yellow) < rgbaDistance({ ...yellow, a }, green), `alpha ${a}`);
+  }
+});
+
+/* ---------------- the clear entry ---------------- */
+
+test('a picture with transparent pixels gets a clear entry, on top of the colors asked for', () => {
+  const cut = histogram(counts(['#ff0000', 60], ['#0000ff', 20]), { transparent: 120 });
+  const palette = derivePalette(cut, { count: 2, minDistance: 10 });
+  assert.deepEqual(
+    palette.entries.map((entry) => entry.hex),
+    ['#ff0000', '#0000ff', '#00000000'],
+  );
+  const clear = palette.entries[2]!;
+  assert.equal(clear.clear, true);
+  assert.equal(clear.a, 0);
+  assert.equal(clear.share, 120 / 200, 'its share is of the whole picture');
+  assert.equal(
+    palette.entries.reduce((sum, entry) => sum + entry.share, 0),
+    1,
+    'and every share together is still the whole picture',
+  );
+  assert.equal(palette.shortfall, undefined, 'two colors were asked for, and two were found');
+});
+
+test('the clear entry can be switched off, and a picture with nothing transparent has none', () => {
+  const cut = histogram(counts(['#ff0000', 60]), { transparent: 120 });
+  assert.ok(!derivePalette(cut, { transparent: false }).entries.some((entry) => entry.clear));
+  assert.ok(!derivePalette(histogram(counts(['#ff0000', 60]))).entries.some((entry) => entry.clear));
+});
+
+test('clear is far from black, so a palette with both says they are apart', () => {
+  const cut = histogram(counts(['#000000', 60]), { transparent: 40 });
+  const [black, clear] = derivePalette(cut, { count: 1 }).entries;
+  assert.equal(black!.hex, '#000000');
+  assert.equal(clear!.nearest, OPACITY_SPAN);
+});
+
+test('the clear entry is edited like any other, keyed apart from black', () => {
+  const cut = histogram(counts(['#000000', 60]), { transparent: 40 });
+  const derivedCut = derivePalette(cut, { count: 1 });
+  const clear = derivedCut.entries.find((entry) => entry.clear)!;
+  assert.equal(clear.modeHex, '#00000000', 'not #000000, which is the black group');
+
+  const white = applyEdits(derivedCut, changeColor(NO_PALETTE_EDITS, clear, '#ffffff'));
+  assert.equal(white.entries.find((entry) => entry.clear)!.hex, '#ffffff');
+  assert.equal(white.entries[0]!.hex, '#000000', 'the black group is untouched');
+
+  const gone = applyEdits(derivedCut, removeColor(NO_PALETTE_EDITS, clear));
+  assert.deepEqual(gone.entries.map((entry) => entry.hex), ['#000000']);
+});
+
+test('a count made the old way still works, and says it is worth reading again', () => {
+  assert.equal(histogramOutdated(histogram(counts(['#ff0000', 1]))), true);
+  assert.equal(histogramOutdated(histogram(counts(['#ff0000', 1]), { counting: COUNTING_VERSION })), false);
+  assert.equal(histogramOutdated(undefined), false, 'nothing counted is not outdated, just missing');
 });
 
 test('an entry is found by its color, so a faded picture keeps the edits made to it', () => {
@@ -390,7 +489,7 @@ test('opacity is edited the same way a color is, and reset the same way', () => 
 
   assert.equal(palette.entries[1]!.a, 64);
   assert.equal(palette.entries[1]!.hex, '#00ff0040');
-  assert.equal(palette.entries[1]!.shifted, 0, 'the color did not move, only the opacity');
+  assert.ok(palette.entries[1]!.shifted > 30, 'fading it is a change to how it looks, and is measured as one');
 
   const back = applyEdits(derived(), changeColor(edits, entry, ''));
   assert.equal(back.entries[1]!.a, 255, 'and resetting puts the opacity back with the color');

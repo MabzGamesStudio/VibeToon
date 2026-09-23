@@ -4,6 +4,7 @@ import {
   FILTER_MODE_HINT,
   FILTER_MODE_LABEL,
   activePalette,
+  distinctColors,
   emptyPaletteFilterFlowData,
   filterImage,
   inputsForPort,
@@ -21,6 +22,7 @@ import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { useView } from '../../state/view';
 import { Field } from '../common/Field';
+import { pngDataUrl, readBitmap } from '../common/pixels';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
@@ -32,14 +34,16 @@ function toImageData(pixels: Uint8ClampedArray, width: number, height: number): 
 /**
  * An image filtered against a palette.
  *
- * Three jobs in one flow, because they are the same measurement read three ways:
- * keeping what is on-palette, dropping what is, and replacing every pixel with its
- * nearest. The first two answer "where is this color in my picture"; the third is
- * what makes a photograph look drawn.
+ * Two jobs in one flow, because they are the same measurement read two ways:
+ * keeping the pixels that are a palette color, and replacing every pixel with the
+ * palette color it looks nearest. The first answers "where is this color in my
+ * picture"; the second is what makes a photograph look drawn.
  *
  * Both inputs are read here — the image because a browser is what decodes it, the
  * palette because the file is small and reading it here is what lets you tick a
- * color off and see the result immediately.
+ * color off and see the result immediately. The image is read and the result
+ * written byte for byte (see `pixels.ts`), because the whole point of the flow is
+ * which exact values end up in the file.
  */
 export function PaletteFilterFlowEditor({
   project,
@@ -85,32 +89,16 @@ export function PaletteFilterFlowEditor({
     }
     let cancelled = false;
     setLoading(true);
-    const image = new Image();
-    image.crossOrigin = 'anonymous';
-    image.onload = () => {
-      if (cancelled) return;
-      const surface = document.createElement('canvas');
-      surface.width = image.naturalWidth;
-      surface.height = image.naturalHeight;
-      const context = surface.getContext('2d', { willReadFrequently: true });
-      if (!context) {
-        setLoading(false);
-        return;
-      }
-      context.drawImage(image, 0, 0);
-      setBitmap({
-        width: surface.width,
-        height: surface.height,
-        data: context.getImageData(0, 0, surface.width, surface.height).data,
+    readBitmap(api.artifactUrl(project.id, imagePath))
+      .then((read) => {
+        if (!cancelled) setBitmap(read);
+      })
+      .catch((error: Error) => {
+        if (!cancelled) notify('error', `Could not read that image: ${error.message}`);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
-      setLoading(false);
-    };
-    image.onerror = () => {
-      if (cancelled) return;
-      setLoading(false);
-      notify('error', 'The browser could not decode that image.');
-    };
-    image.src = api.artifactUrl(project.id, imagePath);
     return () => {
       cancelled = true;
     };
@@ -179,19 +167,26 @@ export function PaletteFilterFlowEditor({
       return;
     }
     // Computed here rather than reused from the preview, so a run is correct even
-    // with live previews switched off.
+    // with live previews switched off. Encoded without a canvas, which would move
+    // every half-transparent pixel off the value the filter chose for it.
     const run = filterImage(bitmap, palette, data.options);
-    const surface = document.createElement('canvas');
-    surface.width = bitmap.width;
-    surface.height = bitmap.height;
-    surface.getContext('2d')!.putImageData(toImageData(run.pixels, bitmap.width, bitmap.height), 0, 0);
+    const png = await pngDataUrl({ width: bitmap.width, height: bitmap.height, data: run.pixels });
 
     patch({ imageHash: imageArtifact?.hash, paletteHash: paletteArtifact?.hash });
-    await generateFlow(node.id, [{ name: 'filtered.png', data: surface.toDataURL('image/png') }]);
+    await generateFlow(node.id, [{ name: 'filtered.png', data: png }]);
   };
 
   const active = activePalette(palette, data.options);
   const report: FilterReport | null = filtered?.report ?? null;
+  /*
+   * How many RGBA values the result holds — the one number that says whether the
+   * filter was exact. Snap should never show more than there are colors in play.
+   */
+  const values = useMemo(
+    () => (filtered && bitmap ? distinctColors({ width: bitmap.width, height: bitmap.height, data: filtered.pixels }) : null),
+    [bitmap, filtered],
+  );
+  const everything = report ? report.considered + report.clearIn : 0;
 
   const blocked = !imageInput
     ? 'Wire an image into the Image input.'
@@ -258,9 +253,14 @@ export function PaletteFilterFlowEditor({
           <div className="vt-section">
             <h3>Closeness</h3>
             <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
-              Snapping has no threshold to set: every pixel has a nearest palette color and gets it —
-              including that color&rsquo;s opacity, so a see-through palette entry fades whatever lands on
-              it.
+              Snapping has no threshold to set: every pixel has a nearest palette color and becomes exactly
+              that — its color and its opacity, not blended with what the pixel was. With{' '}
+              {active.hexes.length} color(s) in play, the result holds at most {active.hexes.length} RGBA
+              value(s).
+            </p>
+            <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
+              Nearness counts opacity, so a transparent pixel snaps to the palette&rsquo;s transparent entry
+              rather than to black.
             </p>
           </div>
         ) : (
@@ -278,9 +278,9 @@ export function PaletteFilterFlowEditor({
               onChange={(tolerance) => patch({ options: { ...data.options, tolerance } })}
             />
             <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
-              A pixel that matches is kept <em>exactly as it is</em> — it is not recolored to the entry it
-              matched, because it already is that color and replacing it would throw away the shading that
-              made the tolerance necessary.
+              A pixel that matches is kept <em>exactly as it is</em>, color and opacity — it is not recolored
+              to the entry it matched. Every other pixel becomes fully transparent. Opacity counts towards
+              the match, so at 0 a half-faded red is not the solid red entry.
             </p>
           </div>
         )}
@@ -355,6 +355,7 @@ export function PaletteFilterFlowEditor({
           <>
             <p className="vt-faint" style={{ marginTop: 8, fontSize: 11 }}>
               {summariseFilter(report, data.options)}
+              {values !== null ? ` The result holds ${values.toLocaleString()} distinct RGBA value(s).` : ''}
             </p>
 
             {report.problems.length > 0 ? (
@@ -385,12 +386,12 @@ export function PaletteFilterFlowEditor({
                           } as CSSProperties
                         }
                         title={`${entry.hex} — ${entry.pixels.toLocaleString()} pixels (${(
-                          (entry.pixels / Math.max(1, report.considered)) *
+                          (entry.pixels / Math.max(1, everything)) *
                           100
                         ).toFixed(1)}%)`}
                       >
                         <span className="vt-swatch-label">
-                          {((entry.pixels / Math.max(1, report.considered)) * 100).toFixed(0)}%
+                          {((entry.pixels / Math.max(1, everything)) * 100).toFixed(0)}%
                         </span>
                       </div>
                     ))}

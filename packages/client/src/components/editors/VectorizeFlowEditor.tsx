@@ -18,6 +18,7 @@ import {
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
+import { readBitmap } from '../common/pixels';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
@@ -69,36 +70,11 @@ export function VectorizeFlowEditor({
     if (!imagePath) return;
     setBusy(true);
     try {
-      const element = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const image = new Image();
-        image.crossOrigin = 'anonymous';
-        image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error('the browser could not decode this image'));
-        image.src = api.artifactUrl(project.id, imagePath);
-      });
-
-      const width = element.naturalWidth;
-      const height = element.naturalHeight;
-      if (width === 0 || height === 0) throw new Error('the image has no size');
-      if (width * height > 4_000_000) {
-        // Every pixel is visited several times; past a few megapixels this stops
-        // being a pause and starts being a hang.
-        throw new Error(
-          `${(width * height / 1_000_000).toFixed(1)}M pixels is more than this can decompose. Scale the picture down first.`,
-        );
-      }
-
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext('2d', { willReadFrequently: true });
-      if (!context) throw new Error('this browser would not give a canvas to read the image with');
-      context.drawImage(element, 0, 0);
-      const bitmap: Bitmap = {
-        width,
-        height,
-        data: context.getImageData(0, 0, width, height).data,
-      };
+      // Byte for byte (`pixels.ts`), so a picture already snapped to a palette
+      // decomposes into exactly those colors. Every pixel is visited several times;
+      // past a few megapixels this stops being a pause and starts being a hang, so
+      // a bigger picture is refused before it is decoded.
+      const bitmap: Bitmap = await readBitmap(api.artifactUrl(project.id, imagePath), { maxPixels: 4_000_000 });
 
       const run = vectorize(bitmap, data.options, newId);
       setFresh(run.report);

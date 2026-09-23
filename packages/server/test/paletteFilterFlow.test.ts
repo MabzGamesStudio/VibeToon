@@ -176,8 +176,9 @@ test('a filter writes the picture and a report that names the palette', async ()
 test('the report says what the mode does, not just which one it was', async () => {
   const body = await report();
   assert.match(body, /## What the mode does/);
-  assert.match(body, /goes transparent/);
-  assert.match(body, /already transparent is left alone/, 'so a cutout wired in keeps its shape');
+  assert.match(body, /becomes fully transparent/);
+  assert.match(body, /already transparent stays\s+transparent/, 'so a cutout wired in keeps its shape');
+  assert.match(body, /The result holds \*\*\d+\*\* distinct RGBA value/, 'counted from the file itself');
 });
 
 test('snap is reported as having no threshold, because it has none', async () => {
@@ -188,6 +189,27 @@ test('snap is reported as having no threshold, because it has none', async () =>
   assert.match(body, /Snap every pixel to the palette/);
   assert.match(body, /has no threshold/);
   assert.ok(!/- Tolerance:/.test(body), 'a tolerance line would be a lie in this mode');
+});
+
+test('a snap result is checked against the palette, value by value', async () => {
+  // The pixels are decided in the editor, so the server decodes what arrived and
+  // counts it, rather than writing up as exact a file it never looked at.
+  const data = emptyPaletteFilterFlowData();
+  await setFilter({ ...data, options: { ...data.options, mode: 'snap' }, imageHash, paletteHash });
+
+  const exact = encodePng([[[0xdc, 0x28, 0x28], [0x28, 0x3c, 0xdc], [0xdc, 0x28, 0x28]]]);
+  let run = (await generate([{ name: 'filtered.png', data: `data:image/png;base64,${exact.toString('base64')}` }]))
+    .runs[0]!;
+  assert.ok(!run.warnings.some((warning) => /not palette colors/.test(warning)), run.warnings.join('; '));
+  assert.match(await report(), /\*\*2\*\* distinct RGBA value\(s\), every one of them a palette color/);
+
+  // One pixel that is not red or blue, as a canvas round trip would leave behind.
+  run = (await generate(png())).runs[0]!;
+  assert.ok(
+    run.warnings.some((warning) => /1 value\(s\) that are not palette colors/.test(warning)),
+    run.warnings.join('; '),
+  );
+  assert.match(await report(), /1 of them not palette colors/);
 });
 
 test('the tolerance is reported where it applies, and spelled out at zero', async () => {

@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type CSSProperties } from 'react';
 import {
+  COUNTING_VERSION,
   DEFAULT_PALETTE_OPTIONS,
   NO_PALETTE_EDITS,
   addColor,
@@ -7,6 +8,7 @@ import {
   changeColor,
   derivePalette,
   fromHex,
+  histogramOutdated,
   histogramState,
   inputsForPort,
   countColors,
@@ -26,6 +28,7 @@ import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
 import { Slider } from '../common/Slider';
 import { formatWhen } from '../common/format';
+import { readBitmap } from '../common/pixels';
 import { EditorShell } from './EditorShell';
 
 /**
@@ -52,7 +55,7 @@ function solidHex(entry: PaletteEntry): string {
 
 /** An opacity as something worth reading: `solid`, or a percentage. */
 function opacityLabel(a: number): string {
-  return a >= 255 ? 'solid' : `${Math.round((a / 255) * 100)}% opaque`;
+  return a >= 255 ? 'solid' : a <= 0 ? 'transparent' : `${Math.round((a / 255) * 100)}% opaque`;
 }
 
 /**
@@ -98,34 +101,20 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
   /**
    * Decode the image and count its colors.
    *
-   * The canvas is the decoder. Pixels too transparent to have a color are
-   * skipped rather than counted as black, which is what a naive read of a PNG
-   * with a cut-out background gives you: a palette whose commonest color is the
-   * hole in the middle.
+   * Read byte for byte (`pixels.ts`), not through a canvas, so every entry is a
+   * value the file really holds — half-transparent pixels included, which a canvas
+   * would move a step. Pixels too transparent to have a color are skipped rather
+   * than counted as black, which is what a naive read of a PNG with a cut-out
+   * background gives you: a palette whose commonest color is the hole in the
+   * middle. They get the clear entry instead.
    */
   const readImage = useCallback(async () => {
     if (!artifact) return;
     setReading(true);
     try {
-      const url = api.artifactUrl(project.id, imagePath);
-      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const element = new Image();
-        element.onload = () => resolve(element);
-        element.onerror = () => reject(new Error('the browser could not decode this image'));
-        element.src = url;
-      });
-
-      const width = image.naturalWidth;
-      const height = image.naturalHeight;
+      const bitmap = await readBitmap(api.artifactUrl(project.id, imagePath));
+      const { width, height, data: pixels } = bitmap;
       if (width === 0 || height === 0) throw new Error('the image has no size');
-
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext('2d', { willReadFrequently: true });
-      if (!context) throw new Error('this browser gave no 2D canvas');
-      context.drawImage(image, 0, 0);
-      const pixels = context.getImageData(0, 0, width, height).data;
 
       const total = width * height;
       const stride = Math.max(1, Math.floor(total / SAMPLE_TARGET));
@@ -145,6 +134,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
         precision: options.precision,
         colors,
         readAt: new Date().toISOString(),
+        counting: COUNTING_VERSION,
       };
       patch({ ...data, histogram });
       notify(
@@ -225,6 +215,13 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
         ) : state === 'none' ? (
           <div className="vt-sync-banner">
             <span>The image has not been counted yet. Press “Read the image”.</span>
+          </div>
+        ) : histogramOutdated(data.histogram) ? (
+          <div className="vt-sync-banner">
+            <span>
+              This image was counted before colors were read exactly, so a color below can be a step off the one
+              in the picture. Read it again.
+            </span>
           </div>
         ) : undefined
       }
@@ -365,6 +362,20 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
             onChange={(value) => setOption('alphaFloor', value)}
             hint="A cut-out background is not a color. 0 counts every pixel, transparent ones included."
           />
+          <Field label="Transparent" tip="palette.transparent">
+            <label className="vt-row" style={{ gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={options.transparent}
+                onChange={(event) => setOption('transparent', event.target.checked)}
+              />
+              Give transparent pixels an entry of their own
+            </label>
+          </Field>
+          <p className="vt-faint" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.4 }}>
+            On top of the colors asked for, so five colors from a cut-out picture come with the clear around
+            them. It is what a filter snaps transparent pixels to.
+          </p>
           <Slider
             label="Drop groups under"
             tip="palette.minShare"
@@ -462,7 +473,11 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                     <strong>{entry.hex}</strong>
                     <span>
                       {entry.byHand ? 'by hand' : `${(entry.share * 100).toFixed(1)}%`}
-                      {entry.a < 255 ? ` · ${Math.round((entry.a / 255) * 100)}% opaque` : ''}
+                      {entry.clear && entry.a === 0
+                        ? ' · transparent'
+                        : entry.a < 255
+                          ? ` · ${Math.round((entry.a / 255) * 100)}% opaque`
+                          : ''}
                     </span>
                   </span>
                 </button>
@@ -509,7 +524,7 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                 <h3>
                   <span>
                     Color {selected! + 1}
-                    {chosen.byHand ? ' — yours' : ''}
+                    {chosen.byHand ? ' — yours' : chosen.clear ? ' — the transparent pixels' : ''}
                   </span>
                   <span className="vt-faint">{chosen.hex}</span>
                 </h3>
@@ -520,6 +535,14 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                       <dd>
                         You put it in, so it stands for none of the image and adds nothing to the share
                         covered.
+                      </dd>
+                    </>
+                  ) : chosen.clear ? (
+                    <>
+                      <dt>Where it came from</dt>
+                      <dd>
+                        The {chosen.count.toLocaleString()} pixel(s) too transparent to have a color —{' '}
+                        {(chosen.share * 100).toFixed(1)}% of the image. A filter snaps transparent pixels to it.
                       </dd>
                     </>
                   ) : (
@@ -546,7 +569,9 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                     {opacityLabel(chosen.a)}
                     {chosen.byHand
                       ? ' — yours to set'
-                      : ' — the average of the pixels in its group, weighted by how many there were'}
+                      : chosen.clear
+                        ? ''
+                        : ' — that of the pixels it is named after, so it is a value the picture holds'}
                   </dd>
                 </dl>
                 <Field

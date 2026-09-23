@@ -30,6 +30,7 @@ import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { useView } from '../../state/view';
 import { Field } from '../common/Field';
+import { pngDataUrl, readBitmap } from '../common/pixels';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
@@ -132,34 +133,22 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
     }
     let cancelled = false;
     setLoading(true);
-    const image = new Image();
-    image.crossOrigin = 'anonymous';
-    image.onload = () => {
-      if (cancelled) return;
-      const width = image.naturalWidth;
-      const height = image.naturalHeight;
-      const surface = document.createElement('canvas');
-      surface.width = width;
-      surface.height = height;
-      const context = surface.getContext('2d', { willReadFrequently: true });
-      if (!context) {
-        setLoading(false);
-        notify('error', 'This browser would not give a canvas to read the image with.');
-        return;
-      }
-      context.drawImage(image, 0, 0);
-      setBitmap({ width, height, data: context.getImageData(0, 0, width, height).data });
-      setLoading(false);
-      if (data.imageWidth !== width || data.imageHeight !== height || data.imageHash !== artifact?.hash) {
-        patch({ imageWidth: width, imageHeight: height, imageHash: artifact?.hash });
-      }
-    };
-    image.onerror = () => {
-      if (cancelled) return;
-      setLoading(false);
-      notify('error', 'The browser could not decode that image.');
-    };
-    image.src = api.artifactUrl(project.id, imagePath);
+    // Byte for byte, so what is cut out is the file's own pixels (`pixels.ts`).
+    readBitmap(api.artifactUrl(project.id, imagePath))
+      .then((read) => {
+        if (cancelled) return;
+        setBitmap(read);
+        const { width, height } = read;
+        if (data.imageWidth !== width || data.imageHeight !== height || data.imageHash !== artifact?.hash) {
+          patch({ imageWidth: width, imageHeight: height, imageHash: artifact?.hash });
+        }
+      })
+      .catch((error: Error) => {
+        if (!cancelled) notify('error', `Could not read that image: ${error.message}`);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -358,16 +347,8 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
       return;
     }
 
-    const cut = document.createElement('canvas');
-    cut.width = bitmap.width;
-    cut.height = bitmap.height;
-    cut
-      .getContext('2d')!
-      .putImageData(toImageData(applyMask(bitmap, built.mask), bitmap.width, bitmap.height), 0, 0);
-
-    const maskCanvas = document.createElement('canvas');
-    maskCanvas.width = bitmap.width;
-    maskCanvas.height = bitmap.height;
+    // Encoded without a canvas, which would move the color of every feathered
+    // edge pixel a step (see `pixels.ts`).
     const grey = new Uint8ClampedArray(bitmap.data.length);
     for (let index = 0; index < built.mask.alpha.length; index += 1) {
       const at = index * 4;
@@ -375,11 +356,14 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
       grey[at] = grey[at + 1] = grey[at + 2] = value;
       grey[at + 3] = 255;
     }
-    maskCanvas.getContext('2d')!.putImageData(toImageData(grey, bitmap.width, bitmap.height), 0, 0);
+    const [cut, mask] = await Promise.all([
+      pngDataUrl({ width: bitmap.width, height: bitmap.height, data: applyMask(bitmap, built.mask) }),
+      pngDataUrl({ width: bitmap.width, height: bitmap.height, data: grey }),
+    ]);
 
     await generateFlow(node.id, [
-      { name: 'cutout.png', data: cut.toDataURL('image/png') },
-      { name: 'mask.png', data: maskCanvas.toDataURL('image/png') },
+      { name: 'cutout.png', data: cut },
+      { name: 'mask.png', data: mask },
     ]);
   };
 

@@ -43,12 +43,12 @@ export interface Rgba extends Rgb {
 export interface ColorCount extends Rgb {
   count: number;
   /**
-   * How opaque those pixels were on average, 0..255.
+   * The opacity of the pixel this row is named after, 0..255. Absent when that
+   * pixel is solid, which most are.
    *
-   * Averaged rather than taken from one of them because a counted color is a
-   * bucket: the same red drawn solid in one place and half-faded in another is
-   * one entry, and its opacity is what those pixels were between them. Absent on
-   * a histogram counted before this was read, which reads as solid.
+   * A row is named after the commonest exact pixel among those that rounded
+   * together — color *and* opacity — so it is a value the picture really holds,
+   * and a filter looking for exactly this value finds it.
    */
   a?: number;
 }
@@ -140,6 +140,57 @@ export function colorDistance(a: Rgb, b: Rgb): number {
   );
 }
 
+/**
+ * How far a fully transparent pixel is from a solid one of the same color, on the
+ * same 0..100 scale as `colorDistance` — about as far as red is from orange.
+ */
+export const OPACITY_SPAN = 50;
+
+/**
+ * A color ready to be compared: where it sits in OKLab, and how opaque it is.
+ * Worked out once per color rather than once per comparison, because a filter
+ * compares every distinct color in a picture against every palette entry.
+ */
+export interface Swatch {
+  lab: Oklab;
+  /** 0..1. */
+  opacity: number;
+}
+
+export function swatchOf(color: Rgb & { a?: number }): Swatch {
+  return { lab: toOklab(color), opacity: Math.max(0, Math.min(255, color.a ?? 255)) / 255 };
+}
+
+/**
+ * How far apart two colors are, opacity included, on the same 0..100 scale as
+ * `colorDistance`.
+ *
+ * Color and opacity are two separate questions and are measured separately: the
+ * distance between the colors, and `OPACITY_SPAN` for every step from clear to
+ * solid, put together like the two sides of a right angle. Two solid colors are
+ * exactly as far apart as they always were.
+ *
+ * Kept separate on purpose. Comparing how two colors *look* — laid over black and
+ * over white — is the obvious alternative, and it gets anti-aliased edges wrong:
+ * a half-transparent yellow over black is a dark olive, which looks more like a
+ * green than like yellow, so snapping gave every soft yellow edge a green fringe.
+ * Measured apart, an edge pixel is always nearest its own color, and becomes it
+ * or clear depending on which side of half opacity it is.
+ *
+ * A clear pixel shows nothing, so its color numbers mean nothing: against a clear
+ * one, only opacity counts. Two clear pixels are 0 apart whatever numbers they
+ * carry, and clear is never mistaken for black.
+ */
+export function swatchDistance(one: Swatch, two: Swatch): number {
+  const opacity = OPACITY_SPAN * Math.abs(one.opacity - two.opacity);
+  if (one.opacity === 0 || two.opacity === 0) return opacity;
+  return Math.hypot(labDistance(one.lab, two.lab), opacity);
+}
+
+export function rgbaDistance(one: Rgb & { a?: number }, two: Rgb & { a?: number }): number {
+  return swatchDistance(swatchOf(one), swatchOf(two));
+}
+
 /* ------------------------------------------------------------------ *
  * What was read out of the image
  * ------------------------------------------------------------------ */
@@ -173,6 +224,21 @@ export interface ImageHistogram {
   /** Distinct colors after rounding, commonest first. */
   colors: ColorCount[];
   readAt: string;
+  /**
+   * Which way the image was counted. Absent on counts made before pixels were
+   * read exactly and named by their commonest exact value — those still work, but
+   * a color can be a step off what the picture holds, so the flow asks for the
+   * image to be read again.
+   */
+  counting?: number;
+}
+
+/** The current way of counting. See `ImageHistogram.counting`. */
+export const COUNTING_VERSION = 2;
+
+/** Counted the old way: still usable, but worth reading again. */
+export function histogramOutdated(histogram: ImageHistogram | undefined): boolean {
+  return histogram !== undefined && (histogram.counting ?? 1) < COUNTING_VERSION;
 }
 
 /**
@@ -218,10 +284,11 @@ export interface CountedPixels {
  * for pixels that are *exactly* a palette color would find none at all, on the
  * very flat artwork that exact matching exists for.
  *
- * The opacity is summed rather than kept per pixel, because that is all the
- * palette can use it for: a color is one entry whatever its pixels' alphas were,
- * and the entry's opacity is their average. Alpha is not part of the key — the
- * same red solid and the same red half-faded are one color.
+ * The name includes opacity: it is the commonest exact *RGBA* value. A red drawn
+ * solid with soft edges is named after its solid pixels, which are most of it,
+ * and a pane of glass drawn at half opacity is named at half opacity. Opacity is
+ * not part of the grouping key, though — the edge pixels of that red are the
+ * same red, fading, and belong to it rather than to a palette entry of their own.
  */
 export function countColors(
   pixels: ArrayLike<number>,
@@ -229,7 +296,7 @@ export function countColors(
 ): CountedPixels {
   const stride = Math.max(1, Math.floor(options.stride ?? 1));
   const total = Math.floor(pixels.length / 4);
-  const groups = new Map<number, { count: number; alpha: number; exact: Map<number, number> }>();
+  const groups = new Map<number, { count: number; exact: Map<number, number> }>();
   let counted = 0;
   let transparent = 0;
 
@@ -245,15 +312,16 @@ export function countColors(
     const b = pixels[at + 2]!;
     const key =
       (quantise(r, options.precision) << 16) | (quantise(g, options.precision) << 8) | quantise(b, options.precision);
-    const exact = (r << 16) | (g << 8) | b;
+    // RGBA as one number. Multiplied rather than shifted, because a shift into
+    // the top bit of a 32-bit int turns the number negative.
+    const exact = ((r << 16) | (g << 8) | b) * 256 + alpha;
 
     let group = groups.get(key);
     if (!group) {
-      group = { count: 0, alpha: 0, exact: new Map() };
+      group = { count: 0, exact: new Map() };
       groups.set(key, group);
     }
     group.count += 1;
-    group.alpha += alpha;
     group.exact.set(exact, (group.exact.get(exact) ?? 0) + 1);
     counted += 1;
   }
@@ -270,15 +338,16 @@ export function countColors(
         most = count;
       }
     }
-    const mean = Math.round(group.alpha / group.count);
+    const alpha = name % 256;
+    const rgb = Math.floor(name / 256);
     colors.push({
-      r: (name >> 16) & 255,
-      g: (name >> 8) & 255,
-      b: name & 255,
+      r: (rgb >> 16) & 255,
+      g: (rgb >> 8) & 255,
+      b: rgb & 255,
       count: group.count,
       // Left off when the color is solid, which most are: writing `a: 255`
       // against every color in a photograph is a lot of flow file for nothing.
-      ...(mean < 255 ? { a: mean } : {}),
+      ...(alpha < 255 ? { a: alpha } : {}),
     });
   }
   colors.sort((one, two) => two.count - one.count || toHex(one).localeCompare(toHex(two)));
@@ -316,6 +385,12 @@ export interface PaletteOptions {
   alphaFloor: number;
   /** Drop a bucket holding less than this share of the image, 0..1. */
   minShare: number;
+  /**
+   * Give the pixels under `alphaFloor` an entry of their own: fully transparent,
+   * `#00000000`. On top of `count`, so asking for five colors from a cut-out
+   * picture gives five colors and the clear around them.
+   */
+  transparent: boolean;
 }
 
 export const DEFAULT_PALETTE_OPTIONS: PaletteOptions = {
@@ -326,7 +401,11 @@ export const DEFAULT_PALETTE_OPTIONS: PaletteOptions = {
   precision: 5,
   alphaFloor: 8,
   minShare: 0,
+  transparent: true,
 };
+
+/** The one transparent entry a palette can have. */
+export const CLEAR_HEX = '#00000000';
 
 /* ------------------------------------------------------------------ *
  * The palette
@@ -353,6 +432,8 @@ export interface PaletteEntry {
   a: number;
   /** Put in by hand rather than read out of the image, so it stands for no pixels. */
   byHand?: boolean;
+  /** The entry that stands for the image's transparent pixels. */
+  clear?: boolean;
 }
 
 export interface Palette {
@@ -372,7 +453,7 @@ export interface Palette {
 
 interface Bucket {
   seed: ColorCount;
-  lab: Oklab;
+  swatch: Swatch;
   members: ColorCount[];
   count: number;
 }
@@ -408,11 +489,11 @@ export function derivePalette(
   const buckets: Bucket[] = [];
 
   for (const color of sorted) {
-    const lab = toOklab(color);
+    const swatch = swatchOf(color);
     let nearest: Bucket | undefined;
     let nearestAt = Infinity;
     for (const bucket of buckets) {
-      const distance = labDistance(lab, bucket.lab);
+      const distance = swatchDistance(swatch, bucket.swatch);
       if (distance < nearestAt) {
         nearestAt = distance;
         nearest = bucket;
@@ -424,32 +505,30 @@ export function derivePalette(
       nearest.count += color.count;
       continue;
     }
-    buckets.push({ seed: color, lab, members: [color], count: color.count });
+    buckets.push({ seed: color, swatch, members: [color], count: color.count });
   }
 
-  const pixels = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
-  const floor = Math.max(0, Math.min(1, options.minShare)) * Math.max(1, pixels);
+  const colored = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
+  // The clear entry, when there is one, is part of the picture as much as any
+  // color, so shares are of the whole image and still add up to it.
+  const clear = options.transparent && histogram.transparent > 0 ? histogram.transparent : 0;
+  const pixels = colored + clear;
+  const floor = Math.max(0, Math.min(1, options.minShare)) * Math.max(1, colored);
   const kept = buckets.filter((bucket, index) => index === 0 || bucket.count >= floor);
   const rng = createRng(`${options.seed}|${count}|${minDistance}|${options.temperature}`);
 
   const entries: PaletteEntry[] = kept.map((bucket) => {
     const chosen = pickFromBucket(bucket, options.temperature, rng);
-    /*
-     * The bucket's opacity, weighted by how many pixels each member had.
-     *
-     * One color drawn solid across a wall and the same color half-faded in a
-     * shadow are one entry, and the entry's opacity is what those pixels were
-     * between them — not what the one that happened to seed the bucket was.
-     */
-    const seen = bucket.members.reduce((sum, member) => sum + member.count, 0);
-    const opacity =
-      seen > 0
-        ? bucket.members.reduce((sum, member) => sum + (member.a ?? 255) * member.count, 0) / seen
-        : 255;
+    // The opacity of the pixel the entry is named after — an exact value the
+    // picture holds, like its color — rather than an average of the group, which
+    // would be a value no pixel has.
+    const opacity = chosen.a ?? bucket.seed.a ?? 255;
     return {
-      ...chosen,
-      a: Math.round(opacity),
-      hex: toHex({ ...chosen, a: Math.round(opacity) }),
+      r: chosen.r,
+      g: chosen.g,
+      b: chosen.b,
+      a: opacity,
+      hex: toHex({ ...chosen, a: opacity }),
       count: bucket.count,
       share: pixels > 0 ? bucket.count / pixels : 0,
       members: bucket.members.length,
@@ -457,25 +536,43 @@ export function derivePalette(
       // edit made to an entry should still find it after the picture behind it
       // has faded.
       modeHex: toHex({ r: bucket.seed.r, g: bucket.seed.g, b: bucket.seed.b }),
-      shifted: Math.round(colorDistance(chosen, bucket.seed) * 10) / 10,
+      shifted: Math.round(rgbaDistance({ ...chosen, a: opacity }, bucket.seed) * 10) / 10,
       nearest: 0,
     };
   });
 
+  if (clear > 0) {
+    entries.push({
+      r: 0,
+      g: 0,
+      b: 0,
+      a: 0,
+      hex: CLEAR_HEX,
+      count: clear,
+      share: clear / pixels,
+      members: 0,
+      modeHex: CLEAR_HEX,
+      shifted: 0,
+      nearest: 0,
+      clear: true,
+    });
+  }
+
   // Each entry's nearest neighbour, which is how you see whether the minimum
-  // distance is actually being met.
+  // distance is actually being met. Opacity counts: clear is not black.
   for (const entry of entries) {
     let nearest = Infinity;
     for (const other of entries) {
       if (other === entry) continue;
-      nearest = Math.min(nearest, colorDistance(entry, other));
+      nearest = Math.min(nearest, rgbaDistance(entry, other));
     }
     entry.nearest = Number.isFinite(nearest) ? Math.round(nearest * 10) / 10 : 0;
   }
 
+  const colors = entries.filter((entry) => !entry.clear).length;
   const shortfall =
-    entries.length < count
-      ? `The image has ${entries.length} color${entries.length === 1 ? '' : 's'} at least ${minDistance.toFixed(
+    colors < count
+      ? `The image has ${colors} color${colors === 1 ? '' : 's'} at least ${minDistance.toFixed(
           0,
         )} apart, not ${count}. Lower the minimum distance, or ask for fewer.`
       : undefined;
@@ -498,7 +595,7 @@ export function derivePalette(
  * means the intermediate colors stay in the family — an RGB midpoint between
  * two blues can pass through grey.
  */
-function pickFromBucket(bucket: Bucket, temperature: number, rng: () => number): Rgb {
+function pickFromBucket(bucket: Bucket, temperature: number, rng: () => number): Rgb & { a?: number } {
   const heat = Math.max(0, Math.min(1, temperature));
   if (heat === 0 || bucket.members.length < 2) return { ...bucket.seed };
 
@@ -515,7 +612,9 @@ function pickFromBucket(bucket: Bucket, temperature: number, rng: () => number):
       break;
     }
   }
-  return mixOklab(bucket.seed, target, heat);
+  // A blend is a new color, so it carries the opacity of the color it moved away
+  // from rather than a blend of two opacities.
+  return { ...mixOklab(bucket.seed, target, heat), ...(bucket.seed.a !== undefined ? { a: bucket.seed.a } : {}) };
 }
 
 /** Blend two colors the way the eye reads a blend, and come back to sRGB. */
@@ -628,7 +727,7 @@ export function applyEdits(palette: Palette, edits: PaletteEdits = NO_PALETTE_ED
         hex: toHex(override),
         // Still measured from the bucket's commonest color, so the editor can say
         // how far from the picture you have taken it.
-        shifted: Math.round(colorDistance(override, fromHex(entry.modeHex) ?? entry) * 10) / 10,
+        shifted: Math.round(rgbaDistance(override, fromHex(entry.modeHex) ?? entry) * 10) / 10,
       };
     });
 
@@ -667,7 +766,7 @@ function withNearest(entries: PaletteEntry[]): PaletteEntry[] {
     let nearest = Infinity;
     for (const other of entries) {
       if (other === entry) continue;
-      nearest = Math.min(nearest, colorDistance(entry, other));
+      nearest = Math.min(nearest, rgbaDistance(entry, other));
     }
     return { ...entry, nearest: Number.isFinite(nearest) ? Math.round(nearest * 10) / 10 : 0 };
   });

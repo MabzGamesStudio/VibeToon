@@ -83,9 +83,9 @@ inside the same group.
 
 ## Reading the image
 
-Reading happens **in the editor**, because that is where an image can be decoded:
-the browser already reads PNG, JPEG, WebP and GIF, and the alternative is this
-project carrying a decoder for each. Press **Read the image**.
+Reading happens **in the editor**. Press **Read the image**. A PNG is decoded byte
+for byte by the project's own decoder (below); JPEG, WebP and GIF are decoded by
+the browser.
 
 What is kept in the flow is the tally — a few thousand rows rather than a few
 million pixels. So generating afterwards is instant, repeatable, and needs
@@ -105,21 +105,36 @@ that are not in the image, which is the one thing a palette must not contain.
 
 | Port | File | What it is |
 | --- | --- | --- |
-| Palette | `palette.json` | Each color as hex and RGB, with how opaque it is, the share of the image it accounts for, its pixel count, how many counted colors were in its group, and that group's commonest color. |
+| Palette | `palette.json` | Each color as hex and RGB, with how opaque it is, the share of the image it accounts for, its pixel count, how many counted colors were in its group, and that group's commonest color. The transparent entry, when there is one, is `#00000000`. |
 | Report | `report.md` | The palette as a table, plus what was counted, what was grouped, and why. |
 
 Shares always add up to the whole image: a color with no group near enough joins
 the nearest one anyway rather than being dropped, so the numbers describe the
 picture completely.
 
+## Every entry is a value the picture holds
+
+Pixels are **grouped** by a rounded color and **named** by an exact one: each
+entry is the commonest exact pixel of its group — color and opacity — so it is a
+value the file really contains. Naming a group after its rounded value would put a
+color in the palette that no pixel has (`#dc2828` rounds to `#de2929` at five bits),
+and a filter looking for exactly that color would find nothing.
+
+The image is read **byte for byte**, not through a browser canvas. A canvas keeps
+every pixel multiplied by its own opacity, so a half-transparent pixel comes back a
+step off — `#283cdc80` reads as `#283cdb80` — and an exact palette of it would not
+exactly match the picture. PNGs are decoded by `png.ts`; other formats still go
+through the browser, which is exact for a JPEG (no opacity to lose) and a GIF (all
+or nothing). A count made the old way still works, but the editor and the run both
+ask for the image to be read again.
+
 ## Opacity is part of a color
 
-An entry is a color **and how see-through it is**, not just a color. The opacity
-is read out of the picture along with everything else: it is the average of the
-pixels the entry stands for, weighted by how many there were. One color drawn
-solid across a wall and the same color half-faded in a shadow are one entry, and
-its opacity is what those pixels were between them — not what the pixel that
-happened to seed the group was.
+An entry is a color **and how see-through it is**, not just a color. Its opacity is
+that of the pixel it is named after — not an average of the group, which would be
+a value no pixel has. A red drawn solid with soft edges is a solid red: its edge
+pixels are the same red, fading, and belong to it. A pane of glass drawn at half
+opacity is a half-opaque entry.
 
 The hex says so: `#4a6fd4` is solid, `#4a6fd480` is the same blue at about half.
 Eight digits are written only when there is an opacity worth writing, so a palette
@@ -127,16 +142,35 @@ off flat artwork looks exactly as it always did. The editor draws every swatch
 over a checker, because otherwise a half-transparent white and a pale grey are the
 same square.
 
+**Distances count opacity**, measured apart from color: the distance between the
+colors, and 50 for the whole way from clear to solid, put together like the two
+sides of a right angle. For two solid colors that is exactly the distance it always
+was. Two fully transparent pixels are `0` apart whatever color numbers they carry,
+and transparent is never mistaken for black. Kept apart on purpose: a fading color
+is then always nearer itself than any other color, so the soft edge of a red shape
+belongs to red.
+
 A **group is keyed on color alone**, though — `modeHex` never carries an opacity.
 An entry you have edited should still be found after the artwork behind it has
 faded, and if the opacity were part of a group's identity every edit would be
 stranded by the fade.
 
-What the opacity is *for* is the Palette Filter's snap mode, which takes it along
-with the color: naming a half-transparent color is how you fade the part of a
-picture that is that color, and an entry at 0% erases it. Keep mode ignores it,
-because keeping asks a question about color and hands the pixel back with the
-opacity it already had. See [IMAGE-FLOWS.md](IMAGE-FLOWS.md).
+## The transparent entry
+
+A picture with transparent pixels — anything under **Ignore pixels more
+transparent than** — gets an entry for them: `#00000000`, fully transparent, **on
+top of** the colors asked for. Five colors from a cut-out picture gives five colors
+and the clear around them.
+
+It is what the Palette Filter's snap mode snaps transparent pixels to, so the
+background of a cut-out stays clear and the result holds the palette's values and
+no others. Switch it off and the palette is only colors; a filter snapping to it
+then has to give transparent pixels one of them, and says so. It can be taken out,
+or changed — set it to white and snapping fills the background white.
+
+What opacity is *for* is the Palette Filter: snap writes an entry's color and
+opacity exactly, and both modes count opacity when judging what matches. See
+[IMAGE-FLOWS.md](IMAGE-FLOWS.md).
 
 ## When it will not give you what you asked for
 

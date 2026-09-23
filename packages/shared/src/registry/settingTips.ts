@@ -547,14 +547,23 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     ],
   },
 
+  'palette.transparent': {
+    what: 'Whether the pixels too transparent to have a color get a palette entry of their own: fully transparent, #00000000.',
+    examples: [
+      'On — five colors asked for from a cut-out picture gives five colors and the clear around them. A filter snapping to the palette then keeps the background clear.',
+      'Off — the palette is only colors. A filter snapping to it has to give transparent pixels one of them, and says so.',
+      'A picture with no transparent pixels gets no clear entry either way.',
+    ],
+    note: 'Which pixels count as transparent is the setting above it: anything under that opacity.',
+  },
   'palette.opacity': {
-    what: 'How opaque one palette entry is, 0 to 100%. Read out of the image as the average of the pixels the entry stands for, and editable like its color.',
+    what: 'How opaque one palette entry is, 0 to 100%. Read out of the image as the opacity of the pixels the entry is named after — a value the picture really holds — and editable like its color.',
     examples: [
       'solid — the ordinary case, and what a color read off flat artwork comes back as.',
-      '50% — snapping a pixel to this entry leaves it half see-through, which is how you fade one color of a picture.',
+      '50% — snapping a pixel to this entry makes it exactly this color at half opacity, which is how you fade one color of a picture.',
       '0% — every pixel that snaps to this entry is erased, which is how you drop one color of a picture.',
     ],
-    note: 'Keep mode ignores it: keeping asks a question about color, and hands the pixel back with the opacity it already had.',
+    note: 'Both filter modes count it when judging what matches: a half-faded red is not the solid red entry at a tolerance of 0.',
   },
 
   /* Palette filter -------------------------------------------------- */
@@ -562,15 +571,15 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
   'paletteFilter.mode': {
     what: 'What the filter does with a pixel once it knows how close that pixel is to the palette.',
     examples: [
-      'Keep — a pixel that matches a palette color stays exactly as it was, and everything else goes transparent. For finding where a color is used.',
-      'Snap — nothing goes transparent for not matching; every pixel becomes its nearest palette color, opacity and all. This is the one that makes a photograph look drawn.',
+      'Keep — a pixel within the tolerance of a palette color stays exactly as it was, color and opacity, and every other pixel becomes fully transparent (0, 0, 0, 0). For finding where a color is used.',
+      'Snap — every pixel becomes exactly one palette value, color and opacity, whichever looks nearest. Five colors and a transparent one in play gives a picture with six values in it and no others.',
       'To drop a color rather than find it, keep the others: an inverted answer is the same question asked about the rest of the palette.',
     ],
   },
   'paletteFilter.tolerance': {
-    what: 'How close a pixel has to be to a palette color to count as that color. Same OKLab scale the palette’s own minimum distance uses.',
+    what: 'How close a pixel has to be to a palette color to count as that color, opacity included. Same OKLab scale the palette’s own minimum distance uses.',
     examples: [
-      '0 — only pixels that are that exact color, which is what a drawing made from a palette contains.',
+      '0 — only pixels that are that exact color at that exact opacity, which is what a drawing made from a palette contains.',
       '15 to 25 — the useful range on artwork: takes in shading without taking in the neighbouring color.',
       'Snap ignores this: every pixel has a nearest, so there is no threshold to set.',
     ],
