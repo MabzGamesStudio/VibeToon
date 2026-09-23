@@ -689,6 +689,33 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       '0% — everything curves. 30% — almost nothing does.',
     ],
   },
+  'vectorize.minNodeGap': {
+    what: 'The closest two nodes of the drawing may be, in pixels. Nodes closer than this along an outline or a line are merged into one.',
+    examples: [
+      '0 — nodes stay exactly where tracing put them.',
+      '1.5 — the default: tidies the crowds of nodes tracing leaves on tight curves and where regions meet, for a couple of percent more pixels off.',
+      '3 to 4 — a much lighter drawing that has lost the fine turns.',
+    ],
+    note: 'A node is merged in every shape that shares it, so neighbours still meet exactly. A node where three or more outlines meet stays put and the other comes to it.',
+  },
+  'vectorize.minPolygonArea': {
+    what: 'The smallest a polygon may be, in square pixels, once the picture has been cut into shapes.',
+    examples: [
+      '0 — every polygon is kept, however small.',
+      '6 — the default: crumbs a couple of pixels across go.',
+      '20 to 50 — a photograph comes out in far fewer shapes. On the test photograph 161 polygons became 78, and the drawing got closer to the picture, because the crumbs were mostly wrong anyway.',
+    ],
+    note: 'A smaller polygon is folded into the neighbour it shares most of its outline with, taking that neighbour’s color, so it leaves no hole. One touching no other polygon is dropped. The region minimum above works on pixels before tracing; this one on the finished shapes.',
+  },
+  'vectorize.minLineLength': {
+    what: 'The shortest a line may be, end to end, in pixels.',
+    examples: [
+      '0 — every line is kept.',
+      '4 — the default: stubs a few pixels long go.',
+      '10 or more — only proper strokes are lines; dashes and dots are drawn as the small areas they are.',
+    ],
+    note: 'A stroke whose lines are all shorter than this is drawn as an area, so its ink is kept; a short stub off a longer line is dropped. A thin piece of an area only becomes a stroke if the stroke would be at least this long.',
+  },
   'vectorize.joinShapes': {
     what: 'Whether shapes of exactly the same color that touch are put back together once the picture has been cut up.',
     examples: [

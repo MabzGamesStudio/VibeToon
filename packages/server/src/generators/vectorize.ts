@@ -87,6 +87,17 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
             : ''
         }`
       : '- Shapes of the same color that touch: left as the convex pieces they were cut into',
+    `- Nodes at least ${data.options.minNodeGap}px apart${found?.nodesMerged ? ` · ${found.nodesMerged} merged` : ''}`,
+    `- Polygons at least ${data.options.minPolygonArea}px²${
+      found && (found.smallFolded || found.smallDropped)
+        ? ` · ${found.smallFolded ?? 0} folded into a neighbour, ${found.smallDropped ?? 0} dropped`
+        : ''
+    }`,
+    `- Lines at least ${data.options.minLineLength}px long${
+      found && (found.shortLines || found.shortStrokes)
+        ? ` · ${found.shortLines ?? 0} stub(s) dropped, ${found.shortStrokes ?? 0} short stroke(s) drawn as areas`
+        : ''
+    }`,
     ...(found
       ? [
           `- Painted where the picture is not there: **${found.overNothing.toLocaleString()}** pixel(s)`,

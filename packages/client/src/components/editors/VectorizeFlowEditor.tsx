@@ -270,6 +270,43 @@ export function VectorizeFlowEditor({
         </div>
 
         <div className="vt-section">
+          <h3>The smallest things</h3>
+          <Slider
+            label="Nodes at least"
+            value={data.options.minNodeGap}
+            min={0}
+            max={6}
+            step={0.5}
+            tip="vectorize.minNodeGap"
+            format={(value) => (value === 0 ? 'as traced' : `${value.toFixed(1)}px apart`)}
+            hint="Closer nodes are merged — in every shape that shares them, so neighbours still meet."
+            onChange={(minNodeGap) => patch({ options: { ...data.options, minNodeGap } })}
+          />
+          <Slider
+            label="Smallest polygon"
+            value={data.options.minPolygonArea}
+            min={0}
+            max={100}
+            step={1}
+            tip="vectorize.minPolygonArea"
+            format={(value) => (value === 0 ? 'any size' : `${value.toFixed(0)} px²`)}
+            hint="A smaller one is folded into the neighbour it shares most outline with, so it leaves no hole."
+            onChange={(minPolygonArea) => patch({ options: { ...data.options, minPolygonArea } })}
+          />
+          <Slider
+            label="Shortest line"
+            value={data.options.minLineLength}
+            min={0}
+            max={40}
+            step={1}
+            tip="vectorize.minLineLength"
+            format={(value) => (value === 0 ? 'any length' : `${value.toFixed(0)}px end to end`)}
+            hint="A stroke shorter than this is drawn as the area it is; a stub off a longer line is dropped."
+            onChange={(minLineLength) => patch({ options: { ...data.options, minLineLength } })}
+          />
+        </div>
+
+        <div className="vt-section">
           <h3>What belongs together</h3>
           <Field label="Join" tip="vectorize.joinShapes">
             <label className="vt-row" style={{ gap: 6 }}>
@@ -323,6 +360,22 @@ export function VectorizeFlowEditor({
                       <dt>Joined</dt>
                       <dd>
                         {report.joinedPolygons} polygon join(s), {report.joinedLines} line join(s)
+                      </dd>
+                    </>
+                  ) : null}
+                  {(report.nodesMerged ?? 0) + (report.smallFolded ?? 0) + (report.smallDropped ?? 0) + (report.shortLines ?? 0) + (report.shortStrokes ?? 0) > 0 ? (
+                    <>
+                      <dt>Tidied</dt>
+                      <dd>
+                        {[
+                          report.nodesMerged ? `${report.nodesMerged} node(s) merged` : '',
+                          report.smallFolded ? `${report.smallFolded} small polygon(s) folded in` : '',
+                          report.smallDropped ? `${report.smallDropped} speck(s) dropped` : '',
+                          report.shortLines ? `${report.shortLines} stub(s) dropped` : '',
+                          report.shortStrokes ? `${report.shortStrokes} short stroke(s) drawn as areas` : '',
+                        ]
+                          .filter(Boolean)
+                          .join(', ')}
                       </dd>
                     </>
                   ) : null}

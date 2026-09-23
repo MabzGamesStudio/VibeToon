@@ -4,7 +4,8 @@ import { traceShared, type RegionLoops } from './arcs';
 import { detectEdges, growRegions, type EdgeMap, type GrownRegion } from './edges';
 import { joinLines, joinPolygons } from './join';
 import { QuadIndex, type Bounds, type SpatialIndex } from './spatial';
-import { fromHex, toHex, toOklab } from './palette';
+import { absorbSmallPolygons, spaceShapes } from './tidy';
+import { fromHex, toHex, toOklab, type Rgb } from './palette';
 import {
   isConvex,
   type VectorImage,
@@ -120,6 +121,25 @@ export interface VectorizeOptions {
   joinShapes: boolean;
   /** How close two line ends have to be to join, in pixels. */
   joinGap: number;
+  /**
+   * The closest two nodes may be, in pixels. Nodes closer than this along any
+   * outline or line are merged into one — in every shape that shares them, so
+   * neighbours still meet exactly. 0 leaves them as traced.
+   */
+  minNodeGap: number;
+  /**
+   * The smallest a polygon may be, in square pixels. A smaller one is folded
+   * into the neighbour it shares the most outline with, so it leaves no hole; one
+   * that touches no other polygon is dropped. 0 keeps every polygon.
+   */
+  minPolygonArea: number;
+  /**
+   * The shortest a line may be, end to end, in pixels. A thin piece only becomes
+   * a stroke if the stroke would be this long; a stroke region whose lines are all
+   * shorter is drawn as an area instead, so its ink is kept; and a stub shorter
+   * than this off a longer line is dropped. 0 keeps every line.
+   */
+  minLineLength: number;
 }
 
 export const DEFAULT_VECTORIZE_OPTIONS: VectorizeOptions = {
@@ -136,6 +156,9 @@ export const DEFAULT_VECTORIZE_OPTIONS: VectorizeOptions = {
   hotspotShare: 0.2,
   joinShapes: true,
   joinGap: 3,
+  minNodeGap: 1.5,
+  minPolygonArea: 6,
+  minLineLength: 4,
 };
 
 export interface VectorizeReport {
@@ -156,6 +179,16 @@ export interface VectorizeReport {
   joinedPolygons: number;
   /** Joins of two same-color lines whose ends met. */
   joinedLines: number;
+  /** Nodes merged into a neighbour for being closer than the minimum distance. */
+  nodesMerged: number;
+  /** Polygons under the minimum area, folded into a neighbour. */
+  smallFolded: number;
+  /** Polygons under the minimum area that touched nothing, and were dropped. */
+  smallDropped: number;
+  /** Lines under the minimum length that were dropped as stubs. */
+  shortLines: number;
+  /** Stroke regions too short to be lines, drawn as areas instead. */
+  shortStrokes: number;
   transparent: number;
   /** Pixels the edge pass claimed, before they were handed back to regions. */
   edgePixels: number;
@@ -207,6 +240,7 @@ export function findRegions(
   const grown = growRegions(image, map, options.minArea, options.edgeThreshold);
   const regions: PixelRegion[] = grown.regions.map((region) => ({
     ...region,
+    color: regionColor(image, region.pixels, region.color),
     thickness: thicknessOf(region.pixels, image.width),
   }));
   return {
@@ -217,6 +251,37 @@ export function findRegions(
     map,
     labels: grown.labels,
   };
+}
+
+/**
+ * The color a region is drawn in: its one color exactly, when it is drawn in one.
+ *
+ * A region's pixels are its flat inside and the blended band along its edge that
+ * it was handed, so their average is a shade off the color the region was drawn
+ * in — two regions of the same red, each averaging its own edge, came out a hex
+ * digit apart, which kept them from being joined and kept a picture already
+ * snapped to a palette from coming back in the palette's colors. So when one
+ * exact color is at least a quarter of the region, that is the region's color.
+ * A shaded region has no such color — every pixel is a little different — and
+ * keeps its average.
+ */
+export function regionColor(image: Bitmap, pixels: readonly number[], average: Rgb): Rgb {
+  if (pixels.length === 0) return average;
+  const counts = new Map<number, number>();
+  let best = -1;
+  let most = 0;
+  for (const index of pixels) {
+    const at = index * 4;
+    const packed = (image.data[at]! << 16) | (image.data[at + 1]! << 8) | image.data[at + 2]!;
+    const count = (counts.get(packed) ?? 0) + 1;
+    counts.set(packed, count);
+    if (count > most || (count === most && packed < best)) {
+      most = count;
+      best = packed;
+    }
+  }
+  if (most * 4 < pixels.length) return average;
+  return { r: (best >> 16) & 255, g: (best >> 8) & 255, b: best & 255 };
 }
 
 /**
@@ -1248,6 +1313,11 @@ function build(
     slivers: 0,
     joinedPolygons: 0,
     joinedLines: 0,
+    nodesMerged: 0,
+    smallFolded: 0,
+    smallDropped: 0,
+    shortLines: 0,
+    shortStrokes: 0,
     transparent: found.transparent,
     edgePixels: found.edgePixels,
     rounds: 0,
@@ -1325,8 +1395,13 @@ function build(
        * better by a stroke than by the splinters it was cut into; a splinter of
        * a curve is not, and keeps its place in the partition.
        */
+      /*
+       * And only if the stroke would be long enough to be a line at all. A
+       * short thin piece is a speck of the area, and a stroke that short is
+       * something to be dropped, not drawn — so it keeps its place as a polygon.
+       */
       const slim = asStroke(piece, options.lineWidth);
-      if (slim && coversBetter(slim, piece, pixels, width)) {
+      if (slim && pathLength(slim.points) >= options.minLineLength && coversBetter(slim, piece, pixels, width)) {
         shapes.push({
           id: makeId('line'),
           kind: 'line',
@@ -1379,25 +1454,49 @@ function build(
       continue;
     }
 
-    for (const line of lines) {
-      shapes.push({
-        id: makeId('line'),
-        kind: 'line',
-        color,
-        width: Math.max(0.5, Math.round(line.width * 10) / 10),
-        points: line.points,
-        // A loop is always a curve by the straight-line test, since its ends are
-        // the same point. Judge it on its corners instead.
-        curved: line.closed
-          ? line.points.length > 6
-          : looksCurved(line.points, options.curveThreshold),
-        closed: line.closed,
-      } satisfies VectorLine);
-      report.lines += 1;
-    }
-  }
+    let marks: VectorLine[] = lines.map((line) => ({
+      id: makeId('line'),
+      kind: 'line',
+      color,
+      width: Math.max(0.5, Math.round(line.width * 10) / 10),
+      points: line.points,
+      // A loop is always a curve by the straight-line test, since its ends are
+      // the same point. Judge it on its corners instead.
+      curved: line.closed ? line.points.length > 6 : looksCurved(line.points, options.curveThreshold),
+      closed: line.closed,
+    }));
 
-  if (!options.joinShapes) return { image: { width, height, shapes }, report };
+    /*
+     * The minimum length, judged on the lines as they will be drawn.
+     *
+     * A stroke is traced as the runs of its middle between forks, so each run is
+     * joined to the ones it carries on into first — a long line should not be
+     * dropped for arriving in short pieces. Then a region whose lines are all
+     * still too short is a dash or a dot rather than a line, and is drawn as the
+     * area it is, so its ink is not lost; and short stubs off a longer line —
+     * the spurs thinning leaves at a corner or a bump — are dropped.
+     */
+    if (options.minLineLength > 0) {
+      if (options.joinShapes) {
+        const joined = joinLines(marks, options.joinGap);
+        report.joinedLines += joined.joined;
+        marks = joined.shapes as VectorLine[];
+      }
+      const longest = Math.max(0, ...marks.map(lengthOf));
+      if (longest < options.minLineLength) {
+        report.shortStrokes += 1;
+        const loop = loops.get(region.id);
+        if (loop) emit(color, convexPieces(loop), pixels);
+        continue;
+      }
+      const kept = marks.filter((mark) => lengthOf(mark) >= options.minLineLength);
+      report.shortLines += marks.length - kept.length;
+      marks = kept;
+    }
+
+    shapes.push(...marks);
+    report.lines += marks.length;
+  }
 
   /*
    * Last, and after the slivers have been turned into strokes.
@@ -1406,14 +1505,51 @@ function build(
    * be an area, because that is a question about a piece and not about the whole
    * region. Joining first would leave nothing to ask it of. What survives as a
    * polygon is then put back together with its neighbours of the same color.
+   *
+   * The smallest polygons are folded into their neighbours after joining, so a
+   * region's pieces are judged as the one shape they become rather than one
+   * crumb at a time — and joining runs again after, because a crumb folded away
+   * can leave two shapes of one color touching where it used to part them.
    */
-  const polygons = joinPolygons(shapes);
-  const lines = joinLines(polygons.shapes, options.joinGap);
-  report.joinedPolygons = polygons.joined;
-  report.joinedLines = lines.joined;
-  report.polygons -= polygons.joined;
-  report.lines -= lines.joined;
-  return { image: { width, height, shapes: lines.shapes }, report };
+  let result = shapes;
+  if (options.joinShapes) {
+    const polygons = joinPolygons(result);
+    report.joinedPolygons += polygons.joined;
+    result = polygons.shapes;
+  }
+  /*
+   * No two nodes closer than the minimum, merged on the nodes rather than per
+   * shape so that every shape sharing a node agrees where it now is (`tidy.ts`).
+   * At the end, on the shapes as they will be drawn: merging earlier moved the
+   * outlines the convex cut and the sliver test read, and a sliver that was
+   * rightly a stroke stopped being one.
+   */
+  const spaced = spaceShapes(result, options.minNodeGap);
+  report.nodesMerged = spaced.merged;
+  result = spaced.shapes;
+
+  const folded = absorbSmallPolygons(result, options.minPolygonArea);
+  report.smallFolded = folded.absorbed;
+  report.smallDropped = folded.dropped;
+  result = folded.shapes;
+  if (options.joinShapes) {
+    if (folded.absorbed > 0) {
+      const again = joinPolygons(result);
+      report.joinedPolygons += again.joined;
+      result = again.shapes;
+    }
+    const lines = joinLines(result, options.joinGap);
+    report.joinedLines += lines.joined;
+    result = lines.shapes;
+  }
+  report.polygons = result.filter((shape) => shape.kind === 'polygon').length;
+  report.lines = result.filter((shape) => shape.kind === 'line').length;
+  return { image: { width, height, shapes: result }, report };
+}
+
+/** A line's length end to end, its closing step included when it goes all the way round. */
+function lengthOf(line: VectorLine): number {
+  return pathLength(line.points) + (line.closed ? closingStep(line.points) : 0);
 }
 
 /* ------------------------------------------------------------------ *

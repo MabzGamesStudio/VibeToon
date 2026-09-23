@@ -57,6 +57,9 @@ The other settings are about where the boundaries are and how heavy the result i
 | Curved if bent by | How bent a run must be, relative to its length, to be a curve. |
 | Join shapes of the same color that touch | On by default: polygons sharing a side become one, and lines whose ends meet become one. Off leaves every area as convex pieces. |
 | Join line ends within | How close two line ends of one color must be to join, in pixels. |
+| Nodes at least | The closest two nodes may be. Closer ones are merged, in every shape that shares them. |
+| Smallest polygon | A smaller polygon is folded into the neighbour it shares most outline with; one touching nothing is dropped. |
+| Shortest line | A stroke shorter than this is drawn as an area; a stub off a longer line is dropped. |
 | Rounds of refinement | How many times to measure the result and do the worst part better. See below. |
 
 ## Boundaries first, and the fill between them
@@ -375,6 +378,50 @@ as the convex pieces it was cut into. A convex polygon is trivially triangulated
 filled, offset and point-tested, which some consumers want. Nothing in the studio
 needs it: hit-testing is even-odd, which works for any simple polygon, and the
 editor's cut handles concave shapes (below).
+
+## The smallest things
+
+Three minimums, each applied so that it cannot open a gap between shapes or make
+two overlap — the one thing the decomposition promises.
+
+**Nodes at least** (default 1.5 px). Nodes closer than this along an outline or a
+line are merged into one. The merge is decided on the nodes, not on any one shape:
+where neighbours share a node, it moves for all of them, so they still meet
+exactly. Shortest edges first, and only while the merged node stays within the
+distance of every node it took in, so a curve drawn as a run of one-pixel steps is
+thinned out rather than collapsed into a point. A node where three or more
+outlines meet stays put and the other comes to it. It runs on the finished shapes
+— merging before the convex cut moved the outlines that decide which thin pieces
+are strokes, and cost twice the accuracy for the same saving.
+
+**Smallest polygon** (default 6 px²). A smaller polygon is folded into the
+neighbour it shares the most outline with, whatever that neighbour's color — it
+becomes part of it, so there is no hole where it was. One that touches no other
+polygon is dropped. Joining runs again afterwards, because folding a crumb away can
+leave two shapes of one color touching where it used to part them. This is not the
+same as **Drop regions under**, which works on pixels before anything is traced;
+this works on the shapes that came out.
+
+**Shortest line** (default 4 px, end to end). A thin piece of an area only becomes
+a stroke if the stroke would be this long. A stroke region's runs are joined first,
+so a long line is not dropped for arriving in pieces; then a region whose lines are
+all still too short is a dash or a dot, and is drawn as the small area it is so its
+ink is kept, and stubs shorter than this off a longer line — the spurs thinning
+leaves at a corner — are dropped.
+
+Measured on the same four pictures, the defaults cost the face and the cartoon
+about 2% more pixels off for about 5% fewer points, and change a photograph
+hardly at all. Turned up — 3 px, 20 px², 8 px — the photograph went from 161
+polygons to 78 and came out *closer* to the picture, because the crumbs were
+mostly wrong anyway.
+
+**A region drawn in one color is that color exactly.** A region's pixels are its
+flat inside and the band of blended pixels along its edge that it was handed, and
+their average is a shade off — two regions of one red came out a hex digit apart,
+so they were never joined, and a picture snapped to a palette did not come back in
+the palette's colors. When one exact color is at least a quarter of a region, that
+is the region's color; a shaded region, where no color repeats much, keeps its
+average. On the cartoon, ten shape colors became the eight it was drawn in.
 
 ## How fast, and where the time goes
 
