@@ -55,6 +55,8 @@ The other settings are about where the boundaries are and how heavy the result i
 | Simplify to within | How far a boundary may move to lose a point. The main control over how heavy the result is. |
 | At most, per shape | A hard point budget, for when a tolerance alone will not promise one. |
 | Curved if bent by | How bent a run must be, relative to its length, to be a curve. |
+| Join shapes of the same color that touch | On by default: polygons sharing a side become one, and lines whose ends meet become one. Off leaves every area as convex pieces. |
+| Join line ends within | How close two line ends of one color must be to join, in pixels. |
 | Rounds of refinement | How many times to measure the result and do the worst part better. See below. |
 
 ## Boundaries first, and the fill between them
@@ -323,15 +325,56 @@ still convex, and only the two corners the cut ended at can have stopped being s
 Triangles alone would satisfy "convex" and give ten times the shapes, which is
 worse to edit and worse to read.
 
-## Why convex
+## Shapes of one color that touch are one shape
 
-A polygon here is always convex, because that is what everything downstream can
-rely on. A convex polygon is trivially triangulated, filled, offset and
-point-tested, and never has the self-intersections that make a concave one a
-special case in every renderer that meets it.
+The convex cut is a tool, not the answer. It is how the decomposition finds the
+parts of a region too thin to be an area — a question about a *piece*, which a
+whole region cannot be asked — and once that is settled, the pieces that are left
+are put back together. A person looking at a red cheek sees one shape, not seven
+triangles, and a drawing that disagrees is a drawing nobody wants to edit.
 
-Editing can break that, and when it does the flow says so rather than letting a
-consumer find out.
+Two rules, applied last, after the slivers have become strokes:
+
+| | Joined when | Into |
+| --- | --- | --- |
+| **Polygons** | They share a side and are exactly the same color. | One polygon — unless it would have to touch itself or go round a hole. |
+| **Lines** | An end of one is within **Join line ends within** of an end of the other, and they are exactly the same color. | One line, with a single point halfway between the two ends, so the gap between them is drawn. |
+
+*Exactly the same color* means the same hex. Two shapes a shade apart are two
+things in the picture, and joining them would paint one of them the wrong color.
+
+**A shared side is found on exact coordinates.** Neighbours hold literally the
+same points along the boundary between them — that is what makes them fit, above —
+so a side one polygon walks from *a* to *b* is walked from *b* to *a* by its
+neighbour, and nothing has to be matched approximately. The union of two polygons
+is every side of both, less the sides they share, walked round; it is accepted
+only when that walk is one loop that visits no point twice.
+
+**A polygon cannot have a hole**, because a polygon is one loop of points. A ring
+cut into pieces is therefore joined until the next join would close it, and stays
+two polygons that between them leave the middle empty. Bridging the hole with a
+slit of zero width, as the convex cut does, would make it one polygon on paper and
+draw a hairline across the hole in every renderer that strokes its outline.
+
+**Where three line ends meet**, only two can join, and the two joined are the two
+that carry on straightest — the angle between one line leaving and the other
+arriving. That is how a fork reads as a line with a branch rather than as three
+stubs. Each end is used once, and joining never closes a chain on itself: closing
+a loop is a different decision from joining two lines.
+
+Measured on a cartoon drawing with a head, a body, eyes and outlines, joining took
+**93 polygons to 13** at 256px and **150 to 17** at 800px, and the points in the
+drawing from 450 to 288 and 704 to 438 — with the pixels drawn wrong unchanged
+(1,060 to 1,058; 3,050 to 3,050). It covers exactly what the pieces covered,
+because it only ever removes a side two pieces had in common.
+
+### Convex, when you need it
+
+Turn **Join shapes of the same color that touch** off and every area comes back
+as the convex pieces it was cut into. A convex polygon is trivially triangulated,
+filled, offset and point-tested, which some consumers want. Nothing in the studio
+needs it: hit-testing is even-odd, which works for any simple polygon, and the
+editor's cut handles concave shapes (below).
 
 ## What a line stores
 
@@ -374,6 +417,12 @@ A cut is **extended past both clicks** before anything is intersected. Two click
 across a shape are almost never exactly on its outline, and a segment lying wholly
 inside a polygon crosses none of its edges; taken literally that is "not a cut",
 so the gesture would do nothing for a reason invisible on screen.
+
+A straight line can cross a **concave** polygon more than twice — across a C it
+goes into one arm, out, and into the other. The cut is then the stretch of the
+line inside the shape nearest the two clicks, which is the stretch you were
+pointing at. Any such stretch divides a simple polygon into exactly two, so the
+halves are always shapes.
 
 Cutting a line gives two lines that still meet at the cut, rather than a gap.
 Cutting a **closed** line opens it instead, because that is what cutting a loop

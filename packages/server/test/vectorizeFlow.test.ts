@@ -217,6 +217,23 @@ test('the report explains the rule, not just the count', async () => {
   assert.match(doc, /`#de2929`/, 'and the colors it found');
 });
 
+test('the report says whether same-color shapes were joined, and what that means', async () => {
+  const joined = await file(VEC, 'vector.md');
+  assert.match(joined, /Shapes of the same color that touch: joined/);
+  assert.match(joined, /cannot\s+go round a hole/);
+
+  await setData(VEC, {
+    ...emptyVectorizeFlowData(),
+    options: { ...emptyVectorizeFlowData().options, joinShapes: false },
+    result: sample(),
+    imageHash,
+  } satisfies VectorizeFlowData);
+  await generate(VEC);
+  const pieces = await file(VEC, 'vector.md');
+  assert.match(pieces, /left as the convex pieces they were cut into/);
+  assert.match(pieces, /is convex: a traced region/);
+});
+
 
 test('nothing wired in is a warning about wiring', async () => {
   const current = await api<Project>('GET', `/api/projects/${project.id}`);

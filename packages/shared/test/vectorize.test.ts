@@ -323,17 +323,99 @@ test('pieces are merged back where they can be, rather than left as triangles', 
   assert.ok(pieces.length < 4, `${pieces.length} pieces is barely better than triangulating`);
 });
 
-test('every polygon a run produces is convex', () => {
-  const result = run([
-    '.RRRRRR...',
-    '.RRRRRR...',
-    '.RR...RR..',
-    '.RR....RR.',
-    '.RRRRRRRR.',
-    '..........',
-  ]);
+test('with joining off, every polygon a run produces is convex', () => {
+  // The promise a consumer that needs convex pieces can still ask for.
+  const result = run(
+    [
+      '.RRRRRR...',
+      '.RRRRRR...',
+      '.RR...RR..',
+      '.RR....RR.',
+      '.RRRRRRRR.',
+      '..........',
+    ],
+    { joinShapes: false },
+  );
   for (const polygon of polygonsOf(result)) {
     assert.ok(isConvex(polygon.points), `concave: ${JSON.stringify(polygon.points)}`);
+  }
+});
+
+/* ---------------- joining what belongs together ---------------- */
+
+const ELL = [
+  'RRRRRRRRRRRR',
+  'RRRRRRRRRRRR',
+  'RRRRRRRRRRRR',
+  'RRRRRRRRRRRR',
+  'RRRRRRRRRRRR',
+  'RRRRR.......',
+  'RRRRR.......',
+  'RRRRR.......',
+  'RRRRR.......',
+  'RRRRR.......',
+];
+
+function coveredArea(result: ReturnType<typeof run>): number {
+  return polygonsOf(result).reduce((sum, polygon) => sum + Math.abs(signedArea(polygon.points)), 0);
+}
+
+test('a concave area of one color comes back as one polygon, not the pieces it was cut into', () => {
+  const pieces = run(ELL, { joinShapes: false });
+  const joined = run(ELL);
+  assert.ok(polygonsOf(pieces).length > 1, 'an L cannot be one convex piece');
+  assert.equal(polygonsOf(joined).length, 1);
+  assert.equal(coveredArea(joined), coveredArea(pieces), 'covering exactly what the pieces covered');
+  assert.equal(joined.report.wrongPixels, pieces.report.wrongPixels);
+  assert.equal(joined.report.joinedPolygons, polygonsOf(pieces).length - 1);
+});
+
+test('areas of different colors are never joined, however long the side they share', () => {
+  const result = run([
+    'RRRRRRBBBBBB',
+    'RRRRRRBBBBBB',
+    'RRRRRRBBBBBB',
+    'RRRRRRBBBBBB',
+    'RRRRRRBBBBBB',
+    'RRRRRRBBBBBB',
+  ]);
+  const colors = polygonsOf(result).map((polygon) => polygon.color);
+  assert.equal(colors.length, 2);
+  assert.notEqual(colors[0], colors[1]);
+});
+
+test('an area with a hole in it stays more than one polygon, because a polygon cannot have a hole', () => {
+  // Walls thicker than a stroke, so every side of the frame is an area.
+  const RING = [
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRR......RRRRR',
+    'RRRRR......RRRRR',
+    'RRRRR......RRRRR',
+    'RRRRR......RRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+  ];
+  const result = run(RING);
+  const pieces = run(RING, { joinShapes: false });
+  assert.equal(linesOf(pieces).length, 0, 'the picture this test needs: all area, no strokes');
+  assert.ok(polygonsOf(pieces).length > 2);
+  assert.equal(polygonsOf(result).length, 2, 'one join short of closing the ring');
+  assert.equal(coveredArea(result), coveredArea(pieces));
+  assert.equal(result.report.overNothing, 0, 'and the hole is still empty');
+});
+
+test('the counts in the report are the shapes in the drawing, joined or not', () => {
+  for (const joinShapes of [true, false]) {
+    const result = run(ELL, { joinShapes });
+    assert.equal(result.report.polygons, polygonsOf(result).length, `polygons, joining ${joinShapes}`);
+    assert.equal(result.report.lines, linesOf(result).length, `lines, joining ${joinShapes}`);
   }
 });
 

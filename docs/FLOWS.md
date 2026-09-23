@@ -382,7 +382,7 @@ Filters an image against a palette: keep those colors, drop them, or snap every 
 
 `art.vectorize` · **bespoke editor**
 
-Turns a picture back into shapes: strokes as lines, areas as convex polygons.
+Turns a picture back into shapes: strokes as lines, areas as polygons, same-color neighbours joined.
 
 - **In:** Image *(required)*
 - **Out:** Vector `vector.json`, Drawing `vector.svg`, Report `vector.md`

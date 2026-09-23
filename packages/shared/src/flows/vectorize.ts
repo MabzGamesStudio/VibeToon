@@ -2,6 +2,7 @@ import type { Bitmap } from './cutout';
 import { boxOf, coverageFor, fillInto, strokeInto, type Box } from './fit';
 import { traceShared, type RegionLoops } from './arcs';
 import { detectEdges, growRegions, type EdgeMap, type GrownRegion } from './edges';
+import { joinLines, joinPolygons } from './join';
 import { colorDistance, fromHex, toHex } from './palette';
 import {
   isConvex,
@@ -29,6 +30,8 @@ import {
  * 4. **What shape that is** — trace the outline (or the centreline), simplify to a
  *    tolerance and a point budget, decide straight or curved, and cut areas into
  *    convex pieces.
+ * 5. **What belongs together** — put back together the pieces of one color that
+ *    share a side, and the lines of one color whose ends meet (`join.ts`).
  *
  * Nothing in that path measures a candidate against the pixels. `refine` turns on
  * a slower pass that does, for when you want the last percent.
@@ -105,6 +108,17 @@ export interface VectorizeOptions {
   hotspotBlock: number;
   /** What fraction of the blocks that have any error at all count as hot, 0..1. */
   hotspotShare: number;
+  /**
+   * Join shapes of exactly the same color that touch: polygons that share a side
+   * become one polygon, and lines whose ends are within `joinGap` become one line.
+   *
+   * On by default, because a region is one shape to anyone looking at it. Off
+   * gives back the convex pieces the region was cut into, for a consumer that
+   * needs every polygon convex.
+   */
+  joinShapes: boolean;
+  /** How close two line ends have to be to join, in pixels. */
+  joinGap: number;
 }
 
 export const DEFAULT_VECTORIZE_OPTIONS: VectorizeOptions = {
@@ -119,6 +133,8 @@ export const DEFAULT_VECTORIZE_OPTIONS: VectorizeOptions = {
   refineRounds: 1,
   hotspotBlock: 16,
   hotspotShare: 0.2,
+  joinShapes: true,
+  joinGap: 3,
 };
 
 export interface VectorizeReport {
@@ -135,6 +151,10 @@ export interface VectorizeReport {
   convexPieces: number;
   /** Pieces too thin to be areas, given back as strokes instead. */
   slivers: number;
+  /** Joins of two same-color polygons that shared a side. */
+  joinedPolygons: number;
+  /** Joins of two same-color lines whose ends met. */
+  joinedLines: number;
   transparent: number;
   /** Pixels the edge pass claimed, before they were handed back to regions. */
   edgePixels: number;
@@ -1103,6 +1123,8 @@ function build(
     thinButNotSeparating: 0,
     convexPieces: 0,
     slivers: 0,
+    joinedPolygons: 0,
+    joinedLines: 0,
     transparent: found.transparent,
     edgePixels: found.edgePixels,
     rounds: 0,
@@ -1252,7 +1274,23 @@ function build(
     }
   }
 
-  return { image: { width, height, shapes }, report };
+  if (!options.joinShapes) return { image: { width, height, shapes }, report };
+
+  /*
+   * Last, and after the slivers have been turned into strokes.
+   *
+   * The convex cut is still what decides which parts of a region are too thin to
+   * be an area, because that is a question about a piece and not about the whole
+   * region. Joining first would leave nothing to ask it of. What survives as a
+   * polygon is then put back together with its neighbours of the same color.
+   */
+  const polygons = joinPolygons(shapes);
+  const lines = joinLines(polygons.shapes, options.joinGap);
+  report.joinedPolygons = polygons.joined;
+  report.joinedLines = lines.joined;
+  report.polygons -= polygons.joined;
+  report.lines -= lines.joined;
+  return { image: { width, height, shapes: lines.shapes }, report };
 }
 
 /* ------------------------------------------------------------------ *

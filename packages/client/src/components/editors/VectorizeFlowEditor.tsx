@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   emptyVectorizeFlowData,
   inputsForPort,
@@ -17,6 +17,7 @@ import {
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
+import { Field } from '../common/Field';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
@@ -292,6 +293,37 @@ export function VectorizeFlowEditor({
           />
         </div>
 
+        <div className="vt-section">
+          <h3>What belongs together</h3>
+          <Field label="Join" tip="vectorize.joinShapes">
+            <label className="vt-row" style={{ gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={data.options.joinShapes}
+                onChange={(event) => patch({ options: { ...data.options, joinShapes: event.target.checked } })}
+              />
+              Join shapes of the same color that touch
+            </label>
+          </Field>
+          <p className="vt-faint" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.4 }}>
+            {data.options.joinShapes
+              ? 'Polygons that share a side become one polygon, and lines whose ends meet become one line. A shape with a hole stays two, because a polygon cannot have one.'
+              : 'Every area comes back as the convex pieces it was cut into, for anything that needs every polygon convex.'}
+          </p>
+          {data.options.joinShapes ? (
+            <Slider
+              label="Join line ends within"
+              value={data.options.joinGap}
+              min={0}
+              max={12}
+              step={0.5}
+              tip="vectorize.joinGap"
+              format={(value) => (value === 0 ? 'only where they touch' : `${value.toFixed(1)}px`)}
+              onChange={(joinGap) => patch({ options: { ...data.options, joinGap } })}
+            />
+          ) : null}
+        </div>
+
         {summary ? (
           <div className="vt-section">
             <h3>What was found</h3>
@@ -310,6 +342,14 @@ export function VectorizeFlowEditor({
               <dd>{summary.colors.length}</dd>
               {report ? (
                 <>
+                  {report.joinedPolygons > 0 || report.joinedLines > 0 ? (
+                    <>
+                      <dt>Joined</dt>
+                      <dd>
+                        {report.joinedPolygons} polygon join(s), {report.joinedLines} line join(s)
+                      </dd>
+                    </>
+                  ) : null}
                   <dt>Pixels wrong</dt>
                   <dd>
                     {Math.round(report.wrongPixels).toLocaleString()}
@@ -325,7 +365,7 @@ export function VectorizeFlowEditor({
                 <span
                   key={color}
                   className="vt-filter-color is-on"
-                  style={{ background: color, cursor: 'default' }}
+                  style={{ '--vt-swatch': color, cursor: 'default' } as CSSProperties}
                   title={`${color} — ${result!.shapes.filter((shape) => shape.color === color).length} shape(s)`}
                 >
                   <span>{color.slice(1)}</span>

@@ -654,7 +654,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     kind: 'art.vectorize',
     category: 'art',
     label: 'Polygon Decomposition',
-    summary: 'Turns a picture back into shapes: strokes as lines, areas as convex polygons.',
+    summary: 'Turns a picture back into shapes: strokes as lines, areas as polygons, same-color neighbours joined.',
     inputs: [
       input('image', 'Image', ['image', 'imageSet'], 'The picture to decompose.', { required: true }),
     ],

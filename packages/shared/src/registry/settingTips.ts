@@ -680,6 +680,23 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       '0% — everything curves. 30% — almost nothing does.',
     ],
   },
+  'vectorize.joinShapes': {
+    what: 'Whether shapes of exactly the same color that touch are put back together once the picture has been cut up.',
+    examples: [
+      'On — polygons that share a side become one polygon, and lines whose ends meet become one line. A cheek is one shape rather than seven triangles.',
+      'Off — every area is the convex pieces it was cut into, for a consumer that needs every polygon convex.',
+      'A shape with a hole in it stays two polygons even when on: a polygon is one loop of points, and cannot go round a hole.',
+    ],
+    note: 'Exactly the same color means the same hex. Two shapes a shade apart are two things in the picture.',
+  },
+  'vectorize.joinGap': {
+    what: 'How close the ends of two lines of the same color have to be for them to become one line, in pixels.',
+    examples: [
+      '0 — only ends that are on the very same point.',
+      '3 — the default: takes in the pixel or two that tracing leaves where a line forks.',
+      'Where three ends meet, the two that carry on straightest are joined and the third stays a line of its own.',
+    ],
+  },
 
   'palette.count': {
     what: 'How many colors the palette has.',

@@ -22,6 +22,7 @@ import {
   toSvg,
   type VectorImage,
   type VectorLine,
+  type VectorPoint,
   type VectorPolygon,
 } from '../src/flows/vector';
 
@@ -234,6 +235,60 @@ test('a cut that misses is not a cut, and leaves the polygon whole', () => {
   // Clipping one corner only touches one edge.
   const grazed = splitPolygon(before, 'p1', { x: -1, y: -1 }, { x: 1, y: -1 }, makeId);
   assert.equal(grazed.shapes.length, 1);
+});
+
+/*
+ * A C, opening to the right. A vertical line through its arms crosses the
+ * outline four times: into the top arm and out of it, across the gap, then into
+ * the bottom arm and out of it. A convex polygon is never crossed more than twice.
+ */
+const letterC: VectorPolygon = {
+  id: 'p1',
+  kind: 'polygon',
+  color: '#ff0000',
+  points: [
+    { x: 0, y: 0 },
+    { x: 10, y: 0 },
+    { x: 10, y: 3 },
+    { x: 3, y: 3 },
+    { x: 3, y: 7 },
+    { x: 10, y: 7 },
+    { x: 10, y: 10 },
+    { x: 0, y: 10 },
+  ],
+};
+
+const areaOf = (points: VectorPoint[]) =>
+  Math.abs(points.reduce((sum, a, index) => {
+    const b = points[(index + 1) % points.length]!;
+    return sum + a.x * b.y - b.x * a.y;
+  }, 0) / 2);
+
+test('a concave polygon is cut where the clicks were, even when the line crosses it four times', () => {
+  // A vertical line at x = 6 goes through both arms: in and out of the top one,
+  // then in and out of the bottom one. Aimed at the top arm, it cuts the top arm.
+  const cut = splitPolygon(image(letterC), 'p1', { x: 6, y: -1 }, { x: 6, y: 2 }, makeId);
+  assert.equal(cut.shapes.length, 2, 'the cut was refused');
+  const areas = cut.shapes.map((piece) => areaOf(piece.points)).sort((a, b) => a - b);
+  assert.deepEqual(areas, [12, areaOf(letterC.points) - 12], 'the end of the top arm, and the rest');
+  for (const piece of cut.shapes) {
+    assert.ok(piece.points.every((point) => point.y <= 10 && point.x <= 10), JSON.stringify(piece.points));
+  }
+});
+
+test('aimed at the other arm, the same line cuts the other arm', () => {
+  const cut = splitPolygon(image(letterC), 'p1', { x: 6, y: 8 }, { x: 6, y: 11 }, makeId);
+  assert.equal(cut.shapes.length, 2);
+  const small = cut.shapes.reduce((a, b) => (areaOf(a.points) < areaOf(b.points) ? a : b));
+  assert.equal(areaOf(small.points), 12);
+  assert.ok(small.points.every((point) => point.y >= 7), 'from the bottom arm');
+});
+
+test('cut pieces of a concave polygon still cover exactly what it did', () => {
+  const cut = splitPolygon(image(letterC), 'p1', { x: 1, y: -1 }, { x: 1, y: 11 }, makeId);
+  assert.equal(cut.shapes.length, 2);
+  const total = cut.shapes.reduce((sum, piece) => sum + areaOf(piece.points), 0);
+  assert.equal(total, areaOf(letterC.points));
 });
 
 /* ---------------- deleting parts ---------------- */
