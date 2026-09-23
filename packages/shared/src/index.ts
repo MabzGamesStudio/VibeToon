@@ -29,6 +29,7 @@ export * from './flows/palette';
 export * from './flows/paletteFilter';
 export * from './flows/image';
 export * from './flows/cutout';
+export * from './flows/png';
 export * from './flows/vector';
 export * from './flows/vectorize';
 export * from './flows/vectorEdit';

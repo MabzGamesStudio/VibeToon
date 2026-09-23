@@ -36,6 +36,9 @@ const PALETTE: Record<string, [number, number, number, number]> = {
   B: BLUE,
   K: BLACK,
   '.': CLEAR,
+  // Half way between red and blue: the blended pixels along the edge of a real
+  // drawing, which a region is handed and which pull its average off its color.
+  P: [130, 50, 130, 255],
 };
 
 /** An image from a character map, so a test reads as the picture it is. */
@@ -57,10 +60,14 @@ function ids() {
 }
 
 // The pictures here are a few pixels across on purpose, so the default noise
-// floor would throw most of them away. It has a test of its own below.
+// floor — and the minimum polygon, line and node spacing, which are sized for
+// real pictures — would throw most of them away. Each has tests of its own below.
 const options = (over: Partial<VectorizeOptions> = {}): VectorizeOptions => ({
   ...DEFAULT_VECTORIZE_OPTIONS,
   minArea: 0,
+  minPolygonArea: 0,
+  minLineLength: 0,
+  minNodeGap: 0,
   ...over,
 });
 
@@ -100,8 +107,7 @@ test('a stroke between the same two blocks is a line, and they are still areas',
   ]);
   assert.equal(result.report.lines, 1);
   assert.equal(result.report.polygons, 2);
-  // The color the ink actually was, not a value rounded to a quantisation step:
-  // a region wears the average of its own pixels.
+  // The color the ink actually was, not a value rounded to a quantisation step.
   assert.equal(linesOf(result)[0]!.color, '#141414');
 });
 
@@ -323,17 +329,169 @@ test('pieces are merged back where they can be, rather than left as triangles', 
   assert.ok(pieces.length < 4, `${pieces.length} pieces is barely better than triangulating`);
 });
 
-test('every polygon a run produces is convex', () => {
-  const result = run([
-    '.RRRRRR...',
-    '.RRRRRR...',
-    '.RR...RR..',
-    '.RR....RR.',
-    '.RRRRRRRR.',
-    '..........',
-  ]);
+test('with joining off, every polygon a run produces is convex', () => {
+  // The promise a consumer that needs convex pieces can still ask for.
+  const result = run(
+    [
+      '.RRRRRR...',
+      '.RRRRRR...',
+      '.RR...RR..',
+      '.RR....RR.',
+      '.RRRRRRRR.',
+      '..........',
+    ],
+    { joinShapes: false },
+  );
   for (const polygon of polygonsOf(result)) {
     assert.ok(isConvex(polygon.points), `concave: ${JSON.stringify(polygon.points)}`);
+  }
+});
+
+/* ---------------- the minimums ---------------- */
+
+test('a region drawn in one color is that color exactly, not averaged with its edge', () => {
+  // Each block is handed a column of blended pixels along the edge between them,
+  // which used to pull its average a shade off — and kept two regions of one red
+  // from matching, and a picture snapped to a palette from coming back in it.
+  const result = run([
+    'RRRRRPBBBBBB',
+    'RRRRRPBBBBBB',
+    'RRRRRPBBBBBB',
+    'RRRRRPBBBBBB',
+    'RRRRRPBBBBBB',
+  ]);
+  const colors = polygonsOf(result).map((polygon) => polygon.color).sort();
+  assert.deepEqual(colors, ['#283cdc', '#dc2828']);
+});
+
+const SPECK = [
+  'RRRRRRRRRR',
+  'RRRRRRRRRR',
+  'RRRRRRRRRR',
+  'RRRRBBRRRR',
+  'RRRRBBRRRR',
+  'RRRRRRRRRR',
+  'RRRRRRRRRR',
+  'RRRRRRRRRR',
+];
+
+test('a polygon under the minimum area is folded into what surrounds it, leaving no hole', () => {
+  const kept = run(SPECK, { minPolygonArea: 0 });
+  assert.ok(polygonsOf(kept).some((polygon) => polygon.color === '#283cdc'), 'the speck is there with no minimum');
+
+  const folded = run(SPECK, { minPolygonArea: 6 });
+  assert.deepEqual(polygonsOf(folded).map((polygon) => polygon.color), ['#dc2828'], 'one red shape, hole filled');
+  assert.equal(folded.report.smallFolded, 1);
+  assert.equal(
+    Math.abs(signedArea(polygonsOf(folded)[0]!.points)),
+    80,
+    'covering the whole picture: the speck became part of the red around it',
+  );
+});
+
+const DASH = [
+  'RRRRRKKBBBBB',
+  'RRRRRKKBBBBB',
+  'RRRRRKKBBBBB',
+  'RRRRRKKBBBBB',
+  'RRRRRKKBBBBB',
+  'RRRRRKKBBBBB',
+];
+
+test('a stroke shorter than the minimum line length is drawn as the area it is', () => {
+  assert.equal(run(DASH, { minLineLength: 4 }).report.lines, 1, 'six pixels long is a line at four');
+
+  const short = run(DASH, { minLineLength: 20 });
+  assert.equal(short.report.lines, 0);
+  assert.equal(short.report.shortStrokes, 1);
+  assert.ok(
+    polygonsOf(short).some((polygon) => polygon.color === '#141414'),
+    'and its ink is still there, as a polygon',
+  );
+});
+
+test('the counts of what the minimums did are in the report, and are nothing when they are off', () => {
+  const off = run(SPECK, { minPolygonArea: 0, minLineLength: 0, minNodeGap: 0 });
+  for (const count of ['nodesMerged', 'smallFolded', 'smallDropped', 'shortLines', 'shortStrokes'] as const) {
+    assert.equal(off.report[count], 0, count);
+  }
+});
+
+/* ---------------- joining what belongs together ---------------- */
+
+const ELL = [
+  'RRRRRRRRRRRR',
+  'RRRRRRRRRRRR',
+  'RRRRRRRRRRRR',
+  'RRRRRRRRRRRR',
+  'RRRRRRRRRRRR',
+  'RRRRR.......',
+  'RRRRR.......',
+  'RRRRR.......',
+  'RRRRR.......',
+  'RRRRR.......',
+];
+
+function coveredArea(result: ReturnType<typeof run>): number {
+  return polygonsOf(result).reduce((sum, polygon) => sum + Math.abs(signedArea(polygon.points)), 0);
+}
+
+test('a concave area of one color comes back as one polygon, not the pieces it was cut into', () => {
+  const pieces = run(ELL, { joinShapes: false });
+  const joined = run(ELL);
+  assert.ok(polygonsOf(pieces).length > 1, 'an L cannot be one convex piece');
+  assert.equal(polygonsOf(joined).length, 1);
+  assert.equal(coveredArea(joined), coveredArea(pieces), 'covering exactly what the pieces covered');
+  assert.equal(joined.report.wrongPixels, pieces.report.wrongPixels);
+  assert.equal(joined.report.joinedPolygons, polygonsOf(pieces).length - 1);
+});
+
+test('areas of different colors are never joined, however long the side they share', () => {
+  const result = run([
+    'RRRRRRBBBBBB',
+    'RRRRRRBBBBBB',
+    'RRRRRRBBBBBB',
+    'RRRRRRBBBBBB',
+    'RRRRRRBBBBBB',
+    'RRRRRRBBBBBB',
+  ]);
+  const colors = polygonsOf(result).map((polygon) => polygon.color);
+  assert.equal(colors.length, 2);
+  assert.notEqual(colors[0], colors[1]);
+});
+
+test('an area with a hole in it stays more than one polygon, because a polygon cannot have a hole', () => {
+  // Walls thicker than a stroke, so every side of the frame is an area.
+  const RING = [
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRR......RRRRR',
+    'RRRRR......RRRRR',
+    'RRRRR......RRRRR',
+    'RRRRR......RRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+    'RRRRRRRRRRRRRRRR',
+  ];
+  const result = run(RING);
+  const pieces = run(RING, { joinShapes: false });
+  assert.equal(linesOf(pieces).length, 0, 'the picture this test needs: all area, no strokes');
+  assert.ok(polygonsOf(pieces).length > 2);
+  assert.equal(polygonsOf(result).length, 2, 'one join short of closing the ring');
+  assert.equal(coveredArea(result), coveredArea(pieces));
+  assert.equal(result.report.overNothing, 0, 'and the hole is still empty');
+});
+
+test('the counts in the report are the shapes in the drawing, joined or not', () => {
+  for (const joinShapes of [true, false]) {
+    const result = run(ELL, { joinShapes });
+    assert.equal(result.report.polygons, polygonsOf(result).length, `polygons, joining ${joinShapes}`);
+    assert.equal(result.report.lines, linesOf(result).length, `lines, joining ${joinShapes}`);
   }
 });
 

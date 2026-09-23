@@ -212,34 +212,69 @@ the mask multiplies the alpha that was there rather than replacing it.
 
 `art.palette.filter` · takes an **Image** and a **Palette** · gives **`filtered.png`** and **`filter.md`**
 
-Three jobs in one flow, because they are the same measurement read three ways.
+Two jobs in one flow, because they are the same measurement read two ways. Both
+are exact about what they write, because exactness is what they are for.
 
-| Mode | What it does | What it is for |
+| Mode | Every output pixel is | What it is for |
 | --- | --- | --- |
-| **Keep** | Pixels near a palette color stay; the rest go transparent. | Finding where a color is used. |
-| **Remove** | The other way round. | Dropping a background whose color you sampled. |
-| **Snap** | Nothing goes transparent; every pixel becomes its nearest palette color. | Making a photograph look drawn. |
+| **Keep** | The source pixel exactly as it was (color and opacity) if it is within the tolerance of a palette color — otherwise `(0, 0, 0, 0)`. | Finding where a color is used. |
+| **Snap** | Exactly one palette entry's four numbers, whichever entry looks nearest. | Making a picture use those colors and no others. |
 
-Keep and Remove are exact mirrors: filter an image against its own palette with
-one color switched off, and the share Keep drops is the share Remove keeps.
+**Snap leaves as many values in the picture as the palette has, and no others.**
+Five colors and a transparent entry in play gives a result with six RGBA values in
+it. A pixel becomes the entry's color *and* its opacity — nothing is multiplied or
+blended with what the pixel was — so naming a half-transparent color is how you
+fade the part of a picture that is that color, and an entry at `0%` erases it.
+There is no tolerance in this mode: every pixel has a nearest entry, and refusing
+to pick would leave a value in the picture that is not a palette color.
 
-**Snap has no tolerance**, and the editor stops offering one in that mode. Every
-pixel has a nearest palette color; refusing to pick would leave a hole in an
-image the mode promises not to put holes in.
+**Keep hands the source pixel back, not the palette value.** It does not recolor
+anything: the palette is the question, and the picture is the answer. The point of
+a tolerance is to take in shading, and replacing the pixel with the entry it
+matched would throw that shading away again. So keep's result can hold many values
+— every shade the tolerance took in — but each one is a pixel of the source, and
+everything else is `(0, 0, 0, 0)`. It is a decision, not a fade: there is no soft
+band around the threshold.
 
-**A pixel that is already transparent is left alone, in every mode.** This flow
-takes the extraction flow's output as its input, and re-deciding pixels that were
-deliberately cut away would undo that work.
+**Nearness counts opacity.** Color and opacity are measured apart and put
+together: the distance between the colors on the same OKLab-times-100 scale as the
+palette's own minimum distance (see [COLOR-PALETTE.md](COLOR-PALETTE.md) for why
+plain RGB cannot do this job), and 50 for the whole way from clear to solid. So a
+half-faded red is not the solid red entry at a tolerance of `0`, and a transparent
+pixel is nowhere near black, whatever color numbers it carries.
+
+A soft edge is always nearest **its own color**: a red edge pixel snaps to red
+above half opacity and to clear below it, never to the orange beside it. Comparing
+how colors *look* laid over black and white — the obvious alternative — got this
+wrong: a half-transparent yellow over black is a dark olive, nearer green than
+yellow, so every soft yellow edge snapped to a green fringe. `0` means the exact
+palette value and nothing else, which is what flat artwork wants; anything
+photographic needs room, because the same red is a hundred slightly different reds
+once it has been through a camera and a JPEG.
+
+**Transparent pixels.** In keep they stay transparent, written as `(0, 0, 0, 0)`.
+In snap they snap like any other pixel, to the entry that looks most like nothing:
+the palette's transparent entry, which the Color Palette flow adds for a picture
+with transparent pixels. With no transparent entry in play, snap has to give them
+one of the colors — that is what "only palette values" means — and the report
+says how many it filled.
+
+**There is no remove mode.** There used to be, and it was the keep mode with the
+answer inverted. An inverted answer is a thing you already have: switch the color
+off and keep the others.
+
+**Exact on the way in and out.** A browser canvas stores every pixel multiplied by
+its own opacity, so a half-transparent pixel read or written through one comes
+back a step off — `#283cdc80` becomes `#283cdb80`. The editor therefore reads PNGs
+and writes the result without a canvas (`png.ts`), and the server decodes the
+upload and counts it: the report states how many distinct values the file holds,
+and warns if a snapped result holds any value that is not a palette color. On a
+test cut-out with soft edges, a glass pane and a junk-filled transparent
+background, the previous version's snap left 68 values in the picture for a
+five-entry palette; this one leaves 5.
 
 Any palette color can be switched off, which is how you ask a narrow question of
 a wide palette. The editor shows how many pixels landed on each.
-
-Closeness uses the same OKLab scale as the palette's own minimum distance — see
-[COLOR-PALETTE.md](COLOR-PALETTE.md) for why plain RGB cannot do this job.
-**Softness** widens the threshold into a band where pixels are partly
-transparent, which stops a filtered photograph looking cut out with scissors;
-**hard alpha** forces the decision back to on or off, for sprites and anything
-going to indexed color.
 
 ## Reading a palette
 

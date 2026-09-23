@@ -12,13 +12,15 @@ import {
   nearestEntry,
   readPalette,
   summariseFilter,
-  weigh,
   type PaletteFilterOptions,
 } from '../src/flows/paletteFilter';
 
 const RED = '#dc2828';
 const BLUE = '#283cdc';
 const GREEN = '#28a028';
+/* Red at half opacity. The palette writes an eight-digit hex when, and only
+ * when, the entry is not solid. */
+const FAINT_RED = '#dc282880';
 
 const palette = readPalette([RED, BLUE]);
 
@@ -32,9 +34,21 @@ function image(pixels: Array<[number, number, number, number]>): Bitmap {
 
 const options = (over: Partial<PaletteFilterOptions> = {}): PaletteFilterOptions => ({
   ...DEFAULT_PALETTE_FILTER_OPTIONS,
-  softness: 0,
   ...over,
 });
+
+/** Pixels of every color and opacity, the same every run. */
+function noise(count: number): Bitmap {
+  const data = new Uint8ClampedArray(count * 4);
+  let seed = 12345;
+  for (let index = 0; index < data.length; index += 1) {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    data[index] = seed >>> 24;
+  }
+  // A good share of them fully transparent, with junk color numbers.
+  for (let pixel = 0; pixel < count; pixel += 7) data[pixel * 4 + 3] = 0;
+  return { width: count, height: 1, data };
+}
 
 const alphaOf = (pixels: Uint8ClampedArray) =>
   Array.from({ length: pixels.length / 4 }, (_, index) => pixels[index * 4 + 3]!);
@@ -44,6 +58,13 @@ const alphaOf = (pixels: Uint8ClampedArray) =>
 test('a palette is read from what the palette flow writes', () => {
   const written = { entries: [{ hex: RED, share: 0.5 }, { hex: BLUE, share: 0.5 }] };
   assert.deepEqual(readPalette(written).hexes, [RED, BLUE]);
+});
+
+test('an entry that is not solid keeps its opacity through the read', () => {
+  const read = readPalette([FAINT_RED, RED]);
+  assert.deepEqual(read.hexes, [FAINT_RED, RED], 'and stays a separate entry from the solid one');
+  assert.equal(read.colors[0]!.a, 0x80);
+  assert.equal(read.colors[1]!.a, 255, 'a six-digit entry is fully opaque');
 });
 
 test('a palette can also be a plain list of hex strings', () => {
@@ -103,17 +124,84 @@ test('keep judges by tolerance, so a near-miss counts as the color', () => {
   assert.deepEqual(alphaOf(filterImage(nearlyRed, palette, options({ tolerance: 0.5 })).pixels), [0]);
 });
 
-/* ---------------- remove ---------------- */
+test('a tolerance of zero means the exact palette value and nothing else', () => {
+  // What flat artwork wants: a drawing made from a palette contains those colors
+  // and no others, so a pixel one step off is a pixel that is not the color.
+  const source = image([
+    [0xdc, 0x28, 0x28, 255], // exactly red
+    [0xdb, 0x28, 0x28, 255], // one step off, invisibly
+  ]);
+  assert.deepEqual(alphaOf(filterImage(source, palette, options({ tolerance: 0 })).pixels), [255, 0]);
+});
 
-test('remove is the exact opposite of keep', () => {
+test('keep hands the source pixel back untouched, not the palette value', () => {
+  // The point of a tolerance is to take in shading; recoloring to the entry it
+  // matched would throw that shading away again.
+  const shaded = image([[0xd2, 0x32, 0x2e, 255]]);
+  const { pixels } = filterImage(shaded, palette, options({ tolerance: 10 }));
+  assert.deepEqual(Array.from(pixels), [0xd2, 0x32, 0x2e, 255]);
+});
+
+test('what keep does not keep is fully transparent — four zeros, not a faded color', () => {
+  const green = image([[0x28, 0xa0, 0x28, 255]]);
+  const { pixels } = filterImage(green, palette, options({ tolerance: 10 }));
+  assert.deepEqual(Array.from(pixels), [0, 0, 0, 0]);
+});
+
+test('keep writes nothing but source pixels and clear ones, however varied the picture', () => {
+  // The rule, checked by counting: every output pixel is either exactly the pixel
+  // that was there or (0, 0, 0, 0). A variety of pixels, and nothing invented.
+  const source = noise(2000);
+  const { pixels } = filterImage(source, palette, options({ tolerance: 30 }));
+  let kept = 0;
+  for (let at = 0; at < pixels.length; at += 4) {
+    const same = [0, 1, 2, 3].every((channel) => pixels[at + channel] === source.data[at + channel]);
+    const clear = [0, 1, 2, 3].every((channel) => pixels[at + channel] === 0);
+    assert.ok(same || clear, `pixel ${at / 4} is neither the source nor clear: ${Array.from(pixels.slice(at, at + 4))}`);
+    if (same && !clear) kept += 1;
+  }
+  assert.ok(kept > 20, `${kept} kept — the test picture has to keep something to prove anything`);
+});
+
+test('keep writes a transparent pixel as (0, 0, 0, 0), not with the color numbers it carried', () => {
+  const withClear = readPalette([RED, '#00000000']);
+  const cut = image([
+    [0xff, 0xff, 0xff, 0],
+    [0x0c, 0x22, 0x38, 0],
+    [0xdc, 0x28, 0x28, 255],
+  ]);
+  const { pixels } = filterImage(cut, withClear, options({ tolerance: 0 }));
+  assert.deepEqual(Array.from(pixels), [0, 0, 0, 0, 0, 0, 0, 0, 0xdc, 0x28, 0x28, 255]);
+});
+
+test('keeping the other colors is how you drop one', () => {
+  // There is no remove mode: an inverted answer is the same question asked about
+  // the rest of the palette, and this is the whole of what it used to do.
   const source = image([
     [0xdc, 0x28, 0x28, 255],
-    [0x28, 0xa0, 0x28, 255],
+    [0x28, 0x3c, 0xdc, 255],
   ]);
-  const kept = alphaOf(filterImage(source, palette, options({ mode: 'keep', tolerance: 10 })).pixels);
-  const removed = alphaOf(filterImage(source, palette, options({ mode: 'remove', tolerance: 10 })).pixels);
-  assert.deepEqual(kept, [255, 0]);
-  assert.deepEqual(removed, [0, 255]);
+  const withoutRed = options({ tolerance: 10, only: [BLUE] });
+  assert.deepEqual(alphaOf(filterImage(source, palette, withoutRed).pixels), [0, 255]);
+});
+
+test('keep matches opacity as well as color: solid red is not the half-transparent red entry', () => {
+  const source = image([
+    [0xdc, 0x28, 0x28, 255],
+    [0xdc, 0x28, 0x28, 0x80],
+  ]);
+  const { pixels } = filterImage(source, readPalette([FAINT_RED]), options({ tolerance: 0 }));
+  assert.deepEqual(Array.from(pixels), [0, 0, 0, 0, 0xdc, 0x28, 0x28, 0x80]);
+});
+
+test('a fainter pixel of a palette color is kept only when the tolerance takes it in, and then as it was', () => {
+  const faint = image([[0xdc, 0x28, 0x28, 100]]);
+  assert.deepEqual(Array.from(filterImage(faint, palette, options({ tolerance: 0 })).pixels), [0, 0, 0, 0]);
+  assert.deepEqual(
+    Array.from(filterImage(faint, palette, options({ tolerance: 60 })).pixels),
+    [0xdc, 0x28, 0x28, 100],
+    'kept means "as it was", not "opaque now"',
+  );
 });
 
 /* ---------------- snap ---------------- */
@@ -147,6 +235,85 @@ test('a pixel already on the palette is not counted as recolored', () => {
   assert.equal(filterImage(exact, palette, options({ mode: 'snap' })).report.recolored, 0);
 });
 
+test('snap takes the entry’s opacity as well as its color', () => {
+  // Which is what an opacity in a palette is for: naming a see-through color and
+  // snapping to it fades the part of the picture that is that color.
+  const source = image([[0xd0, 0x30, 0x30, 255]]);
+  const { pixels, report } = filterImage(source, readPalette([FAINT_RED]), options({ mode: 'snap' }));
+  assert.deepEqual(Array.from(pixels), [0xdc, 0x28, 0x28, 0x80]);
+  assert.equal(report.kept, 1, 'faded is not gone');
+});
+
+test('a snapped pixel takes the entry’s opacity exactly, whatever its own was', () => {
+  // Nothing is multiplied: a pixel becomes the entry's four numbers, so the result
+  // holds palette values and no others.
+  const half = image([[0xd0, 0x30, 0x30, 128]]);
+  const { pixels } = filterImage(half, readPalette([FAINT_RED]), options({ mode: 'snap' }));
+  assert.deepEqual(Array.from(pixels), [0xdc, 0x28, 0x28, 0x80]);
+});
+
+test('snap leaves exactly as many values in the picture as the palette has, and no others', () => {
+  /*
+   * The rule, checked by counting. Five colors and a clear one: two thousand
+   * pixels of noise — every color, every opacity, fully transparent ones with
+   * junk color numbers — come out as those six RGBA values and nothing else.
+   */
+  const six = readPalette([RED, BLUE, GREEN, '#ffffff', '#101010', '#00000000']);
+  const { pixels } = filterImage(noise(2000), six, options({ mode: 'snap' }));
+  const allowed = new Set(six.colors.map(({ r, g, b, a }) => `${r},${g},${b},${a}`));
+  const seen = new Set<string>();
+  for (let at = 0; at < pixels.length; at += 4) seen.add(Array.from(pixels.slice(at, at + 4)).join(','));
+  for (const value of seen) assert.ok(allowed.has(value), `${value} is not a palette value`);
+  assert.equal(seen.size, 6, 'and with this much noise, every one of them is used');
+});
+
+test('snapping soft edges gives each one its own color or clear, never a neighbour', () => {
+  // Opaque colors and a clear entry, the palette a cut-out drawing gets. An edge
+  // pixel of any of them, at any opacity, snaps to itself above half and to clear
+  // below — so a snapped cut-out has no colored fringes.
+  const hexes = [RED, BLUE, '#e6c828', GREEN, '#ffffff', '#101010', '#00000000'];
+  const cut = readPalette(hexes);
+  for (const hex of hexes.slice(0, -1)) {
+    const color = cut.colors[cut.hexes.indexOf(hex)]!;
+    for (let a = 1; a < 255; a += 1) {
+      const landed = cut.hexes[nearestEntry({ ...color, a }, cut)!.index];
+      assert.equal(landed, a >= 128 ? hex : '#00000000', `${hex} at alpha ${a}`);
+    }
+  }
+});
+
+test('a transparent pixel snaps to the clear entry, whatever color numbers it carries', () => {
+  const withClear = readPalette([RED, BLUE, '#00000000']);
+  const cut = image([
+    [0xdc, 0x28, 0x28, 0],
+    [0xff, 0xff, 0xff, 0],
+    [0xdc, 0x28, 0x28, 3], // all but gone
+  ]);
+  const { pixels, report } = filterImage(cut, withClear, options({ mode: 'snap' }));
+  assert.deepEqual(Array.from(pixels), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.equal(report.filled, 0);
+  assert.deepEqual(report.problems, []);
+});
+
+test('with no clear entry in play, snap has to give transparent pixels a color — and says so', () => {
+  const cut = image([
+    [0xdc, 0x28, 0x28, 0],
+    [0xdc, 0x28, 0x28, 255],
+  ]);
+  const { pixels, report } = filterImage(cut, palette, options({ mode: 'snap' }));
+  assert.equal(pixels[3], 255, 'every pixel is a palette value, and this palette has no clear one');
+  assert.equal(report.filled, 1);
+  assert.ok(report.problems.some((problem) => /transparent pixel\(s\) were given a color/.test(problem)));
+});
+
+test('an entry with no opacity at all erases what snaps to it', () => {
+  const source = image([[0xd0, 0x30, 0x30, 255]]);
+  const { pixels, report } = filterImage(source, readPalette(['#dc282800']), options({ mode: 'snap' }));
+  assert.equal(pixels[3], 0);
+  assert.equal(report.dropped, 1);
+  assert.equal(report.kept, 0);
+});
+
 test('snap reports where the pixels landed, which is what makes it readable', () => {
   const source = image([
     [0xd0, 0x30, 0x30, 255],
@@ -162,44 +329,27 @@ test('snap reports where the pixels landed, which is what makes it readable', ()
 
 /* ---------------- transparency ---------------- */
 
-test('a pixel that was already transparent is left alone in every mode', () => {
+test('a pixel that was already transparent stays transparent, in both modes, given a clear entry', () => {
   // This flow takes the cutout flow's output, and re-deciding pixels that were
   // deliberately cut away would undo that work.
   const cut = image([[0xdc, 0x28, 0x28, 0]]);
+  const withClear = readPalette([RED, BLUE, '#00000000']);
   for (const mode of FILTER_MODES) {
-    const { pixels, report } = filterImage(cut, palette, options({ mode }));
+    const { pixels, report } = filterImage(cut, withClear, options({ mode }));
     assert.equal(pixels[3], 0, mode);
-    assert.equal(report.considered, 0, `${mode} considered a cut-away pixel`);
+    assert.equal(report.considered, 0, `${mode} counted a cut-away pixel as part of the picture`);
+    assert.equal(report.clearIn, 1);
   }
 });
 
-test('softness gives a ramp at the boundary instead of a step', () => {
-  assert.equal(weigh(5, 20, 0), 1, 'no softness is a step');
-  assert.equal(weigh(25, 20, 0), 0);
-
-  assert.equal(weigh(10, 20, 5), 1, 'well inside stays fully in');
-  assert.equal(weigh(30, 20, 5), 0, 'well outside stays fully out');
-  assert.equal(weigh(20, 20, 5), 0.5, 'and the threshold itself is halfway');
-  assert.ok(weigh(18, 20, 5) > 0.5 && weigh(18, 20, 5) < 1);
-});
-
-test('a soft edge shows up as partial alpha in the result', () => {
+test('keep decides, rather than fading — a pixel is the color or it is not', () => {
+  // There is no soft band around the tolerance any more. Keep answers a question
+  // about the source pixels, and half an answer is not one.
   const borderline = image([[0xc0, 0x50, 0x50, 255]]);
-  const soft = filterImage(borderline, palette, options({ tolerance: 12, softness: 8 })).pixels[3]!;
-  assert.ok(soft > 0 && soft < 255, `${soft} should be partial`);
-});
-
-test('hard alpha turns a soft decision back into on or off', () => {
-  // What you want when the result is going to be indexed color or a sprite.
-  const borderline = image([[0xc0, 0x50, 0x50, 255]]);
-  const hard = filterImage(borderline, palette, options({ tolerance: 12, softness: 8, hardAlpha: true }));
-  assert.ok(hard.pixels[3] === 0 || hard.pixels[3] === 255, `${hard.pixels[3]}`);
-});
-
-test('a partly transparent pixel keeps its own transparency as a ceiling', () => {
-  const faint = image([[0xdc, 0x28, 0x28, 100]]);
-  const { pixels } = filterImage(faint, palette, options({ mode: 'keep', tolerance: 10 }));
-  assert.equal(pixels[3], 100, 'kept means "as it was", not "opaque now"');
+  for (const tolerance of [0, 4, 8, 12, 20, 40]) {
+    const alpha = filterImage(borderline, palette, options({ tolerance })).pixels[3]!;
+    assert.ok(alpha === 0 || alpha === 255, `tolerance ${tolerance} gave ${alpha}`);
+  }
 });
 
 /* ---------------- nothing to do ---------------- */
@@ -223,11 +373,19 @@ test('a filter that matched nothing says which way to turn the tolerance', () =>
   const keep = filterImage(green, palette, options({ mode: 'keep', tolerance: 1 }));
   assert.ok(keep.report.problems.some((problem) => /Raise the tolerance/.test(problem)));
 
-  const remove = filterImage(green, palette, options({ mode: 'remove', tolerance: 200 }));
-  assert.ok(remove.report.problems.some((problem) => /Lower the tolerance/.test(problem)));
+  const exact = filterImage(green, palette, options({ mode: 'keep', tolerance: 0 }));
+  assert.ok(exact.report.problems.some((problem) => /exactly/.test(problem)), exact.report.problems.join('; '));
+
+  // Snap matched everything by definition, so it has nothing to complain about.
+  const snap = filterImage(green, palette, options({ mode: 'snap', tolerance: 0 }));
+  assert.deepEqual(snap.report.problems, []);
 });
 
 /* ---------------- the flow ---------------- */
+
+test('there are two modes, and removing is not one of them', () => {
+  assert.deepEqual([...FILTER_MODES], ['keep', 'snap']);
+});
 
 test('every mode is labelled and explained', () => {
   for (const mode of FILTER_MODES) {
@@ -236,7 +394,7 @@ test('every mode is labelled and explained', () => {
   }
 });
 
-test('a fresh flow keeps rather than removes, so a first run shows something', () => {
+test('a fresh flow keeps rather than snaps, so a first run shows something', () => {
   const fresh = emptyPaletteFilterFlowData();
   assert.equal(fresh.options.mode, 'keep');
   assert.equal(fresh.editor, 'paletteFilter');
@@ -249,10 +407,14 @@ test('the summary says what happened in the terms of the mode', () => {
     [0x28, 0xa0, 0x28, 255],
   ]);
   const keep = filterImage(source, palette, options({ mode: 'keep', tolerance: 10 }));
-  assert.match(summariseFilter(keep.report, options({ mode: 'keep' })), /50.0% kept, 50.0% made transparent/);
+  assert.match(summariseFilter(keep.report, options({ mode: 'keep' })), /50\.0% kept exactly as it was, 50\.0% made transparent/);
 
   const snap = filterImage(source, palette, options({ mode: 'snap' }));
-  assert.match(summariseFilter(snap.report, options({ mode: 'snap' })), /recolored; nothing was made transparent/);
+  // Only the green pixel changes: the red one is already the palette's red.
+  assert.match(summariseFilter(snap.report, options({ mode: 'snap' })), /50\.0% of what shows was recolored/);
+
+  const faded = filterImage(source, readPalette(['#dc282800']), options({ mode: 'snap' }));
+  assert.match(summariseFilter(faded.report, options({ mode: 'snap' })), /snapped to transparent/);
 
   const empty = filterImage(image([[0, 0, 0, 0]]), palette, options());
   assert.match(summariseFilter(empty.report, options()), /already transparent/);

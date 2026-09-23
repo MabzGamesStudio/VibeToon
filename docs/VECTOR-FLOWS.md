@@ -55,6 +55,11 @@ The other settings are about where the boundaries are and how heavy the result i
 | Simplify to within | How far a boundary may move to lose a point. The main control over how heavy the result is. |
 | At most, per shape | A hard point budget, for when a tolerance alone will not promise one. |
 | Curved if bent by | How bent a run must be, relative to its length, to be a curve. |
+| Join shapes of the same color that touch | On by default: polygons sharing a side become one, and lines whose ends meet become one. Off leaves every area as convex pieces. |
+| Join line ends within | How close two line ends of one color must be to join, in pixels. |
+| Nodes at least | The closest two nodes may be. Closer ones are merged, in every shape that shares them. |
+| Smallest polygon | A smaller polygon is folded into the neighbour it shares most outline with; one touching nothing is dropped. |
+| Shortest line | A stroke shorter than this is drawn as an area; a stub off a longer line is dropped. |
 | Rounds of refinement | How many times to measure the result and do the worst part better. See below. |
 
 ## Boundaries first, and the fill between them
@@ -323,15 +328,153 @@ still convex, and only the two corners the cut ended at can have stopped being s
 Triangles alone would satisfy "convex" and give ten times the shapes, which is
 worse to edit and worse to read.
 
-## Why convex
+## Shapes of one color that touch are one shape
 
-A polygon here is always convex, because that is what everything downstream can
-rely on. A convex polygon is trivially triangulated, filled, offset and
-point-tested, and never has the self-intersections that make a concave one a
-special case in every renderer that meets it.
+The convex cut is a tool, not the answer. It is how the decomposition finds the
+parts of a region too thin to be an area — a question about a *piece*, which a
+whole region cannot be asked — and once that is settled, the pieces that are left
+are put back together. A person looking at a red cheek sees one shape, not seven
+triangles, and a drawing that disagrees is a drawing nobody wants to edit.
 
-Editing can break that, and when it does the flow says so rather than letting a
-consumer find out.
+Two rules, applied last, after the slivers have become strokes:
+
+| | Joined when | Into |
+| --- | --- | --- |
+| **Polygons** | They share a side and are exactly the same color. | One polygon — unless it would have to touch itself or go round a hole. |
+| **Lines** | An end of one is within **Join line ends within** of an end of the other, and they are exactly the same color. | One line, with a single point halfway between the two ends, so the gap between them is drawn. |
+
+*Exactly the same color* means the same hex. Two shapes a shade apart are two
+things in the picture, and joining them would paint one of them the wrong color.
+
+**A shared side is found on exact coordinates.** Neighbours hold literally the
+same points along the boundary between them — that is what makes them fit, above —
+so a side one polygon walks from *a* to *b* is walked from *b* to *a* by its
+neighbour, and nothing has to be matched approximately. The union of two polygons
+is every side of both, less the sides they share, walked round; it is accepted
+only when that walk is one loop that visits no point twice.
+
+**A polygon cannot have a hole**, because a polygon is one loop of points. A ring
+cut into pieces is therefore joined until the next join would close it, and stays
+two polygons that between them leave the middle empty. Bridging the hole with a
+slit of zero width, as the convex cut does, would make it one polygon on paper and
+draw a hairline across the hole in every renderer that strokes its outline.
+
+**Where three line ends meet**, only two can join, and the two joined are the two
+that carry on straightest — the angle between one line leaving and the other
+arriving. That is how a fork reads as a line with a branch rather than as three
+stubs. Each end is used once, and joining never closes a chain on itself: closing
+a loop is a different decision from joining two lines.
+
+Measured on a cartoon drawing with a head, a body, eyes and outlines, joining took
+**93 polygons to 13** at 256px and **150 to 17** at 800px, and the points in the
+drawing from 450 to 288 and 704 to 438 — with the pixels drawn wrong unchanged
+(1,060 to 1,058; 3,050 to 3,050). It covers exactly what the pieces covered,
+because it only ever removes a side two pieces had in common.
+
+### Convex, when you need it
+
+Turn **Join shapes of the same color that touch** off and every area comes back
+as the convex pieces it was cut into. A convex polygon is trivially triangulated,
+filled, offset and point-tested, which some consumers want. Nothing in the studio
+needs it: hit-testing is even-odd, which works for any simple polygon, and the
+editor's cut handles concave shapes (below).
+
+## The smallest things
+
+Three minimums, each applied so that it cannot open a gap between shapes or make
+two overlap — the one thing the decomposition promises.
+
+**Nodes at least** (default 1.5 px). Nodes closer than this along an outline or a
+line are merged into one. The merge is decided on the nodes, not on any one shape:
+where neighbours share a node, it moves for all of them, so they still meet
+exactly. Shortest edges first, and only while the merged node stays within the
+distance of every node it took in, so a curve drawn as a run of one-pixel steps is
+thinned out rather than collapsed into a point. A node where three or more
+outlines meet stays put and the other comes to it. It runs on the finished shapes
+— merging before the convex cut moved the outlines that decide which thin pieces
+are strokes, and cost twice the accuracy for the same saving.
+
+**Smallest polygon** (default 6 px²). A smaller polygon is folded into the
+neighbour it shares the most outline with, whatever that neighbour's color — it
+becomes part of it, so there is no hole where it was. One that touches no other
+polygon is dropped. Joining runs again afterwards, because folding a crumb away can
+leave two shapes of one color touching where it used to part them. This is not the
+same as **Drop regions under**, which works on pixels before anything is traced;
+this works on the shapes that came out.
+
+**Shortest line** (default 4 px, end to end). A thin piece of an area only becomes
+a stroke if the stroke would be this long. A stroke region's runs are joined first,
+so a long line is not dropped for arriving in pieces; then a region whose lines are
+all still too short is a dash or a dot, and is drawn as the small area it is so its
+ink is kept, and stubs shorter than this off a longer line — the spurs thinning
+leaves at a corner — are dropped.
+
+Measured on the same four pictures, the defaults cost the face and the cartoon
+about 2% more pixels off for about 5% fewer points, and change a photograph
+hardly at all. Turned up — 3 px, 20 px², 8 px — the photograph went from 161
+polygons to 78 and came out *closer* to the picture, because the crumbs were
+mostly wrong anyway.
+
+**A region drawn in one color is that color exactly.** A region's pixels are its
+flat inside and the band of blended pixels along its edge that it was handed, and
+their average is a shade off — two regions of one red came out a hex digit apart,
+so they were never joined, and a picture snapped to a palette did not come back in
+the palette's colors. When one exact color is at least a quarter of a region, that
+is the region's color; a shaded region, where no color repeats much, keeps its
+average. On the cartoon, ten shape colors became the eight it was drawn in.
+
+## How fast, and where the time goes
+
+Measured with V8's profiler on four pictures — the 256-pixel face, an 800-pixel
+cartoon, and a photograph-like test of smooth gradients and noise at 200 and 400
+pixels — and every change below was checked to give **exactly the same shapes**
+as before, point for point.
+
+| Picture | Before | After |
+| --- | --- | --- |
+| Face, 256 × 256 | 0.54 s | 0.33 s |
+| Cartoon, 800 × 800 | 3.0 s | 1.4 s |
+| Photo-like, 200 × 200 | 57.6 s | 0.33 s |
+| Photo-like, 400 × 400 | did not finish in 20 minutes | 3.6 s |
+
+**Color conversion was a third of the time on drawings.** sRGB's curve is a
+`pow`, asked for three times a pixel by every measurement, and the measure of the
+finished drawing against the picture converted every source pixel again on every
+round. The curve is now looked up — it has 256 possible answers — and the source
+is converted once per decomposition and shared.
+
+**Cutting regions into convex pieces was the cliff on photographs.** Ear clipping
+tested every corner against every other corner and every edge, on every round:
+cubic in the length of the outline, and a photographed region has an outline
+hundreds of points long with holes bridged into it. 96% of the 200-pixel photo's
+minute went there. Two things took it away, without changing a single triangle:
+
+- **A quadtree** (the flat form of an octree) over the corners, the edges and each
+  corner's ear, so "is any corner inside this ear" and "does anything cross this
+  cut" are asked of what is nearby rather than of everything.
+- **Remembering each corner's answer.** Clipping an ear changes the outline only
+  inside that ear, so only corners whose own ear overlaps it can get a different
+  answer; the rest keep theirs. An 800-corner outline went from 70 seconds to a
+  quarter of one.
+
+Bridging holes into a region was next, for the same reason: every pair of corners
+sorted, and each candidate checked against every edge. It now takes candidates
+shortest-first off a heap, checks them against a quadtree of the edges, and keeps
+one index for the whole region, adding only each new bridge to it.
+
+**A flat grid against the quadtree.** Both were built behind the same interface
+and measured. On whole pictures they were the same to within the noise; on a
+2,000-corner outline the quadtree was faster (3.1 s against 3.8 s), and it needs no
+cell size tuned to the picture. The quadtree was kept.
+
+**The GPU.** Only the per-pixel stages — color conversion, edge detection, and
+measuring the drawing against the picture — are the kind of work a graphics card
+does well, and after the changes above they are about a fifth of the time on a
+drawing and less on a photograph. The rest is flood-filling regions, tracing their
+outlines and cutting them up: sequential, geometric work a GPU does not speed up.
+So even an infinitely fast GPU could save at most about a fifth, before paying to
+move the pixels there and back — not worth a second implementation of each stage
+to keep in step with the first.
 
 ## What a line stores
 
@@ -374,6 +517,12 @@ A cut is **extended past both clicks** before anything is intersected. Two click
 across a shape are almost never exactly on its outline, and a segment lying wholly
 inside a polygon crosses none of its edges; taken literally that is "not a cut",
 so the gesture would do nothing for a reason invisible on screen.
+
+A straight line can cross a **concave** polygon more than twice — across a C it
+goes into one arm, out, and into the other. The cut is then the stretch of the
+line inside the shape nearest the two clicks, which is the stretch you were
+pointing at. Any such stretch divides a simple polygon into exactly two, so the
+halves are always shapes.
 
 Cutting a line gives two lines that still meet at the cut, rather than a gap.
 Cutting a **closed** line opens it instead, because that is what cutting a loop

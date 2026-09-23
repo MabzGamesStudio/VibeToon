@@ -1077,6 +1077,8 @@
   position: relative;
   overflow: hidden;
 
+  @include checkered;
+
   &.is-selected {
     outline: 2px solid $accent;
     outline-offset: 1px;
@@ -1361,6 +1363,9 @@
   position: relative;
   opacity: 0.32;
   filter: grayscale(0.7);
+  // Smaller squares than a palette swatch, because the chip is smaller: two
+  // across is enough to read as a checker and not as a stripe.
+  @include checkered(10px);
 
   &.is-on {
     opacity: 1;
@@ -1706,11 +1711,19 @@
   }
 }
 
+/*
+ * Handles leave their width to the element that draws them.
+ *
+ * A stylesheet rule beats a presentation attribute in SVG, so a `stroke-width`
+ * here would win over the one the editor works out — and the editor is the only
+ * thing that knows how far the stage has been zoomed. `vector-effect:
+ * non-scaling-stroke` is no help either: it pins the stroke to the SVG's own
+ * viewport, which the stage's transform then scales along with everything else.
+ * So the width is set where it is known and this file stays out of it.
+ */
 .vt-anchor {
   fill: $accent;
   stroke: #fff;
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
   pointer-events: none;
 
   &.is-held {
@@ -1736,15 +1749,12 @@
 /* Bones drawn over a drawing, for binding and posing. */
 .vt-bone {
   stroke: #ff3b6b;
-  stroke-width: 2;
   stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
   pointer-events: none;
   opacity: 0.8;
 
   &.is-selected {
     stroke: #fff;
-    stroke-width: 3;
     opacity: 1;
   }
 }
@@ -1752,11 +1762,40 @@
 .vt-joint {
   fill: #ff3b6b;
   stroke: #fff;
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
   pointer-events: none;
 
   &.is-selected {
     fill: #fff;
+  }
+}
+
+/*
+ * A node of the drawing, in binding. Unbound nodes are small and pale; a bound
+ * one takes its part's color from the element's own style; the part being worked
+ * on is outlined in white. No stroke-width here — the editor sizes it for the zoom.
+ */
+.vt-node-dot {
+  fill: rgba(255, 255, 255, 0.75);
+  stroke: rgba(20, 20, 26, 0.85);
+  pointer-events: none;
+
+  &.is-taken {
+    opacity: 0.8;
+  }
+
+  &.is-mine {
+    stroke: #fff;
+  }
+}
+
+/* The reach of the add and take-out brush, following the pointer. */
+.vt-brush {
+  fill: rgba(110, 168, 254, 0.12);
+  stroke: rgba(110, 168, 254, 0.9);
+  pointer-events: none;
+
+  &.is-removing {
+    fill: rgba(255, 90, 90, 0.12);
+    stroke: rgba(255, 90, 90, 0.9);
   }
 }

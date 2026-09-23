@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   emptyVectorizeFlowData,
   inputsForPort,
@@ -17,6 +17,8 @@ import {
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
+import { Field } from '../common/Field';
+import { readBitmap } from '../common/pixels';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
@@ -68,36 +70,11 @@ export function VectorizeFlowEditor({
     if (!imagePath) return;
     setBusy(true);
     try {
-      const element = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const image = new Image();
-        image.crossOrigin = 'anonymous';
-        image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error('the browser could not decode this image'));
-        image.src = api.artifactUrl(project.id, imagePath);
-      });
-
-      const width = element.naturalWidth;
-      const height = element.naturalHeight;
-      if (width === 0 || height === 0) throw new Error('the image has no size');
-      if (width * height > 4_000_000) {
-        // Every pixel is visited several times; past a few megapixels this stops
-        // being a pause and starts being a hang.
-        throw new Error(
-          `${(width * height / 1_000_000).toFixed(1)}M pixels is more than this can decompose. Scale the picture down first.`,
-        );
-      }
-
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const context = canvas.getContext('2d', { willReadFrequently: true });
-      if (!context) throw new Error('this browser would not give a canvas to read the image with');
-      context.drawImage(element, 0, 0);
-      const bitmap: Bitmap = {
-        width,
-        height,
-        data: context.getImageData(0, 0, width, height).data,
-      };
+      // Byte for byte (`pixels.ts`), so a picture already snapped to a palette
+      // decomposes into exactly those colors. Every pixel is visited several times;
+      // past a few megapixels this stops being a pause and starts being a hang, so
+      // a bigger picture is refused before it is decoded.
+      const bitmap: Bitmap = await readBitmap(api.artifactUrl(project.id, imagePath), { maxPixels: 4_000_000 });
 
       const run = vectorize(bitmap, data.options, newId);
       setFresh(run.report);
@@ -292,6 +269,74 @@ export function VectorizeFlowEditor({
           />
         </div>
 
+        <div className="vt-section">
+          <h3>The smallest things</h3>
+          <Slider
+            label="Nodes at least"
+            value={data.options.minNodeGap}
+            min={0}
+            max={6}
+            step={0.5}
+            tip="vectorize.minNodeGap"
+            format={(value) => (value === 0 ? 'as traced' : `${value.toFixed(1)}px apart`)}
+            hint="Closer nodes are merged — in every shape that shares them, so neighbours still meet."
+            onChange={(minNodeGap) => patch({ options: { ...data.options, minNodeGap } })}
+          />
+          <Slider
+            label="Smallest polygon"
+            value={data.options.minPolygonArea}
+            min={0}
+            max={100}
+            step={1}
+            tip="vectorize.minPolygonArea"
+            format={(value) => (value === 0 ? 'any size' : `${value.toFixed(0)} px²`)}
+            hint="A smaller one is folded into the neighbour it shares most outline with, so it leaves no hole."
+            onChange={(minPolygonArea) => patch({ options: { ...data.options, minPolygonArea } })}
+          />
+          <Slider
+            label="Shortest line"
+            value={data.options.minLineLength}
+            min={0}
+            max={40}
+            step={1}
+            tip="vectorize.minLineLength"
+            format={(value) => (value === 0 ? 'any length' : `${value.toFixed(0)}px end to end`)}
+            hint="A stroke shorter than this is drawn as the area it is; a stub off a longer line is dropped."
+            onChange={(minLineLength) => patch({ options: { ...data.options, minLineLength } })}
+          />
+        </div>
+
+        <div className="vt-section">
+          <h3>What belongs together</h3>
+          <Field label="Join" tip="vectorize.joinShapes">
+            <label className="vt-row" style={{ gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={data.options.joinShapes}
+                onChange={(event) => patch({ options: { ...data.options, joinShapes: event.target.checked } })}
+              />
+              Join shapes of the same color that touch
+            </label>
+          </Field>
+          <p className="vt-faint" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.4 }}>
+            {data.options.joinShapes
+              ? 'Polygons that share a side become one polygon, and lines whose ends meet become one line. A shape with a hole stays two, because a polygon cannot have one.'
+              : 'Every area comes back as the convex pieces it was cut into, for anything that needs every polygon convex.'}
+          </p>
+          {data.options.joinShapes ? (
+            <Slider
+              label="Join line ends within"
+              value={data.options.joinGap}
+              min={0}
+              max={12}
+              step={0.5}
+              tip="vectorize.joinGap"
+              format={(value) => (value === 0 ? 'only where they touch' : `${value.toFixed(1)}px`)}
+              onChange={(joinGap) => patch({ options: { ...data.options, joinGap } })}
+            />
+          ) : null}
+        </div>
+
         {summary ? (
           <div className="vt-section">
             <h3>What was found</h3>
@@ -310,6 +355,30 @@ export function VectorizeFlowEditor({
               <dd>{summary.colors.length}</dd>
               {report ? (
                 <>
+                  {report.joinedPolygons > 0 || report.joinedLines > 0 ? (
+                    <>
+                      <dt>Joined</dt>
+                      <dd>
+                        {report.joinedPolygons} polygon join(s), {report.joinedLines} line join(s)
+                      </dd>
+                    </>
+                  ) : null}
+                  {(report.nodesMerged ?? 0) + (report.smallFolded ?? 0) + (report.smallDropped ?? 0) + (report.shortLines ?? 0) + (report.shortStrokes ?? 0) > 0 ? (
+                    <>
+                      <dt>Tidied</dt>
+                      <dd>
+                        {[
+                          report.nodesMerged ? `${report.nodesMerged} node(s) merged` : '',
+                          report.smallFolded ? `${report.smallFolded} small polygon(s) folded in` : '',
+                          report.smallDropped ? `${report.smallDropped} speck(s) dropped` : '',
+                          report.shortLines ? `${report.shortLines} stub(s) dropped` : '',
+                          report.shortStrokes ? `${report.shortStrokes} short stroke(s) drawn as areas` : '',
+                        ]
+                          .filter(Boolean)
+                          .join(', ')}
+                      </dd>
+                    </>
+                  ) : null}
                   <dt>Pixels wrong</dt>
                   <dd>
                     {Math.round(report.wrongPixels).toLocaleString()}
@@ -325,7 +394,7 @@ export function VectorizeFlowEditor({
                 <span
                   key={color}
                   className="vt-filter-color is-on"
-                  style={{ background: color, cursor: 'default' }}
+                  style={{ '--vt-swatch': color, cursor: 'default' } as CSSProperties}
                   title={`${color} — ${result!.shapes.filter((shape) => shape.color === color).length} shape(s)`}
                 >
                   <span>{color.slice(1)}</span>

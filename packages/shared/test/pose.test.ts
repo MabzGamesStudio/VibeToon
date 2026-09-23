@@ -36,8 +36,17 @@ const patch: VectorPolygon = {
 
 const image: VectorImage = { width: 100, height: 100, shapes: [patch] };
 
+/** A bound rig where each named shape has every point on one bone. */
 function bound(binding: Record<string, string> = {}): BoundRig {
-  return { rig, image, binding };
+  return { rig, image, points: wholeShapes(image, binding) };
+}
+
+function wholeShapes(drawing: VectorImage, binding: Record<string, string>): BoundRig['points'] {
+  const points: BoundRig['points'] = {};
+  for (const shape of drawing.shapes) {
+    if (binding[shape.id]) points[shape.id] = shape.points.map(() => binding[shape.id]!);
+  }
+  return points;
 }
 
 /* ---------------- forward kinematics ---------------- */
@@ -245,7 +254,7 @@ test('the summary says what is there and how much of it has moved', () => {
   };
   const text = summarisePose(data);
   assert.match(text, /bone\(s\)/);
-  assert.match(text, /1 shape\(s\) bound/);
+  assert.match(text, /3 point\(s\) bound/);
   assert.match(text, /1 joint\(s\) turned/, 'an angle of zero is not a turn');
   assert.equal(summarisePose(emptyPoseFlowData()), 'Nothing to pose yet.');
 });
@@ -279,7 +288,7 @@ test('an empty pose changes nothing at all', () => {
   const rig = fitRigTo(emptyRigFlowData('human'), image);
   assert.ok(rig.origin && rig.origin.x !== 0, 'the rig really was moved to lie over the drawing');
 
-  const bound = { rig, image, binding: { s1: rig.bones[0]!.id } };
+  const bound = { rig, image, points: wholeShapes(image, { s1: rig.bones[0]!.id }) };
   assert.deepEqual(posedImage(bound, {}).shapes[0]!.points, image.shapes[0]!.points);
 });
 
@@ -306,9 +315,47 @@ test('turning a joint moves what is bound to it and leaves the rest', () => {
   };
   const rig = fitRigTo(emptyRigFlowData('human'), image);
   const spine = rig.bones[1] ?? rig.bones[0]!;
-  const bound = { rig, image, binding: { moves: spine.id } };
+  const bound = { rig, image, points: wholeShapes(image, { moves: spine.id }) };
 
   const turned = posedImage(bound, { [spine.id]: 30 });
   assert.notDeepEqual(turned.shapes[0]!.points, image.shapes[0]!.points, 'the bound shape turned');
   assert.deepEqual(turned.shapes[1]!.points, image.shapes[1]!.points, 'the unbound one did not');
+});
+
+test('a shape whose points follow two bones bends where they meet', () => {
+  /*
+   * The reason binding is by node. One polygon drawn over the upper arm and the
+   * forearm, its shoulder-end points on the upper arm and its hand-end points on
+   * the forearm: turning the elbow moves the hand end and leaves the shoulder end,
+   * so the polygon folds rather than swinging round whole.
+   */
+  const rest = restPose(rig);
+  const elbow = rest.get('left-upper-arm')!.to;
+  const shoulder = rest.get('left-upper-arm')!.from;
+  const hand = rest.get('left-forearm')!.to;
+  const arm: VectorPolygon = {
+    id: 'arm',
+    kind: 'polygon',
+    color: '#e0b090',
+    points: [
+      { x: shoulder.x, y: shoulder.y - 2 },
+      { x: hand.x, y: hand.y - 2 },
+      { x: hand.x, y: hand.y + 2 },
+      { x: shoulder.x, y: shoulder.y + 2 },
+    ],
+  };
+  const drawing: VectorImage = { width: 100, height: 100, shapes: [arm] };
+  const split: BoundRig = {
+    rig,
+    image: drawing,
+    points: { arm: ['left-upper-arm', 'left-forearm', 'left-forearm', 'left-upper-arm'] },
+  };
+
+  const bent = posedImage(split, { 'left-forearm': 60 }).shapes[0]!.points;
+  assert.deepEqual(bent[0], arm.points[0], 'the shoulder end stays where the upper arm is');
+  assert.deepEqual(bent[3], arm.points[3]);
+  assert.notDeepEqual(bent[1], arm.points[1], 'the hand end swings round the elbow');
+  const before = Math.hypot(arm.points[1]!.x - elbow.x, arm.points[1]!.y - elbow.y);
+  const after = Math.hypot(bent[1]!.x - elbow.x, bent[1]!.y - elbow.y);
+  assert.ok(Math.abs(before - after) < 1e-9, 'about the elbow, keeping its distance from it');
 });

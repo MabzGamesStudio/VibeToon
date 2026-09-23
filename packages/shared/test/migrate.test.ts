@@ -9,6 +9,7 @@ import {
   emptyPaletteFlowData,
   type PaletteFlowData,
 } from '../src/flows/palette';
+import { emptyPaletteFilterFlowData, type PaletteFilterFlowData } from '../src/flows/paletteFilter';
 import { DEFAULT_RIG_OPTIONS, emptyRigFlowData } from '../src/flows/rig';
 import { emptyTextData } from '../src/flows/text';
 import { DEFAULT_VECTORIZE_OPTIONS } from '../src/flows/vectorize';
@@ -212,6 +213,24 @@ test('a palette flow already on edits is left as it is', () => {
   assert.equal(normaliseFlowData(data), data, 'nothing was missing, so nothing was rebuilt');
 });
 
+/* ---------------- a palette filter saved with the old modes ---------------- */
+
+test('a filter saved in remove mode opens as keep, without the settings that went with it', () => {
+  // Remove is gone, and so are softness and hard alpha, which only existed to
+  // soften the edge it left. A flow saved with them must still open.
+  const old = {
+    editor: 'paletteFilter',
+    options: { mode: 'remove', tolerance: 20, softness: 6, hardAlpha: true, only: ['#ff0000'] },
+  } as unknown as FlowData;
+  const migrated = normaliseFlowData(old) as PaletteFilterFlowData;
+  assert.deepEqual(migrated.options, { mode: 'keep', tolerance: 20, only: ['#ff0000'] });
+});
+
+test('a filter already on the new modes is left as it is', () => {
+  const data = { ...emptyPaletteFilterFlowData(), options: { mode: 'snap' as const, tolerance: 3, only: [] } };
+  assert.equal(normaliseFlowData(data), data, 'nothing was missing, so nothing was rebuilt');
+});
+
 /* ---------------- a decomposition whose settings were renamed ---------------- */
 
 test('a decomposition saved before the rebuild gets the settings it now needs', () => {
@@ -260,4 +279,54 @@ test('a binding made before the drawing could be placed gets a place to be in', 
   };
   assert.deepEqual(fixed.placement, { x: 0, y: 0, scale: 1 }, 'where it already was');
   assert.equal(fixed.hideOthers, false);
+});
+
+/* ---------------- a binding made when binding was by shape ---------------- */
+
+const twoSquares = {
+  width: 20,
+  height: 10,
+  shapes: [
+    { id: 'a', kind: 'polygon', color: '#ff0000', points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }, { x: 0, y: 4 }] },
+    { id: 'b', kind: 'polygon', color: '#0000ff', points: [{ x: 10, y: 0 }, { x: 14, y: 0 }, { x: 14, y: 4 }] },
+  ],
+};
+
+test('a binding by whole shapes opens with every point of each shape on its bone', () => {
+  // So it moves exactly as it did: a shape's points all follow the bone the shape
+  // followed.
+  const old = {
+    editor: 'bind',
+    rig: emptyRigFlowData('human'),
+    image: twoSquares,
+    binding: { a: 'hips' },
+    selected: ['a'],
+    boneId: 'hips',
+    placement: { x: 0, y: 0, scale: 1 },
+    hideOthers: false,
+    edits: 3,
+  };
+  const fixed = normaliseFlowData(old as unknown as FlowData) as unknown as {
+    nodes: Record<string, string>;
+    brush: number;
+    binding?: unknown;
+  };
+  assert.deepEqual(fixed.nodes, { '0,0': 'hips', '4,0': 'hips', '4,4': 'hips', '0,4': 'hips' });
+  assert.ok(fixed.brush > 0, 'and a brush to bind with');
+  assert.equal(fixed.binding, undefined, 'the old table is not carried along');
+});
+
+test('a pose flow holding a bound rig from then reads it point by point', () => {
+  const old = {
+    editor: 'pose',
+    bound: { rig: emptyRigFlowData('human'), image: twoSquares, binding: { b: 'hips' } },
+    pose: {},
+    mode: 'forward',
+    selected: null,
+    ik: { chainLength: 3, iterations: 24, tolerance: 0.4, respectLimits: true },
+  };
+  const fixed = normaliseFlowData(old as unknown as FlowData) as unknown as {
+    bound: { points: Record<string, Array<string | null>> };
+  };
+  assert.deepEqual(fixed.bound.points, { b: ['hips', 'hips', 'hips'] });
 });

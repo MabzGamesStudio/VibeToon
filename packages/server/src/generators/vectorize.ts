@@ -80,6 +80,24 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
     ...(found && found.slivers > 0
       ? [`- Pieces too thin to be areas, given back as strokes: ${found.slivers}`]
       : []),
+    data.options.joinShapes
+      ? `- Shapes of the same color that touch: joined${
+          found
+            ? ` · ${found.joinedPolygons ?? 0} polygon join(s), ${found.joinedLines ?? 0} line join(s), line ends within ${data.options.joinGap}px`
+            : ''
+        }`
+      : '- Shapes of the same color that touch: left as the convex pieces they were cut into',
+    `- Nodes at least ${data.options.minNodeGap}px apart${found?.nodesMerged ? ` · ${found.nodesMerged} merged` : ''}`,
+    `- Polygons at least ${data.options.minPolygonArea}px²${
+      found && (found.smallFolded || found.smallDropped)
+        ? ` · ${found.smallFolded ?? 0} folded into a neighbour, ${found.smallDropped ?? 0} dropped`
+        : ''
+    }`,
+    `- Lines at least ${data.options.minLineLength}px long${
+      found && (found.shortLines || found.shortStrokes)
+        ? ` · ${found.shortLines ?? 0} stub(s) dropped, ${found.shortStrokes ?? 0} short stroke(s) drawn as areas`
+        : ''
+    }`,
     ...(found
       ? [
           `- Painted where the picture is not there: **${found.overNothing.toLocaleString()}** pixel(s)`,
@@ -146,17 +164,29 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
     '',
     '## What the shapes are',
     '',
-    'A **polygon** is an area of one color, and is always convex: a traced region is',
-    'any shape at all, and is cut into convex pieces because that is what everything',
-    'downstream can rely on. A convex polygon is trivially triangulated, filled and',
-    'point-tested, and never has the self-intersections that make a concave one a',
-    'special case in every renderer that meets it.',
+    ...(data.options.joinShapes
+      ? [
+          'A **polygon** is an area of one color. A traced region is cut into convex',
+          'pieces first — that is how a part too thin to be an area is found and given',
+          'back as a stroke — and the pieces that are left are then joined back up with',
+          'every neighbour of exactly the same color they share a side with. So a region',
+          'is one polygon, concave if its outline is, and never crosses itself. The one',
+          'exception is a region with a hole: a polygon is one loop of points and cannot',
+          'go round a hole, so that region stays two polygons that together leave it empty.',
+        ]
+      : [
+          'A **polygon** is an area of one color, and is convex: a traced region is any',
+          'shape at all, and is left as the convex pieces it was cut into because joining',
+          'is turned off. A convex polygon is trivially triangulated, filled and',
+          'point-tested, and never has the self-intersections that make a concave one a',
+          'special case in every renderer that meets it.',
+        ]),
     '',
     'A **line** is a stroke, stored as the anchors along its middle plus whether the',
     'run between them curves. The drawing writes those as real cubic Béziers; the',
     'anchors are kept because they are what can be edited.',
     '',
-    ...(summary.concave > 0
+    ...(summary.concave > 0 && !data.options.joinShapes
       ? [
           `> ${summary.concave} polygon(s) are not convex. Editing can do that, and`,
           '> anything relying on convexity should know.',

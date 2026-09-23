@@ -276,7 +276,7 @@ A skeleton for the character: what bones it has, and how far each joint may move
 
 `animation.bind` · **bespoke editor**
 
-Assigns the shapes of a vectorized drawing to the bones of a skeleton.
+Assigns the nodes of a vectorized drawing to the bones of a skeleton, so shapes bend at the joints.
 
 - **In:** Rig *(required)*, Vector *(required)*
 - **Out:** Bound rig `bound.json`, Preview `bound.svg`, Report `bound.md`
@@ -382,7 +382,7 @@ Filters an image against a palette: keep those colors, drop them, or snap every 
 
 `art.vectorize` · **bespoke editor**
 
-Turns a picture back into shapes: strokes as lines, areas as convex polygons.
+Turns a picture back into shapes: strokes as lines, areas as polygons, same-color neighbours joined.
 
 - **In:** Image *(required)*
 - **Out:** Vector `vector.json`, Drawing `vector.svg`, Report `vector.md`

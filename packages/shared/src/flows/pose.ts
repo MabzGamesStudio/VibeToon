@@ -230,37 +230,51 @@ export function solveIk(
 /**
  * The drawing, in the pose.
  *
- * Every shape is moved by the bone it is bound to: rotated about that bone's
+ * Every point is moved by the bone it is bound to: rotated about that bone's
  * origin by how far the bone has turned, and carried along by however far the
- * origin itself has moved. A shape bound to nothing stays where it was drawn,
- * which is visible and therefore fixable — silently dropping it would not be.
+ * origin itself has moved. Point by point rather than shape by shape, so a shape
+ * whose points follow two bones bends where they meet — an arm drawn as one
+ * polygon folds at the elbow. A point bound to nothing stays where it was drawn,
+ * which is visible and therefore fixable; silently dropping it would not be.
  */
 export function posedImage(bound: BoundRig, pose: Pose): VectorImage {
   const rest = restPose(bound.rig);
   const placed = posedBones(bound.rig, pose);
 
-  const shapes: VectorShape[] = bound.image.shapes.map((shape) => {
-    const boneId = bound.binding[shape.id];
-    if (!boneId) return shape;
-    const from = rest.get(boneId);
+  // Each bone's move, worked out once rather than once per point it carries.
+  const moves = new Map<string, (point: VectorPoint) => VectorPoint>();
+  for (const [boneId, from] of rest) {
     const to = placed.get(boneId);
-    if (!from || !to) return shape;
-
+    if (!to) continue;
     const turn = rad(to.angle);
     const cos = Math.cos(turn);
     const sin = Math.sin(turn);
-    const points = shape.points.map((point) => {
+    moves.set(boneId, (point) => {
       const dx = point.x - from.from.x;
       const dy = point.y - from.from.y;
-      return {
-        x: to.from.x + dx * cos - dy * sin,
-        y: to.from.y + dx * sin + dy * cos,
-      };
+      return { x: to.from.x + dx * cos - dy * sin, y: to.from.y + dx * sin + dy * cos };
+    });
+  }
+
+  const shapes: VectorShape[] = bound.image.shapes.map((shape) => {
+    const bones = bound.points[shape.id];
+    if (!bones) return shape;
+    const points = shape.points.map((point, index) => {
+      const bone = bones[index];
+      const move = bone ? moves.get(bone) : undefined;
+      return move ? move(point) : point;
     });
     return { ...shape, points } as VectorShape;
   });
 
   return { ...bound.image, shapes };
+}
+
+/** How many points of the drawing follow a bone. */
+export function boundPointCount(bound: BoundRig): number {
+  let count = 0;
+  for (const bones of Object.values(bound.points)) for (const bone of bones) if (bone) count += 1;
+  return count;
 }
 
 /* ------------------------------------------------------------------ *
@@ -328,6 +342,5 @@ export function summarisePose(data: PoseFlowData): string {
   if (!data.bound) return 'Nothing to pose yet.';
   const moved = Object.values(data.pose).filter((angle) => Math.abs(angle) > 0.01).length;
   const bones = data.bound.rig.bones.length;
-  const bound = Object.keys(data.bound.binding).length;
-  return `${bones} bone(s), ${bound} shape(s) bound · ${moved} joint(s) turned`;
+  return `${bones} bone(s), ${boundPointCount(data.bound)} point(s) bound · ${moved} joint(s) turned`;
 }

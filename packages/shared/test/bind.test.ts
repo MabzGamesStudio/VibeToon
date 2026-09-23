@@ -2,10 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   addBone,
-  bindShapes,
+  bindNodes,
   bindState,
   boundRigOf,
-  centroid,
   deleteBone,
   emptyBindFlowData,
   fitRigTo,
@@ -14,14 +13,17 @@ import {
   moveImage,
   moveJoint,
   moveRig,
+  nodeKey,
+  nodesFor,
+  nodesInRegion,
+  nodesNear,
+  nodesOf,
   placedImage,
   readBoundRig,
   renameBone,
-  shapesFor,
-  shapesInRegion,
+  shareOf,
   summariseBinding,
-  unbindShapes,
-  unboundShapes,
+  unbindNodes,
   zoomImage,
   zoomRig,
   type BindFlowData,
@@ -77,51 +79,80 @@ test('either input changing makes it stale, and neither changing does not', () =
   assert.equal(bindState(data, 'r1', 'v2'), 'stale', 'the drawing moved');
 });
 
-/* ---------------- assigning ---------------- */
+/* ---------------- nodes ---------------- */
 
-test('binding puts shapes on a bone, and unbinding takes them off', () => {
+/** Every node of a shape, by key. */
+const keysOf = (id: string) => drawing.shapes.find((shape) => shape.id === id)!.points.map(nodeKey);
+
+/** Two squares side by side that share an edge, the way a decomposition's shapes do. */
+const touching: VectorImage = {
+  width: 100,
+  height: 100,
+  shapes: [square('left', 0, 0), square('right', 4, 0)],
+};
+
+test('a node is a place: points of two shapes in the same place are one node', () => {
+  const nodes = nodesOf(touching);
+  assert.equal(nodes.length, 6, 'eight points, two pairs of them shared');
+  const shared = nodes.filter((node) => node.uses === 2).map((node) => node.key).sort();
+  assert.deepEqual(shared, ['4,0', '4,4']);
+});
+
+test('binding puts nodes on a bone, and unbinding takes them off', () => {
   let data = started();
-  data = bindShapes(data, ['a', 'b'], 'hips');
-  assert.deepEqual(shapesFor(data, 'hips').map((shape) => shape.id), ['a', 'b']);
-  assert.deepEqual(unboundShapes(data).map((shape) => shape.id), ['c']);
-
-  data = unbindShapes(data, ['a']);
-  assert.deepEqual(shapesFor(data, 'hips').map((shape) => shape.id), ['b']);
+  data = bindNodes(data, [...keysOf('a'), ...keysOf('b')], 'hips');
+  assert.equal(nodesFor(data, 'hips').length, 8);
+  data = unbindNodes(data, keysOf('a'));
+  assert.deepEqual(nodesFor(data, 'hips').sort(), [...keysOf('b')].sort());
 });
 
-test('a shape belongs to one bone, so binding it again moves it', () => {
-  // Two owners would have to tear the shape when they move apart, and an outline
-  // has to go somewhere whole.
-  let data = bindShapes(started(), ['a'], 'hips');
-  data = bindShapes(data, ['a'], 'spine');
-  assert.deepEqual(shapesFor(data, 'hips'), []);
-  assert.deepEqual(shapesFor(data, 'spine').map((shape) => shape.id), ['a']);
+test('a node follows one bone, so binding it again moves it', () => {
+  let data = bindNodes(started(), keysOf('a'), 'hips');
+  data = bindNodes(data, keysOf('a'), 'spine');
+  assert.deepEqual(nodesFor(data, 'hips'), []);
+  assert.equal(nodesFor(data, 'spine').length, 4);
 });
 
-test('binding nothing changes nothing, and does not count as an edit', () => {
+test('binding nothing new changes nothing, and does not count as an edit', () => {
   const data = started();
-  assert.equal(bindShapes(data, [], 'hips'), data);
-  assert.equal(unbindShapes(data, ['nothing-here']), data);
+  assert.equal(bindNodes(data, [], 'hips'), data);
+  assert.equal(unbindNodes(data, ['nothing-here']), data);
+  const once = bindNodes(data, keysOf('a'), 'hips');
+  assert.equal(bindNodes(once, keysOf('a'), 'hips'), once, 'already there');
 });
 
-test('a region takes in every shape whose middle is inside it', () => {
-  // By centre, because asking someone to enclose an outline exactly is asking
-  // them to do the binding twice.
-  const inside = shapesInRegion(drawing, [
-    { x: -5, y: -5 },
-    { x: 15, y: -5 },
-    { x: 15, y: 30 },
-    { x: -5, y: 30 },
+test('a shape is shared between bones by its points', () => {
+  // Half of square a on the hips and half on the spine: a shape can bend now.
+  const [first, second, third, fourth] = keysOf('a');
+  let data = bindNodes(started(), [first!, second!], 'hips');
+  data = bindNodes(data, [third!, fourth!], 'spine');
+  const a = drawing.shapes[0]!;
+  assert.equal(shareOf(data, a, 'hips'), 0.5);
+  assert.equal(shareOf(data, a, 'spine'), 0.5);
+  assert.equal(summariseBinding(data).bending, 1);
+});
+
+test('the brush takes in the nodes within its reach, nearest first', () => {
+  const nodes = nodesOf(drawing);
+  assert.deepEqual(nodesNear(nodes, { x: 1, y: 1 }, 1.5), ['0,0']);
+  assert.deepEqual(nodesNear(nodes, { x: 2, y: 0 }, 2.5), ['0,0', '4,0']);
+  assert.deepEqual(nodesNear(nodes, { x: 50, y: 50 }, 5), []);
+});
+
+test('an area takes in exactly the nodes inside it', () => {
+  // A node is a point, so it is in or out — no deciding a half-enclosed shape.
+  const nodes = nodesOf(drawing);
+  const inside = nodesInRegion(nodes, [
+    { x: -1, y: -1 },
+    { x: 2, y: -1 },
+    { x: 2, y: 30 },
+    { x: -1, y: 30 },
   ]);
-  assert.deepEqual(inside, ['a', 'c'], 'the two on the left, not the one at x=20');
+  assert.deepEqual(inside.sort(), ['0,0', '0,20', '0,24', '0,4'], 'the left-hand edges of a and c only');
 });
 
-test('a region with too few points takes nothing', () => {
-  assert.deepEqual(shapesInRegion(drawing, [{ x: 0, y: 0 }, { x: 10, y: 10 }]), []);
-});
-
-test('a shape’s middle is the middle of its points', () => {
-  assert.deepEqual(centroid(square('x', 0, 0, 10)), { x: 5, y: 5 });
+test('an area with too few points takes nothing', () => {
+  assert.deepEqual(nodesInRegion(nodesOf(drawing), [{ x: 0, y: 0 }, { x: 10, y: 10 }]), []);
 });
 
 /* ---------------- editing the skeleton ---------------- */
@@ -160,11 +191,12 @@ test('deleting a bone leaves its children where they are', () => {
   assert.deepEqual(after.get('left-hand')!.to, before.get('left-hand')!.to);
 });
 
-test('shapes on a deleted bone move to its parent rather than vanishing', () => {
-  let data = bindShapes(started(), ['a', 'b'], 'left-upper-arm');
+test('nodes on a deleted bone move to its parent rather than vanishing', () => {
+  let data = bindNodes(started(), [...keysOf('a'), ...keysOf('b')], 'left-upper-arm');
   const parent = data.rig!.bones.find((bone) => bone.id === 'left-upper-arm')!.parent!;
   data = deleteBone(data, 'left-upper-arm');
-  assert.deepEqual(shapesFor(data, parent).map((shape) => shape.id), ['a', 'b']);
+  assert.equal(nodesFor(data, parent).length, 8);
+  assert.deepEqual(nodesFor(data, 'left-upper-arm'), []);
 });
 
 test('a bone can be renamed', () => {
@@ -174,21 +206,38 @@ test('a bone can be renamed', () => {
 
 /* ---------------- what comes out ---------------- */
 
-test('what comes out is the rig, the drawing and the map between them', () => {
-  const data = bindShapes(started(), ['a'], 'hips');
+test('what comes out is the rig, the drawing, and the bone each point follows', () => {
+  const [first, second] = keysOf('a');
+  const data = bindNodes(started(), [first!, second!], 'hips');
   const bound = boundRigOf(data)!;
   assert.equal(bound.rig.bones.length, data.rig!.bones.length);
   assert.equal(bound.image.shapes.length, 3);
-  assert.deepEqual(bound.binding, { a: 'hips' });
+  assert.deepEqual(bound.points, { a: ['hips', 'hips', null, null] }, 'and nothing for shapes with no bound point');
 });
 
-test('reading one back drops any binding that points at nothing', () => {
+test('a node shared by two shapes is bound in both', () => {
+  const data = bindNodes({ ...started(), image: touching }, ['4,0', '4,4'], 'hips');
+  const bound = boundRigOf(data)!;
+  assert.deepEqual(bound.points.left, [null, 'hips', 'hips', null]);
+  assert.deepEqual(bound.points.right, ['hips', null, null, 'hips']);
+});
+
+test('reading one back drops any bone that points at nothing', () => {
+  const read = readBoundRig({
+    rig: emptyRigFlowData('human'),
+    image: drawing,
+    points: { a: ['hips', 'no-such-bone', null, 'hips'], b: ['hips'], 'no-such-shape': ['hips'] },
+  })!;
+  assert.deepEqual(read.points, { a: ['hips', null, null, 'hips'] }, 'and a list the wrong length is not trusted');
+});
+
+test('a bound rig written when binding was by shape reads back point by point', () => {
   const read = readBoundRig({
     rig: emptyRigFlowData('human'),
     image: drawing,
     binding: { a: 'hips', b: 'no-such-bone', 'no-such-shape': 'hips' },
   })!;
-  assert.deepEqual(read.binding, { a: 'hips' });
+  assert.deepEqual(read.points, { a: ['hips', 'hips', 'hips', 'hips'] });
 });
 
 test('nonsense reads as nothing rather than throwing', () => {
@@ -201,20 +250,29 @@ test('nonsense reads as nothing rather than throwing', () => {
 
 test('the summary counts what is bound and warns about what is not', () => {
   const nothing = summariseBinding(started());
+  assert.equal(nothing.nodes, 12);
   assert.equal(nothing.bound, 0);
-  assert.equal(nothing.unbound, 3);
+  assert.equal(nothing.unbound, 12);
   assert.ok(nothing.problems.some((problem) => /Nothing is bound/.test(problem)));
 
-  const partly = summariseBinding(bindShapes(started(), ['a'], 'hips'));
-  assert.equal(partly.bound, 1);
+  const partly = summariseBinding(bindNodes(started(), keysOf('a'), 'hips'));
+  assert.equal(partly.bound, 4);
   assert.ok(
     partly.problems.some((problem) => /will stay put when the rig moves/.test(problem)),
-    'an unbound shape is a thing worth being told about',
+    'an unbound node is a thing worth being told about',
   );
 });
 
+test('a shape with some points bound and some not is warned about, because it will stretch', () => {
+  const [first] = keysOf('a');
+  const summary = summariseBinding(bindNodes(started(), [first!], 'hips'));
+  assert.equal(summary.stretching, 1);
+  assert.ok(summary.problems.some((problem) => /will stretch between them/.test(problem)));
+});
+
 test('bones carrying nothing are reported once something is bound', () => {
-  const summary = summariseBinding(bindShapes(started(), ['a', 'b', 'c'], 'hips'));
+  const all = nodesOf(drawing).map((node) => node.key);
+  const summary = summariseBinding(bindNodes(started(), all, 'hips'));
   assert.equal(summary.unbound, 0);
   assert.ok(summary.empty > 0);
   assert.ok(summary.problems.some((problem) => /carry nothing/.test(problem)));
@@ -353,7 +411,7 @@ test('a joint can be put anywhere, and what hangs off it comes along', () => {
 });
 
 test('what goes downstream is the drawing where it was put', () => {
-  const data = bindShapes(moveImage(placed(), { x: 7, y: 7 }), ['a'], 'anything');
+  const data = bindNodes(moveImage(placed(), { x: 7, y: 7 }), keysOf('a'), 'anything');
   const bound = boundRigOf(data)!;
   assert.deepEqual(bound.image.shapes[0]!.points[0], {
     x: drawing.shapes[0]!.points[0]!.x + 7,

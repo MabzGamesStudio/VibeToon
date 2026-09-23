@@ -44,11 +44,18 @@ export interface VectorLine {
 /**
  * An area of one color.
  *
- * Always **convex**. A region traced out of an image is any shape at all; it is
- * cut into convex pieces because that is what everything downstream can rely on
- * — a convex polygon is trivially triangulated, point-in-tested, offset and
- * filled, and never has the self-intersections that make a concave one a
- * special case in every renderer that meets it.
+ * Always **simple** — one loop of points that never crosses or touches itself —
+ * and convex only when the decomposition was asked not to join. A region traced
+ * out of an image is any shape at all; it is cut into convex pieces to find the
+ * parts too thin to be areas, and what is left is joined back up with its
+ * same-color neighbours, so a polygon is concave wherever its outline is. With
+ * joining off the pieces stay convex, for a consumer that is simpler with a
+ * convex polygon: one is trivially triangulated, point-in-tested and offset.
+ *
+ * Nothing in the studio needs convexity. Hit-testing is even-odd, so any simple
+ * polygon works; the one tool that behaves differently is the straight cut,
+ * which refuses a cut crossing a concave outline more than twice rather than
+ * guessing which two of the crossings were meant.
  */
 export interface VectorPolygon {
   id: string;
@@ -436,12 +443,16 @@ export function splitLine(
  * Cut a polygon in two along a line through it.
  *
  * Both halves keep the two crossing points, so they still share an edge and
- * leave no gap. A cut that does not cross the polygon twice is not a cut, and
- * the polygon is left alone rather than being mangled into something unclosed.
+ * leave no gap. A cut that does not cross the polygon is not a cut, and the
+ * polygon is left alone rather than being mangled into something unclosed.
  *
- * The halves are convex whenever the cut is a straight line through a convex
- * polygon, which is what the decomposition produces — so cutting keeps the
- * promise the shape makes about itself.
+ * A convex polygon is crossed twice by any line through it. A concave one — which
+ * is what the decomposition hands back once it joins a region's pieces — can be
+ * crossed four times or six: a straight line across a C goes in, out, and in
+ * again. Then the cut is the stretch of the line **inside the shape nearest the
+ * two clicks**, which is the stretch the person was pointing at. Any stretch
+ * between two consecutive crossings that lies inside a simple polygon divides it
+ * into exactly two simple polygons, so the halves are always shapes.
  */
 export function splitPolygon(
   image: VectorImage,
@@ -497,10 +508,33 @@ export function splitPolygon(
     }
     hits.push(hit);
   }
-  if (hits.length !== 2) return image;
+  if (hits.length < 2 || hits.length % 2 !== 0) return image;
 
-  hits.sort((one, two) => one.edge - two.edge || one.t - two.t);
-  const [first, second] = hits as [(typeof hits)[0], (typeof hits)[0]];
+  /*
+   * Which two crossings. Along the line they alternate out-in-out, because the
+   * line was extended past the polygon at both ends and so starts outside it:
+   * crossings 0-1 are inside, 2-3 are inside, and so on. Of those stretches, the
+   * one the clicks were aimed at is the one nearest the middle of them.
+   */
+  const along = (point: VectorPoint) => (point.x - start.x) * step.x + (point.y - start.y) * step.y;
+  hits.sort((one, two) => along(one.point) - along(two.point));
+  const middle = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+  let pick = 0;
+  let nearest = Infinity;
+  for (let index = 0; index + 1 < hits.length; index += 2) {
+    const distance = distanceToSegment(middle, hits[index]!.point, hits[index + 1]!.point);
+    if (distance < nearest) {
+      nearest = distance;
+      pick = index;
+    }
+  }
+  const chosen = [hits[pick]!, hits[pick + 1]!];
+
+  chosen.sort((one, two) => one.edge - two.edge || one.t - two.t);
+  const [first, second] = chosen as [(typeof hits)[0], (typeof hits)[0]];
+  // Two crossings on the same edge is a line that grazes along it, not one
+  // through the shape — there is nothing between them to cut off.
+  if (first.edge === second.edge) return image;
 
   const one: VectorPoint[] = [
     first.point,
@@ -683,7 +717,7 @@ export function summariseVector(image: VectorImage): VectorSummary {
 }
 
 export function averageColor(colors: string[]): Rgb | undefined {
-  const values = colors.map((hex) => fromHex(hex)).filter((rgb): rgb is Rgb => rgb !== undefined);
+  const values = colors.map((hex) => fromHex(hex)).filter((rgb) => rgb !== undefined);
   if (values.length === 0) return undefined;
   return {
     r: Math.round(values.reduce((sum, rgb) => sum + rgb.r, 0) / values.length),

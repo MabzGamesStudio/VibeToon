@@ -28,6 +28,7 @@ import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
 import { Slider } from '../common/Slider';
+import { onScreen } from '../common/handles';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
 
@@ -118,7 +119,15 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
     setSelectedId(null);
   };
 
-  const stroke = Math.max(box.width, box.height) / 160;
+  /*
+   * How thick a bone is drawn, before the stage's zoom.
+   *
+   * Everything on the skeleton is sized off this, so dividing it once inside the
+   * stage keeps bones, joints and their hit targets the size they are at fit
+   * however far in the stage is zoomed — which is what makes zooming in to aim
+   * at a joint worth doing.
+   */
+  const baseStroke = Math.max(box.width, box.height) / 160;
 
   return (
     <EditorShell
@@ -273,6 +282,9 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
             </>
           }
         >
+          {({ scale }) => {
+          const stroke = onScreen(baseStroke, scale);
+          return (
           <div className="vt-rig-stage">
             {design && showReference ? (
               <img className="vt-rig-reference" src={api.artifactUrl(project.id, designPath)} alt="" />
@@ -331,6 +343,8 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
               })}
             </svg>
           </div>
+          );
+          }}
         </Stage>
 
         {selected ? (

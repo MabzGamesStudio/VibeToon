@@ -33,6 +33,7 @@ import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { useView } from '../../state/view';
 import { Field } from '../common/Field';
+import { onScreen } from '../common/handles';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
 
@@ -488,6 +489,7 @@ export function VectorEditFlowEditor({
             </>
           }
         >
+          {({ scale }) => (
           <div className="vt-vector-stage">
             {image.shapes.length > 0 ? (
               <div
@@ -546,7 +548,8 @@ export function VectorEditFlowEditor({
                         key={`${shape.id}:${index}`}
                         cx={point.x}
                         cy={point.y}
-                        r={Math.max(1, image.width / 260)}
+                        r={onScreen(Math.max(1, image.width / 260), scale)}
+                        strokeWidth={onScreen(1, scale)}
                         className={`vt-anchor${
                           dragging?.id === shape.id && dragging.index === index ? ' is-held' : ''
                         }${
@@ -563,6 +566,7 @@ export function VectorEditFlowEditor({
               <div className="vt-empty">{blocked ?? 'Nothing taken in yet.'}</div>
             )}
           </div>
+          )}
         </Stage>
 
         <p className="vt-faint" style={{ marginTop: 8, fontSize: 11 }}>

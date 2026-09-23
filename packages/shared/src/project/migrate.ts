@@ -5,8 +5,13 @@ import { getFlowKind } from '../registry/flowKinds';
 import { DEFAULT_DERIVE_OPTIONS, DEFAULT_EXTRACT_OPTIONS } from '../text/corpus';
 import { DEFAULT_GRAMMAR_OPTIONS } from '../text/grammarDatabase';
 import { normaliseMeanings } from '../text/senses';
+import {
+  DEFAULT_PALETTE_FILTER_OPTIONS,
+  type PaletteFilterOptions,
+} from '../flows/paletteFilter';
 import { DEFAULT_IK_OPTIONS } from '../flows/pose';
 import { DEFAULT_RIG_OPTIONS, emptyRigFlowData } from '../flows/rig';
+import { DEFAULT_BRUSH, nodeKey, readBoundRig } from '../flows/rigBind';
 import {
   DEFAULT_PALETTE_OPTIONS,
   derivePalette,
@@ -124,17 +129,40 @@ export function normaliseFlowData(data: FlowData): FlowData {
        * back: `summariseBinding` walks the binding table on every render, so a
        * flow stored without one takes the editor down with a blank screen.
        */
+      /*
+       * Binding used to be by whole shape. A shape's points each follow the bone
+       * the shape followed, which is what posing it did before — so a binding made
+       * that way opens looking and moving exactly as it did. Where two shapes on
+       * different bones met, their shared nodes go to whichever came last: a node
+       * is one place and can follow one bone.
+       */
+      const legacy = (data as { binding?: Record<string, string> }).binding;
+      let nodes = data.nodes;
+      if (!nodes) {
+        nodes = {};
+        if (legacy && data.image) {
+          for (const shape of data.image.shapes) {
+            const bone = legacy[shape.id];
+            if (!bone) continue;
+            for (const point of shape.points) nodes[nodeKey(point)] = bone;
+          }
+        }
+      }
+      const { binding: _binding, ...rest } = data as typeof data & { binding?: unknown };
       const fixed = {
-        ...data,
-        binding: data.binding ?? {},
+        ...rest,
+        nodes,
         selected: Array.isArray(data.selected) ? data.selected : [],
+        brush: typeof data.brush === 'number' && data.brush > 0 ? data.brush : DEFAULT_BRUSH,
         placement: data.placement ?? { x: 0, y: 0, scale: 1 },
         hideOthers: data.hideOthers ?? false,
         edits: typeof data.edits === 'number' ? data.edits : 0,
       };
       const same =
-        fixed.binding === data.binding &&
+        legacy === undefined &&
+        fixed.nodes === data.nodes &&
         fixed.selected === data.selected &&
+        fixed.brush === data.brush &&
         fixed.placement === data.placement &&
         fixed.hideOthers === data.hideOthers &&
         fixed.edits === data.edits;
@@ -150,14 +178,19 @@ export function normaliseFlowData(data: FlowData): FlowData {
        * opened, and the editor goes blank.
        */
       const ik = fill(data.ik, DEFAULT_IK_OPTIONS);
+      // A bound rig taken in before binding was by node carries a table of whole
+      // shapes; read back, each shape's points follow the bone it did.
+      const bound = data.bound && !data.bound.points ? readBoundRig(data.bound) : data.bound;
       const fixed = {
         ...data,
+        bound,
         pose: data.pose ?? {},
         mode: data.mode ?? 'forward',
         selected: data.selected ?? null,
         ik: ik.value,
       };
       const same =
+        fixed.bound === data.bound &&
         fixed.pose === data.pose &&
         fixed.mode === data.mode &&
         fixed.selected === data.selected &&
@@ -173,6 +206,28 @@ export function normaliseFlowData(data: FlowData): FlowData {
        */
       const options = fill(data.options, DEFAULT_VECTORIZE_OPTIONS);
       return options.filled ? { ...data, options: options.value } : data;
+    }
+    case 'paletteFilter': {
+      /*
+       * The mode that removed the palette's colors is gone, and so are the two
+       * settings that only existed to soften the edge it left. A flow saved with
+       * either keeps working: removing is what you get by keeping the *other*
+       * colors, so there is nothing to translate it into — it becomes a keep,
+       * and the note in the flow's report says the picking is now the other way
+       * round.
+       */
+      const options = fill(data.options, DEFAULT_PALETTE_FILTER_OPTIONS);
+      const mode = options.value.mode === 'keep' || options.value.mode === 'snap' ? options.value.mode : 'keep';
+      const clean: PaletteFilterOptions = {
+        mode,
+        tolerance: options.value.tolerance,
+        only: Array.isArray(options.value.only) ? options.value.only : [],
+      };
+      const same =
+        !options.filled &&
+        Object.keys(data.options ?? {}).length === 3 &&
+        clean.mode === data.options?.mode;
+      return same ? data : { ...data, options: clean };
     }
     case 'palette': {
       const options = fill(data.options, DEFAULT_PALETTE_OPTIONS);

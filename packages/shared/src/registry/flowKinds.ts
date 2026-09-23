@@ -502,13 +502,13 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     kind: 'animation.bind',
     category: 'animation',
     label: 'Rig Binding',
-    summary: 'Assigns the shapes of a vectorized drawing to the bones of a skeleton.',
+    summary: 'Assigns the nodes of a vectorized drawing to the bones of a skeleton, so shapes bend at the joints.',
     inputs: [
       input('rig', 'Rig', ['json'], 'The skeleton to bind to.', { required: true }),
       input('vector', 'Vector', ['json'], 'The drawing to bind.', { required: true }),
     ],
     outputs: [
-      output('bound', 'Bound rig', ['json'], 'bound.json', 'The skeleton, the drawing, and which shape belongs to which bone.'),
+      output('bound', 'Bound rig', ['json'], 'bound.json', 'The skeleton, the drawing, and which bone each point of each shape follows.'),
       output('preview', 'Preview', ['image'], 'bound.svg', 'The drawing with its skeleton over it.'),
       output('report', 'Report', ['markdown'], 'bound.md', 'What is bound to what, and what is not.'),
     ],
@@ -654,7 +654,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     kind: 'art.vectorize',
     category: 'art',
     label: 'Polygon Decomposition',
-    summary: 'Turns a picture back into shapes: strokes as lines, areas as convex polygons.',
+    summary: 'Turns a picture back into shapes: strokes as lines, areas as polygons, same-color neighbours joined.',
     inputs: [
       input('image', 'Image', ['image', 'imageSet'], 'The picture to decompose.', { required: true }),
     ],

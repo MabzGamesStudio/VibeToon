@@ -547,30 +547,41 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     ],
   },
 
+  'palette.transparent': {
+    what: 'Whether the pixels too transparent to have a color get a palette entry of their own: fully transparent, #00000000.',
+    examples: [
+      'On — five colors asked for from a cut-out picture gives five colors and the clear around them. A filter snapping to the palette then keeps the background clear.',
+      'Off — the palette is only colors. A filter snapping to it has to give transparent pixels one of them, and says so.',
+      'A picture with no transparent pixels gets no clear entry either way.',
+    ],
+    note: 'Which pixels count as transparent is the setting above it: anything under that opacity.',
+  },
+  'palette.opacity': {
+    what: 'How opaque one palette entry is, 0 to 100%. Read out of the image as the opacity of the pixels the entry is named after — a value the picture really holds — and editable like its color.',
+    examples: [
+      'solid — the ordinary case, and what a color read off flat artwork comes back as.',
+      '50% — snapping a pixel to this entry makes it exactly this color at half opacity, which is how you fade one color of a picture.',
+      '0% — every pixel that snaps to this entry is erased, which is how you drop one color of a picture.',
+    ],
+    note: 'Both filter modes count it when judging what matches: a half-faded red is not the solid red entry at a tolerance of 0.',
+  },
+
   /* Palette filter -------------------------------------------------- */
 
   'paletteFilter.mode': {
     what: 'What the filter does with a pixel once it knows how close that pixel is to the palette.',
     examples: [
-      'Keep — pixels near a palette color stay, the rest go transparent. For finding where a color is used.',
-      'Remove — the other way round. For dropping a background whose color you sampled into the palette.',
-      'Snap — nothing goes transparent; every pixel becomes its nearest palette color. This is the one that makes a photograph look drawn.',
+      'Keep — a pixel within the tolerance of a palette color stays exactly as it was, color and opacity, and every other pixel becomes fully transparent (0, 0, 0, 0). For finding where a color is used.',
+      'Snap — every pixel becomes exactly one palette value, color and opacity, whichever looks nearest. Five colors and a transparent one in play gives a picture with six values in it and no others.',
+      'To drop a color rather than find it, keep the others: an inverted answer is the same question asked about the rest of the palette.',
     ],
   },
   'paletteFilter.tolerance': {
-    what: 'How close a pixel has to be to a palette color to count as that color. Same OKLab scale the palette’s own minimum distance uses.',
+    what: 'How close a pixel has to be to a palette color to count as that color, opacity included. Same OKLab scale the palette’s own minimum distance uses.',
     examples: [
-      'under 2 — only pixels that are essentially that exact color.',
+      '0 — only pixels that are that exact color at that exact opacity, which is what a drawing made from a palette contains.',
       '15 to 25 — the useful range on artwork: takes in shading without taking in the neighbouring color.',
       'Snap ignores this: every pixel has a nearest, so there is no threshold to set.',
-    ],
-  },
-  'paletteFilter.softness': {
-    what: 'How wide a band around the tolerance is partly transparent instead of wholly in or out.',
-    examples: [
-      '0 — a hard decision. Right for flat artwork.',
-      '4 to 8 — stops a filtered photograph looking cut out with scissors.',
-      'Ignored when alpha is forced fully on or off.',
     ],
   },
 
@@ -676,6 +687,50 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'Relative on purpose: a 2px bow across 10px is a curve, and the same bow across 400px is a straight line someone drew by hand.',
       '4% — the default, and about right for drawn artwork.',
       '0% — everything curves. 30% — almost nothing does.',
+    ],
+  },
+  'vectorize.minNodeGap': {
+    what: 'The closest two nodes of the drawing may be, in pixels. Nodes closer than this along an outline or a line are merged into one.',
+    examples: [
+      '0 — nodes stay exactly where tracing put them.',
+      '1.5 — the default: tidies the crowds of nodes tracing leaves on tight curves and where regions meet, for a couple of percent more pixels off.',
+      '3 to 4 — a much lighter drawing that has lost the fine turns.',
+    ],
+    note: 'A node is merged in every shape that shares it, so neighbours still meet exactly. A node where three or more outlines meet stays put and the other comes to it.',
+  },
+  'vectorize.minPolygonArea': {
+    what: 'The smallest a polygon may be, in square pixels, once the picture has been cut into shapes.',
+    examples: [
+      '0 — every polygon is kept, however small.',
+      '6 — the default: crumbs a couple of pixels across go.',
+      '20 to 50 — a photograph comes out in far fewer shapes. On the test photograph 161 polygons became 78, and the drawing got closer to the picture, because the crumbs were mostly wrong anyway.',
+    ],
+    note: 'A smaller polygon is folded into the neighbour it shares most of its outline with, taking that neighbour’s color, so it leaves no hole. One touching no other polygon is dropped. The region minimum above works on pixels before tracing; this one on the finished shapes.',
+  },
+  'vectorize.minLineLength': {
+    what: 'The shortest a line may be, end to end, in pixels.',
+    examples: [
+      '0 — every line is kept.',
+      '4 — the default: stubs a few pixels long go.',
+      '10 or more — only proper strokes are lines; dashes and dots are drawn as the small areas they are.',
+    ],
+    note: 'A stroke whose lines are all shorter than this is drawn as an area, so its ink is kept; a short stub off a longer line is dropped. A thin piece of an area only becomes a stroke if the stroke would be at least this long.',
+  },
+  'vectorize.joinShapes': {
+    what: 'Whether shapes of exactly the same color that touch are put back together once the picture has been cut up.',
+    examples: [
+      'On — polygons that share a side become one polygon, and lines whose ends meet become one line. A cheek is one shape rather than seven triangles.',
+      'Off — every area is the convex pieces it was cut into, for a consumer that needs every polygon convex.',
+      'A shape with a hole in it stays two polygons even when on: a polygon is one loop of points, and cannot go round a hole.',
+    ],
+    note: 'Exactly the same color means the same hex. Two shapes a shade apart are two things in the picture.',
+  },
+  'vectorize.joinGap': {
+    what: 'How close the ends of two lines of the same color have to be for them to become one line, in pixels.',
+    examples: [
+      '0 — only ends that are on the very same point.',
+      '3 — the default: takes in the pixel or two that tracing leaves where a line forks.',
+      'Where three ends meet, the two that carry on straightest are joined and the third stays a line of its own.',
     ],
   },
 

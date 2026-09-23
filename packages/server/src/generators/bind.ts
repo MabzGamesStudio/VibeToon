@@ -53,9 +53,10 @@ export async function generateBind(ctx: GenerationContext): Promise<GenerationRe
     );
   }
 
-  // The skeleton drawn over the drawing, so the binding can be looked at rather
-  // than read.
+  // The skeleton drawn over the drawing, and every bound node as a dot in its
+  // bone's color, so the binding can be looked at rather than read.
   const pose = restPose(bound.rig);
+  const hue = new Map(bound.rig.bones.map((bone, index) => [bone.id, (index * 47) % 360]));
   const bones = [...pose.entries()]
     .map(
       ([id, place]) =>
@@ -64,35 +65,70 @@ export async function generateBind(ctx: GenerationContext): Promise<GenerationRe
         )}" y2="${round(place.to.y)}" stroke="#ff3b6b" stroke-width="0.8" stroke-linecap="round" data-bone="${id}"/>`,
     )
     .join('\n');
-  const drawing = toSvg(bound.image).replace('</svg>', `${bones}\n</svg>`);
+  const seen = new Set<string>();
+  const dots: string[] = [];
+  for (const shape of bound.image.shapes) {
+    const held = bound.points[shape.id];
+    if (!held) continue;
+    shape.points.forEach((point, index) => {
+      const bone = held[index];
+      const key = `${point.x},${point.y}`;
+      if (!bone || seen.has(key)) return;
+      seen.add(key);
+      dots.push(
+        `  <circle cx="${round(point.x)}" cy="${round(point.y)}" r="1.2" fill="hsl(${hue.get(bone) ?? 0} 75% 55%)" data-bone="${bone}"/>`,
+      );
+    });
+  }
+  const drawing = toSvg(bound.image).replace('</svg>', `${bones}\n${dots.join('\n')}\n</svg>`);
+
+  // How many nodes each bone carries, and how many shapes it moves any of.
+  const carried = new Map<string, { nodes: Set<string>; shapes: Set<string> }>();
+  for (const shape of bound.image.shapes) {
+    const held = bound.points[shape.id];
+    if (!held) continue;
+    shape.points.forEach((point, index) => {
+      const bone = held[index];
+      if (!bone) return;
+      const entry = carried.get(bone) ?? { nodes: new Set(), shapes: new Set() };
+      entry.nodes.add(`${point.x},${point.y}`);
+      entry.shapes.add(shape.id);
+      carried.set(bone, entry);
+    });
+  }
 
   const lines = [
     `# ${ctx.node.name} — binding`,
     '',
     `- Rig: **${rigInput.sourceNode.name}** · ${summary.bones} bone(s)`,
-    `- Drawing: **${vectorInput.sourceNode.name}** · ${summary.shapes} shape(s)`,
-    `- Bound: **${summary.bound}** · unbound: ${summary.unbound}`,
+    `- Drawing: **${vectorInput.sourceNode.name}** · ${summary.shapes} shape(s), ${summary.nodes} node(s)`,
+    `- Nodes bound: **${summary.bound}** · unbound: ${summary.unbound}`,
+    ...(summary.bending > 0 ? [`- Shapes that bend across a joint: ${summary.bending}`] : []),
     ...(summary.empty > 0 ? [`- Bones carrying nothing: ${summary.empty}`] : []),
     '',
     '## What moves with what',
     '',
-    '| Bone | Shapes |',
-    '| --- | --- |',
+    '| Bone | Nodes | Shapes it moves any of |',
+    '| --- | --- | --- |',
     ...bound.rig.bones.map((bone) => {
-      const held = Object.entries(bound.binding).filter(([, id]) => id === bone.id).length;
-      return `| ${bone.name} | ${held} |`;
+      const held = carried.get(bone.id);
+      return `| ${bone.name} | ${held?.nodes.size ?? 0} | ${held?.shapes.size ?? 0} |`;
     }),
     '',
     '## How binding works',
     '',
-    'Every shape belongs to at most one bone. A shape belonging to two would have',
-    'to be torn between them when they move apart, and tearing is something only a',
-    'mesh can do — these are outlines, and an outline has to go somewhere whole.',
-    'Where a drawing really does need to bend across a joint, cut the shape in the',
-    'vector editor and bind the halves separately.',
+    'A drawing is bound by its **nodes** — the points its shapes are drawn through —',
+    'not by whole shapes. A shape whose points follow two bones bends where they meet,',
+    'so an arm drawn as one polygon folds at the elbow rather than having to be cut',
+    'there first.',
     '',
-    'A shape bound to nothing stays where it was drawn when the rig moves. That is',
-    'visible, and therefore fixable; dropping it silently would not be.',
+    'A node is a place, not a point of one shape: neighbouring shapes share the points',
+    'along the boundary between them, and those are one node, bound once. So posing',
+    'can bend a boundary but cannot tear two shapes apart along it.',
+    '',
+    'A node bound to nothing stays where it was drawn when the rig moves, and a shape',
+    'with some of each stretches between them. That is visible, and therefore',
+    'fixable; dropping it silently would not be.',
     '',
   ];
 
@@ -124,7 +160,7 @@ export async function generateBind(ctx: GenerationContext): Promise<GenerationRe
   ];
 
   ctx.log(
-    `${summary.bound} of ${summary.shapes} shape(s) bound across ${summary.bones} bone(s), after ${data.edits} edit(s).`,
+    `${summary.bound} of ${summary.nodes} node(s) bound across ${summary.bones} bone(s), after ${data.edits} edit(s).`,
   );
   return { outputs };
 }

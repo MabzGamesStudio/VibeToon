@@ -27,6 +27,7 @@ import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
 import { Slider } from '../common/Slider';
+import { onScreen } from '../common/handles';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
 
@@ -289,6 +290,7 @@ export function PoseFlowEditor({ project, node }: { project: Project; node: Flow
             </span>
           }
         >
+          {({ scale }) => (
           <div className="vt-vector-stage">
             {drawing && drawing.shapes.length > 0 ? (
               <div
@@ -330,12 +332,14 @@ export function PoseFlowEditor({ project, node }: { project: Project; node: Flow
                         y1={place.from.y}
                         x2={place.to.x}
                         y2={place.to.y}
+                        strokeWidth={onScreen(data.selected === id ? 3 : 2, scale)}
                         className={`vt-bone${data.selected === id ? ' is-selected' : ''}`}
                       />
                       <circle
                         cx={place.to.x}
                         cy={place.to.y}
-                        r={Math.max(1, (drawing.width ?? 100) / 180)}
+                        r={onScreen(Math.max(1, (drawing.width ?? 100) / 180), scale)}
+                        strokeWidth={onScreen(1, scale)}
                         className={`vt-joint${data.selected === id ? ' is-selected' : ''}`}
                       />
                     </g>
@@ -346,6 +350,7 @@ export function PoseFlowEditor({ project, node }: { project: Project; node: Flow
               <div className="vt-empty">{blocked ?? 'Nothing taken in yet.'}</div>
             )}
           </div>
+          )}
         </Stage>
 
         <p className="vt-faint" style={{ marginTop: 8, fontSize: 11 }}>
