@@ -10,6 +10,11 @@ import {
   emptyBindFlowData,
   fitRigTo,
   imageOfBinding,
+  intoDrawing,
+  moveImage,
+  moveJoint,
+  moveRig,
+  placedImage,
   readBoundRig,
   renameBone,
   shapesFor,
@@ -17,6 +22,8 @@ import {
   summariseBinding,
   unbindShapes,
   unboundShapes,
+  zoomImage,
+  zoomRig,
   type BindFlowData,
 } from '../src/flows/rigBind';
 import { emptyRigFlowData, restPose } from '../src/flows/rig';
@@ -250,4 +257,119 @@ test('fitting keeps the rig’s proportions, and only moves and scales it', () =
 test('fitting a rig to nothing leaves it alone rather than dividing by zero', () => {
   const rig = emptyRigFlowData('human');
   assert.equal(fitRigTo(rig, { width: 0, height: 0, shapes: [] }), rig);
+});
+
+/* ---------------- placing the two of them ---------------- */
+
+const placed = (over: Partial<BindFlowData> = {}): BindFlowData => ({
+  ...emptyBindFlowData(),
+  rig: fitRigTo(emptyRigFlowData('human'), drawing),
+  image: drawing,
+  ...over,
+});
+
+test('a drawing left where it arrived is the drawing that arrived', () => {
+  const data = placed();
+  assert.deepEqual(placedImage(data).shapes, drawing.shapes);
+  assert.equal(placedImage(data), imageOfBinding(data), 'and not even copied');
+});
+
+test('the drawing can be moved out from under the skeleton', () => {
+  const data = moveImage(placed(), { x: 10, y: -4 });
+  const moved = placedImage(data).shapes[0]!;
+  assert.deepEqual(moved.points[0], { x: drawing.shapes[0]!.points[0]!.x + 10, y: drawing.shapes[0]!.points[0]!.y - 4 });
+  assert.equal(intoDrawing(data, moved.points[0]!).x, drawing.shapes[0]!.points[0]!.x, 'and read back');
+});
+
+test('zooming the drawing keeps the point it was zoomed about where it was', () => {
+  // Which is the whole difference between a zoom control that is usable for
+  // lining something up and one that pushes the thing you are aiming at off the
+  // edge with every step.
+  const about = { x: 40, y: 40 };
+  const data = zoomImage(placed(), 2, about);
+  const there = placedImage(data);
+  const back = intoDrawing(data, about);
+  assert.ok(Math.abs(back.x - about.x) < 1e-9 && Math.abs(back.y - about.y) < 1e-9);
+  assert.equal(there.shapes.length, drawing.shapes.length);
+});
+
+test('a stroke gets thicker when the drawing is zoomed, because a width is a width', () => {
+  const withLine: VectorImage = {
+    ...drawing,
+    shapes: [
+      ...drawing.shapes,
+      { id: 'l1', kind: 'line', color: '#000000', width: 3, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], curved: false, closed: false },
+    ],
+  };
+  const data = zoomImage(placed({ image: withLine }), 2, { x: 0, y: 0 });
+  const line = placedImage(data).shapes.find((shape) => shape.id === 'l1')!;
+  assert.equal(line.kind, 'line');
+  assert.equal((line as { width: number }).width, 6);
+});
+
+test('the skeleton can be moved and zoomed without touching the drawing', () => {
+  const start = placed();
+  const before = restPose(start.rig!);
+
+  const shifted = moveRig(start, { x: 20, y: 5 });
+  const after = restPose(shifted.rig!);
+  const id = start.rig!.bones[0]!.id;
+  assert.equal(after.get(id)!.from.x - before.get(id)!.from.x, 20);
+  assert.equal(after.get(id)!.from.y - before.get(id)!.from.y, 5);
+  assert.deepEqual(placedImage(shifted).shapes, drawing.shapes, 'the drawing did not move');
+});
+
+test('zooming the skeleton makes it bigger, not one bone longer', () => {
+  const start = placed();
+  const grown = zoomRig(start, 2, { x: 0, y: 0 });
+  for (let index = 0; index < start.rig!.bones.length; index += 1) {
+    const was = start.rig!.bones[index]!.offset;
+    const now = grown.rig!.bones[index]!.offset;
+    assert.ok(Math.abs(now.x - was.x * 2) < 1e-9 && Math.abs(now.y - was.y * 2) < 1e-9);
+  }
+});
+
+test('a joint can be put anywhere, and what hangs off it comes along', () => {
+  const start = placed();
+  const rig = start.rig!;
+  const parent = rig.bones.find((bone) => rig.bones.some((child) => child.parent === bone.id))!;
+  const child = rig.bones.find((bone) => bone.parent === parent.id)!;
+
+  const before = restPose(rig);
+  const gap = {
+    x: before.get(child.id)!.to.x - before.get(parent.id)!.to.x,
+    y: before.get(child.id)!.to.y - before.get(parent.id)!.to.y,
+  };
+
+  const target = { x: 12, y: 34 };
+  const moved = moveJoint(start, parent.id, target);
+  const after = restPose(moved.rig!);
+  assert.ok(Math.abs(after.get(parent.id)!.to.x - target.x) < 1e-9, 'the joint went where it was put');
+  assert.ok(Math.abs(after.get(parent.id)!.to.y - target.y) < 1e-9);
+  assert.ok(
+    Math.abs(after.get(child.id)!.to.x - (target.x + gap.x)) < 1e-9,
+    'and what hangs off it kept its own shape',
+  );
+});
+
+test('what goes downstream is the drawing where it was put', () => {
+  const data = bindShapes(moveImage(placed(), { x: 7, y: 7 }), ['a'], 'anything');
+  const bound = boundRigOf(data)!;
+  assert.deepEqual(bound.image.shapes[0]!.points[0], {
+    x: drawing.shapes[0]!.points[0]!.x + 7,
+    y: drawing.shapes[0]!.points[0]!.y + 7,
+  });
+  assert.equal(bound.rig, data.rig, 'and the skeleton as it stands');
+});
+
+test('the frame grows to hold a drawing zoomed past the edge of it', () => {
+  // A frame left at the old size clips it everywhere downstream: the posing flow
+  // would show three quarters of a character and no reason why.
+  // The drawing's furthest shape reaches 24 of a 100-wide frame, so it takes a
+  // good deal of zoom before any of it is actually over the edge.
+  const data = zoomImage(placed(), 8, { x: 0, y: 0 });
+  const grown = placedImage(data);
+  assert.ok(grown.width > drawing.width, `${grown.width} against ${drawing.width}`);
+  const far = Math.max(...grown.shapes.flatMap((shape) => shape.points.map((point) => point.x)));
+  assert.ok(grown.width >= far, 'and holds the furthest point of it');
 });

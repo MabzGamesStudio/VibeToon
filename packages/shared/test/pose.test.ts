@@ -17,6 +17,7 @@ import {
   type PoseFlowData,
 } from '../src/flows/pose';
 import { emptyRigFlowData, restPose } from '../src/flows/rig';
+import { fitRigTo } from '../src/flows/rigBind';
 import type { BoundRig } from '../src/flows/rigBind';
 import type { VectorImage, VectorPolygon } from '../src/flows/vector';
 
@@ -247,4 +248,67 @@ test('the summary says what is there and how much of it has moved', () => {
   assert.match(text, /1 shape\(s\) bound/);
   assert.match(text, /1 joint\(s\) turned/, 'an angle of zero is not a turn');
   assert.equal(summarisePose(emptyPoseFlowData()), 'Nothing to pose yet.');
+});
+
+/* ---------------- posing a rig that was laid over a drawing ---------------- */
+
+test('an empty pose changes nothing at all', () => {
+  /*
+   * `restPose` has always read where the rig actually stands; `posedBones` walked
+   * from the origin instead. So posing a rig that had been laid over a drawing
+   * moved the whole picture by that offset before a single joint had been turned
+   * — an empty pose threw the drawing off the top-left corner, which is the
+   * posing flow "not working" in one line.
+   */
+  const image: VectorImage = {
+    width: 256,
+    height: 256,
+    shapes: [
+      {
+        id: 's1',
+        kind: 'polygon',
+        color: '#ff0000',
+        points: [
+          { x: 120, y: 40 },
+          { x: 140, y: 40 },
+          { x: 140, y: 60 },
+        ],
+      },
+    ],
+  };
+  const rig = fitRigTo(emptyRigFlowData('human'), image);
+  assert.ok(rig.origin && rig.origin.x !== 0, 'the rig really was moved to lie over the drawing');
+
+  const bound = { rig, image, binding: { s1: rig.bones[0]!.id } };
+  assert.deepEqual(posedImage(bound, {}).shapes[0]!.points, image.shapes[0]!.points);
+});
+
+test('rest and posed agree about where a bone is before anything is turned', () => {
+  const rig = fitRigTo(emptyRigFlowData('human'), { width: 200, height: 300, shapes: [] });
+  const rest = restPose(rig);
+  const placed = posedBones(rig, {});
+  for (const bone of rig.bones) {
+    const one = rest.get(bone.id)!;
+    const two = placed.get(bone.id)!;
+    assert.ok(Math.abs(one.from.x - two.from.x) < 1e-9, `${bone.name} starts somewhere else`);
+    assert.ok(Math.abs(one.to.y - two.to.y) < 1e-9, `${bone.name} ends somewhere else`);
+  }
+});
+
+test('turning a joint moves what is bound to it and leaves the rest', () => {
+  const image: VectorImage = {
+    width: 200,
+    height: 200,
+    shapes: [
+      { id: 'moves', kind: 'polygon', color: '#ff0000', points: [{ x: 90, y: 20 }, { x: 110, y: 20 }, { x: 110, y: 40 }] },
+      { id: 'stays', kind: 'polygon', color: '#00ff00', points: [{ x: 10, y: 10 }, { x: 20, y: 10 }, { x: 20, y: 20 }] },
+    ],
+  };
+  const rig = fitRigTo(emptyRigFlowData('human'), image);
+  const spine = rig.bones[1] ?? rig.bones[0]!;
+  const bound = { rig, image, binding: { moves: spine.id } };
+
+  const turned = posedImage(bound, { [spine.id]: 30 });
+  assert.notDeepEqual(turned.shapes[0]!.points, image.shapes[0]!.points, 'the bound shape turned');
+  assert.deepEqual(turned.shapes[1]!.points, image.shapes[1]!.points, 'the unbound one did not');
 });

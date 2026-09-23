@@ -9,6 +9,7 @@ import {
   emptyPaletteFlowData,
   type PaletteFlowData,
 } from '../src/flows/palette';
+import { DEFAULT_RIG_OPTIONS, emptyRigFlowData } from '../src/flows/rig';
 import { emptyTextData } from '../src/flows/text';
 import { DEFAULT_VECTORIZE_OPTIONS } from '../src/flows/vectorize';
 import { migrateFlowData, migrateNode, migrateProject, normaliseFlowData } from '../src/project/migrate';
@@ -228,4 +229,35 @@ test('a decomposition saved before the rebuild gets the settings it now needs', 
   assert.equal(migrated.options.edgeThreshold, DEFAULT_VECTORIZE_OPTIONS.edgeThreshold);
   assert.equal(migrated.options.maxPoints, DEFAULT_VECTORIZE_OPTIONS.maxPoints);
   assert.equal(migrated.options.refineRounds, DEFAULT_VECTORIZE_OPTIONS.refineRounds);
+});
+
+/* ---------------- a rig with nothing in it ---------------- */
+
+test('a skeleton flow with no bones gets a skeleton rather than taking the editor down', () => {
+  // Everything in the rig editor walks `bones`, so a flow stored without them is
+  // a blank screen — which is the worst way to find out, because there is
+  // nothing left on screen to find out from.
+  const bare = { editor: 'rig' } as unknown as FlowData;
+  const fixed = normaliseFlowData(bare) as ReturnType<typeof emptyRigFlowData>;
+  assert.ok(fixed.bones.length > 0, 'it has bones now');
+  assert.ok(Array.isArray(fixed.chains));
+  assert.equal(fixed.kind, 'human');
+  assert.equal(fixed.options.looseness, DEFAULT_RIG_OPTIONS.looseness);
+});
+
+test('a skeleton someone actually edited is left alone', () => {
+  const mine = emptyRigFlowData('bird');
+  assert.equal(normaliseFlowData(mine), mine, 'nothing was missing, so nothing was rebuilt');
+});
+
+/* ---------------- a binding made before the two could be placed ---------------- */
+
+test('a binding made before the drawing could be placed gets a place to be in', () => {
+  const old = { editor: 'bind', rig: null, image: null, binding: {}, selected: [], boneId: null, edits: 0 };
+  const fixed = normaliseFlowData(old as unknown as FlowData) as unknown as {
+    placement: { x: number; y: number; scale: number };
+    hideOthers: boolean;
+  };
+  assert.deepEqual(fixed.placement, { x: 0, y: 0, scale: 1 }, 'where it already was');
+  assert.equal(fixed.hideOthers, false);
 });

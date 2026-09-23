@@ -1,42 +1,74 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   addBone,
   bindShapes,
   bindState,
   centroid,
+  containsPoint,
   deleteBone,
   emptyBindFlowData,
   fitRigTo,
   imageOfBinding,
   inputsForPort,
+  moveImage,
+  moveJoint,
+  moveRig,
+  placedImage,
   readVectorImage,
   restPose,
   shapePath,
   shapesInRegion,
   summariseBinding,
   unbindShapes,
+  zoomImage,
+  zoomRig,
   type BindFlowData,
   type FlowNode,
   type Project,
   type RigFlowData,
   type VectorLine,
   type VectorPoint,
+  type VectorShape,
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
 
-/** What a click does. */
-type Tool = 'assign' | 'region' | 'addBone';
+/**
+ * What a click does.
+ *
+ * Adding and taking away are separate tools rather than one tool with a
+ * modifier, because binding a character is hundreds of clicks in a row and
+ * holding a key down for half of them is not a thing anyone should be asked to
+ * do. Each tool does its one thing on every click.
+ */
+type Tool = 'add' | 'remove' | 'area' | 'moveImage' | 'moveRig' | 'moveJoint' | 'addBone';
+
+const TOOLS: Array<[Tool, string, string]> = [
+  ['add', 'Add', 'Click a shape to put it in this part. Drag across several.'],
+  ['remove', 'Take out', 'Click a shape to take it out of whatever it is in.'],
+  ['area', 'Area', 'Click round a group of shapes. Enter finishes it; Esc abandons it.'],
+  ['moveImage', 'Move drawing', 'Drag the drawing. Scroll to make it bigger or smaller.'],
+  ['moveRig', 'Move skeleton', 'Drag the whole skeleton. Scroll to make it bigger or smaller.'],
+  ['moveJoint', 'Move joint', 'Drag any joint where you want it. What hangs off it comes along.'],
+  ['addBone', 'Add bone', 'Click where a new bone should end. It hangs off the selected one.'],
+];
 
 /**
  * Binding a drawing to a skeleton.
  *
  * The two arrive knowing nothing about each other: a pile of shapes and a
  * hierarchy of bones. This is where the map between them is made, and it is a
- * job of selecting and pointing rather than of typing, so the drawing and the
- * skeleton are shown on top of one another and everything is done on them.
+ * job of pointing rather than of typing, so they are shown on top of one another
+ * and everything is done on them.
+ *
+ * Two things make it workable rather than merely possible. The drawing and the
+ * skeleton are **placed separately** — no automatic fit knows where this
+ * drawing's shoulders are, so lining them up is the work and it needs both to be
+ * movable. And the drawing is **faded back except the part being worked on**,
+ * because a character is a hundred shapes and picking the arm out of all of them
+ * at once is the thing that makes this flow feel impossible.
  */
 export function BindFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
   const { setFlowData, generateFlow, notify } = useStudio();
@@ -45,18 +77,20 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
   const rigInput = inputsForPort(project, node.id, 'rig')[0];
   const vectorInput = inputsForPort(project, node.id, 'vector')[0];
 
-  const [tool, setTool] = useState<Tool>('assign');
-  const [lasso, setLasso] = useState<VectorPoint[]>([]);
+  const [tool, setTool] = useState<Tool>('add');
+  const [area, setArea] = useState<VectorPoint[]>([]);
+  const [held, setHeld] = useState<{ what: Tool; at: VectorPoint; joint?: string } | null>(null);
   const frame = useRef<HTMLDivElement | null>(null);
 
-  const image = imageOfBinding(data);
+  const raw = imageOfBinding(data);
+  const image = useMemo(() => placedImage(data), [data]);
   const rig = data.rig;
   const summary = useMemo(() => summariseBinding(data), [data]);
   const bones = useMemo(() => (rig ? restPose(rig) : new Map()), [rig]);
   const state = bindState(data, rigInput?.artifact?.hash, vectorInput?.artifact?.hash);
 
   const patch = useCallback(
-    (over: Partial<BindFlowData>) => setFlowData(node.id, { ...data, ...over }),
+    (over: Partial<BindFlowData> | BindFlowData) => setFlowData(node.id, { ...data, ...over }),
     [data, node.id, setFlowData],
   );
 
@@ -80,12 +114,14 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
         return;
       }
       patch({
-        // Laid over the drawing, or there is no bone to aim at.
+        // Laid over the drawing to begin with, or there is no bone to aim at.
+        // Where it really goes is then a matter for the Move tools.
         rig: fitRigTo(skeleton, drawing),
         image: drawing,
         binding: {},
         selected: [],
         boneId: skeleton.bones[0]?.id ?? null,
+        placement: { x: 0, y: 0, scale: 1 },
         rigHash: rigInput.artifact.hash,
         vectorHash: vectorInput.artifact.hash,
         edits: 0,
@@ -98,18 +134,33 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
 
   /* ---------------- pointing at things ---------------- */
 
+  /**
+   * Where a click landed, in the picture's own pixels.
+   *
+   * Through the element's box rather than through an assumed scale, so it stays
+   * right however the stage has been zoomed or panned around it.
+   */
   const locate = (event: React.MouseEvent): VectorPoint | null => {
     const box = frame.current?.getBoundingClientRect();
-    if (!box || box.width === 0 || image.width === 0) return null;
-    const scale = Math.min(box.width / image.width, box.height / image.height);
+    if (!box || box.width === 0 || raw.width === 0) return null;
+    const scale = Math.min(box.width / raw.width, box.height / raw.height);
     if (scale === 0) return null;
-    const left = box.x + (box.width - image.width * scale) / 2;
-    const top = box.y + (box.height - image.height * scale) / 2;
+    const left = box.x + (box.width - raw.width * scale) / 2;
+    const top = box.y + (box.height - raw.height * scale) / 2;
     return { x: (event.clientX - left) / scale, y: (event.clientY - top) / scale };
   };
 
-  /** The shape nearest a point, by which one's middle is closest. */
+  /**
+   * The shape under a point.
+   *
+   * Inside it, for anything filled — the shapes tile the picture, so a click
+   * lands in exactly one of them and that one is the answer. Nearest middle is
+   * the fallback, for strokes and for a click that fell in a gap.
+   */
   const shapeAt = (point: VectorPoint): string | null => {
+    for (const shape of image.shapes) {
+      if (shape.kind === 'polygon' && containsPoint(shape, point)) return shape.id;
+    }
     let best: string | null = null;
     let nearest = Infinity;
     for (const shape of image.shapes) {
@@ -120,40 +171,157 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
         best = shape.id;
       }
     }
-    return best;
+    return nearest < 24 ? best : null;
   };
+
+  const jointAt = (point: VectorPoint): string | null => {
+    let best: string | null = null;
+    let nearest = Infinity;
+    for (const [id, place] of bones.entries()) {
+      const distance = Math.hypot(place.to.x - point.x, place.to.y - point.y);
+      if (distance < nearest) {
+        nearest = distance;
+        best = id;
+      }
+    }
+    return nearest < 18 ? best : null;
+  };
+
+  const claim = (id: string) => {
+    if (!data.boneId) {
+      notify('error', 'Pick a part to put it in first.');
+      return;
+    }
+    if (data.binding[id] === data.boneId) return;
+    patch(bindShapes({ ...data, selected: [id] }, [id], data.boneId));
+  };
+
+  /* ---------------- dragging ---------------- */
+
+  const onDown = (event: React.MouseEvent) => {
+    const point = locate(event);
+    if (!point) return;
+
+    if (tool === 'moveJoint') {
+      const joint = jointAt(point);
+      if (!joint) return;
+      patch({ boneId: joint });
+      setHeld({ what: tool, at: point, joint });
+      return;
+    }
+    if (tool === 'moveImage' || tool === 'moveRig') {
+      setHeld({ what: tool, at: point });
+      return;
+    }
+    if (tool === 'add' || tool === 'remove') {
+      // A press is already a click on the shape under it, so dragging across a
+      // run of them keeps adding rather than needing a click each.
+      setHeld({ what: tool, at: point });
+      apply(point);
+    }
+  };
+
+  const apply = (point: VectorPoint) => {
+    const id = shapeAt(point);
+    if (!id) return;
+    if (tool === 'add') claim(id);
+    else if (tool === 'remove' && id in data.binding) patch(unbindShapes({ ...data, selected: [id] }, [id]));
+  };
+
+  const onMove = (event: React.MouseEvent) => {
+    if (!held) return;
+    const point = locate(event);
+    if (!point) return;
+    const by = { x: point.x - held.at.x, y: point.y - held.at.y };
+
+    if (held.what === 'moveImage') {
+      patch(moveImage(data, by));
+      setHeld({ ...held, at: point });
+    } else if (held.what === 'moveRig') {
+      patch(moveRig(data, by));
+      setHeld({ ...held, at: point });
+    } else if (held.what === 'moveJoint' && held.joint) {
+      patch(moveJoint(data, held.joint, point));
+    } else {
+      apply(point);
+      setHeld({ ...held, at: point });
+    }
+  };
+
+  const onUp = () => setHeld(null);
+
+  /**
+   * Scrolling sizes whichever of the two the current tool is about.
+   *
+   * Non-passive, because it has to stop the stage zooming as well — zooming the
+   * drawing *and* the view at once is two things happening for one gesture, and
+   * neither ends up where it was aimed.
+   */
+  useEffect(() => {
+    const element = frame.current;
+    if (!element || (tool !== 'moveImage' && tool !== 'moveRig')) return undefined;
+    const onWheel = (event: WheelEvent) => {
+      const box = element.getBoundingClientRect();
+      if (box.width === 0 || raw.width === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const scale = Math.min(box.width / raw.width, box.height / raw.height);
+      const about = {
+        x: (event.clientX - (box.x + (box.width - raw.width * scale) / 2)) / scale,
+        y: (event.clientY - (box.y + (box.height - raw.height * scale) / 2)) / scale,
+      };
+      const by = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+      setFlowData(node.id, tool === 'moveImage' ? zoomImage(data, by, about) : zoomRig(data, by, about));
+    };
+    element.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => element.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
+  }, [data, node.id, raw.height, raw.width, setFlowData, tool]);
+
+  /* ---------------- the area tool ---------------- */
+
+  const finishArea = useCallback(() => {
+    if (area.length >= 3) {
+      const inside = shapesInRegion(image, area);
+      if (inside.length === 0) notify('error', 'Nothing inside that area.');
+      else if (!data.boneId) notify('error', 'Pick a part to put them in first.');
+      else {
+        patch(bindShapes({ ...data, selected: inside }, inside, data.boneId));
+        notify('success', `Put ${inside.length} shape(s) in this part.`);
+      }
+    }
+    setArea([]);
+  }, [area, data, image, notify, patch]);
+
+  useEffect(() => {
+    if (tool !== 'area') return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        finishArea();
+      } else if (event.key === 'Escape' && area.length > 0) {
+        event.preventDefault();
+        event.stopPropagation();
+        setArea([]);
+      } else if ((event.key === 'Backspace' || event.key === 'z') && area.length > 0) {
+        event.preventDefault();
+        setArea(area.slice(0, -1));
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [area, finishArea, tool]);
 
   const onClick = (event: React.MouseEvent) => {
     const point = locate(event);
     if (!point) return;
-
-    if (tool === 'addBone') {
+    if (tool === 'area') setArea([...area, point]);
+    else if (tool === 'addBone') {
       patch(addBone(data, data.boneId ?? undefined, 'New bone', point));
-      setTool('assign');
-      return;
+      setTool('moveJoint');
     }
-    if (tool === 'region') {
-      setLasso([...lasso, point]);
-      return;
-    }
-    const id = shapeAt(point);
-    if (!id) return;
-    patch({ selected: event.shiftKey ? [...new Set([...data.selected, id])] : [id] });
   };
 
-  const finishLasso = () => {
-    if (lasso.length >= 3) {
-      const inside = shapesInRegion(image, lasso);
-      if (inside.length === 0) notify('error', 'Nothing inside that region.');
-      else patch({ selected: inside });
-    }
-    setLasso([]);
-  };
-
-  const assign = () => {
-    if (!data.boneId || data.selected.length === 0) return;
-    patch(bindShapes(data, data.selected, data.boneId));
-  };
+  /* ---------------- what is shown ---------------- */
 
   const blocked = !rigInput
     ? 'Wire a Skeletal Rig flow into the Rig input.'
@@ -163,13 +331,35 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
         ? 'Generate both inputs first.'
         : null;
 
-  const boneOf = (shapeId: string) => data.binding[shapeId];
   const colorForBone = (boneId: string | undefined) => {
     if (!boneId) return null;
     const list = rig?.bones ?? [];
     const index = list.findIndex((bone) => bone.id === boneId);
     return index < 0 ? null : `hsl(${(index * 47) % 360} 75% 60%)`;
   };
+
+  /**
+   * How plainly a shape is drawn.
+   *
+   * The part being worked on is the picture; everything else is background for
+   * it. Binding an arm means finding the arm's shapes among a hundred others,
+   * and the only way that is anything other than miserable is for the hundred
+   * others to get out of the way.
+   *
+   * In its own colors, not the part's. Recoloring an assigned shape tells you
+   * which part it is in and hides the one thing you are looking at — whether
+   * this really is the arm. The part's color goes round the edge instead, where
+   * it says the same thing without painting over the drawing.
+   */
+  const showing = (shape: VectorShape): { opacity: number; edge: string | null } | null => {
+    const bone = data.binding[shape.id];
+    const mine = bone !== undefined && bone === data.boneId;
+    if (mine) return { opacity: 1, edge: colorForBone(bone) };
+    if (bone !== undefined) return data.hideOthers ? null : { opacity: 0.16, edge: colorForBone(bone) };
+    return { opacity: 0.4, edge: null };
+  };
+
+  const boneName = data.boneId ? rig?.bones.find((bone) => bone.id === data.boneId)?.name : undefined;
 
   return (
     <EditorShell
@@ -204,13 +394,7 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
         <div className="vt-section">
           <h3>Tool</h3>
           <div className="vt-facet-values">
-            {(
-              [
-                ['assign', 'Pick', 'Click a shape to select it; shift-click to add.'],
-                ['region', 'Region', 'Draw round a group of shapes to select them all. Double-click to finish.'],
-                ['addBone', 'Add bone', 'Click where the new bone should end. It hangs off the selected bone.'],
-              ] as const
-            ).map(([value, label, hint]) => (
+            {TOOLS.map(([value, label, hint]) => (
               <button
                 key={value}
                 type="button"
@@ -218,34 +402,72 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
                 title={hint}
                 onClick={() => {
                   setTool(value);
-                  setLasso([]);
+                  setArea([]);
                 }}
               >
                 {label}
               </button>
             ))}
           </div>
-          {data.selected.length > 0 ? (
-            <div className="vt-row" style={{ gap: 4, marginTop: 8 }}>
-              <button type="button" className="vt-btn is-small is-primary" onClick={assign} disabled={!data.boneId}>
-                Bind {data.selected.length} to this bone
-              </button>
-              <button
-                type="button"
-                className="vt-btn is-small"
-                onClick={() => patch(unbindShapes(data, data.selected))}
-              >
-                Unbind
-              </button>
-            </div>
-          ) : null}
+          <p className="vt-faint" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.45 }}>
+            {TOOLS.find(([value]) => value === tool)?.[2]}
+          </p>
         </div>
 
         <div className="vt-section">
-          <h3>Bones ({rig?.bones.length ?? 0})</h3>
+          <h3>Where they sit</h3>
+          <div className="vt-row" style={{ gap: 4, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="vt-btn is-small"
+              title="Put the drawing back where it arrived"
+              onClick={() => patch({ placement: { x: 0, y: 0, scale: 1 }, edits: data.edits + 1 })}
+            >
+              Drawing back
+            </button>
+            <button
+              type="button"
+              className="vt-btn is-small"
+              title="Lay the skeleton over the drawing again, at the size it started"
+              disabled={!rig}
+              onClick={() => {
+                if (!rig) return;
+                // Fitting measures the rig's current spread and scales it to the
+                // room, so doing it to an already-fitted rig lands in the same
+                // place rather than shrinking it again.
+                patch({ rig: fitRigTo(rig, image), edits: data.edits + 1 });
+              }}
+            >
+              Skeleton back
+            </button>
+          </div>
+          <p className="vt-faint" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.45 }}>
+            Dragging and scrolling can put either of them somewhere you cannot see. These put them
+            back without touching what is already bound.
+          </p>
+        </div>
+
+        <div className="vt-section">
+          <h3>What is shown</h3>
+          <label className="vt-row" style={{ gap: 6 }}>
+            <input
+              type="checkbox"
+              checked={data.hideOthers}
+              onChange={(event) => patch({ hideOthers: event.target.checked })}
+            />
+            Hide shapes other parts have taken
+          </label>
+          <p className="vt-faint" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.45 }}>
+            The part being worked on is drawn plainly and the rest is faded back. Hiding what is
+            already taken leaves only what is still to do.
+          </p>
+        </div>
+
+        <div className="vt-section">
+          <h3>Parts ({rig?.bones.length ?? 0})</h3>
           <div className="vt-object-list">
             {(rig?.bones ?? []).map((bone) => {
-              const held = image.shapes.filter((shape) => boneOf(shape.id) === bone.id).length;
+              const count = raw.shapes.filter((shape) => data.binding[shape.id] === bone.id).length;
               return (
                 <button
                   key={bone.id}
@@ -253,25 +475,36 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
                   className={`vt-object${data.boneId === bone.id ? ' is-selected' : ''}`}
                   onClick={() => patch({ boneId: bone.id })}
                 >
-                  <span
-                    className="vt-object-dot"
-                    style={{ background: colorForBone(bone.id) ?? undefined }}
-                  />
+                  <span className="vt-object-dot" style={{ background: colorForBone(bone.id) ?? undefined }} />
                   <strong>{bone.name}</strong>
-                  <span className="vt-faint">{held === 0 ? 'nothing' : `${held} shape(s)`}</span>
+                  <span className="vt-faint">{count === 0 ? 'nothing' : `${count} shape(s)`}</span>
                 </button>
               );
             })}
           </div>
           {data.boneId ? (
-            <button
-              type="button"
-              className="vt-btn is-small is-danger"
-              style={{ marginTop: 6 }}
-              onClick={() => patch(deleteBone(data, data.boneId!))}
-            >
-              Delete this bone
-            </button>
+            <div className="vt-row" style={{ gap: 4, marginTop: 6 }}>
+              <button
+                type="button"
+                className="vt-btn is-small"
+                title="Take everything out of this part"
+                onClick={() => {
+                  const mine = raw.shapes
+                    .filter((shape) => data.binding[shape.id] === data.boneId)
+                    .map((shape) => shape.id);
+                  if (mine.length > 0) patch(unbindShapes(data, mine));
+                }}
+              >
+                Empty it
+              </button>
+              <button
+                type="button"
+                className="vt-btn is-small is-danger"
+                onClick={() => patch(deleteBone(data, data.boneId!))}
+              >
+                Delete bone
+              </button>
+            </div>
           ) : null}
           <p className="vt-faint" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.4 }}>
             Deleting a bone hangs its children on its parent where they are, and moves its shapes
@@ -288,10 +521,13 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
             <dd>{summary.bound}</dd>
             <dt>Unbound</dt>
             <dd>{summary.unbound}</dd>
-            <dt>Empty bones</dt>
+            <dt>Empty parts</dt>
             <dd>{summary.empty}</dd>
-            <dt>Edits</dt>
-            <dd>{data.edits}</dd>
+            <dt>Drawing at</dt>
+            <dd>
+              {data.placement.x.toFixed(0)}, {data.placement.y.toFixed(0)} ·{' '}
+              {(data.placement.scale * 100).toFixed(0)}%
+            </dd>
           </dl>
           {summary.problems.length > 0 ? (
             <ul className="vt-hints">
@@ -308,46 +544,67 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
           zoomable
           title="The drawing and its skeleton"
           tools={
-            <span className="vt-faint" style={{ fontSize: 11 }}>
-              {image.shapes.length > 0 ? `${summary.bound}/${summary.shapes} bound` : 'nothing yet'}
-            </span>
+            <>
+              <span className="vt-faint" style={{ fontSize: 11 }}>
+                {raw.shapes.length > 0 ? `${summary.bound}/${summary.shapes} bound` : 'nothing yet'}
+              </span>
+              {boneName ? (
+                <span className="vt-chip is-on" style={{ pointerEvents: 'none' }}>
+                  {boneName}
+                </span>
+              ) : null}
+            </>
+          }
+          banner={
+            tool === 'area' && area.length > 0 ? (
+              <div className="vt-hint vt-zoom-hint">
+                {area.length} point(s) — Enter to put what is inside into{' '}
+                <strong>{boneName ?? 'this part'}</strong>, Backspace to undo one, Esc to abandon it.
+              </div>
+            ) : undefined
           }
         >
           <div className="vt-vector-stage">
-            {image.shapes.length > 0 ? (
+            {raw.shapes.length > 0 ? (
               <div
                 className="vt-vector-frame"
                 ref={frame}
                 onClick={onClick}
-                onDoubleClick={finishLasso}
-                style={{ aspectRatio: `${image.width} / ${image.height}`, cursor: 'crosshair' }}
+                onMouseDown={onDown}
+                onMouseMove={onMove}
+                onMouseUp={onUp}
+                onMouseLeave={onUp}
+                style={{
+                  aspectRatio: `${raw.width} / ${raw.height}`,
+                  cursor: held ? 'grabbing' : tool.startsWith('move') ? 'grab' : 'crosshair',
+                }}
               >
                 <svg
                   className="vt-vector-svg"
-                  viewBox={`0 0 ${image.width} ${image.height}`}
+                  viewBox={`0 0 ${raw.width} ${raw.height}`}
                   preserveAspectRatio="xMidYMid meet"
                 >
                   {image.shapes.map((shape) => {
-                    const tint = colorForBone(boneOf(shape.id));
-                    const picked = data.selected.includes(shape.id);
+                    const how = showing(shape);
+                    if (!how) return null;
                     return shape.kind === 'polygon' ? (
                       <path
                         key={shape.id}
                         d={shapePath(shape)}
-                        fill={tint ?? shape.color}
-                        opacity={tint ? 0.85 : 0.45}
-                        className={`vt-vector-shape${picked ? ' is-selected' : ''}`}
+                        fill={shape.color}
+                        stroke={how.edge ?? shape.color}
+                        strokeWidth={how.edge ? 1.2 : 0.5}
+                        opacity={how.opacity}
                       />
                     ) : (
                       <path
                         key={shape.id}
                         d={shapePath(shape)}
                         fill="none"
-                        stroke={tint ?? (shape as VectorLine).color}
-                        strokeWidth={(shape as VectorLine).width}
+                        stroke={how.edge ?? (shape as VectorLine).color}
+                        strokeWidth={Math.max((shape as VectorLine).width, how.edge ? 1.2 : 0)}
                         strokeLinecap="round"
-                        opacity={tint ? 1 : 0.45}
-                        className={`vt-vector-shape${picked ? ' is-selected' : ''}`}
+                        opacity={how.opacity}
                       />
                     );
                   })}
@@ -363,14 +620,26 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
                       className={`vt-bone${data.boneId === id ? ' is-selected' : ''}`}
                     />
                   ))}
+                  {[...bones.entries()].map(([id, place]) => (
+                    <circle
+                      key={`${id}-joint`}
+                      cx={place.to.x}
+                      cy={place.to.y}
+                      r={tool === 'moveJoint' ? 4 : 2.5}
+                      className={`vt-joint${data.boneId === id ? ' is-selected' : ''}`}
+                    />
+                  ))}
 
-                  {lasso.length >= 2 ? (
+                  {area.length >= 2 ? (
                     <polygon
                       className="vt-region is-drafting"
-                      points={lasso.map((point) => `${point.x},${point.y}`).join(' ')}
+                      points={area.map((point) => `${point.x},${point.y}`).join(' ')}
                       strokeWidth={1}
                     />
                   ) : null}
+                  {area.map((point, index) => (
+                    <circle key={index} cx={point.x} cy={point.y} r={2} className="vt-anchor" />
+                  ))}
                 </svg>
               </div>
             ) : (
@@ -380,9 +649,9 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
         </Stage>
 
         <p className="vt-faint" style={{ marginTop: 8, fontSize: 11 }}>
-          {tool === 'region' && lasso.length > 0
-            ? `${lasso.length} point(s) — double-click to finish the region.`
-            : `${summary.bound} of ${summary.shapes} shape(s) bound · ${data.selected.length} selected`}
+          {summary.bound} of {summary.shapes} shape(s) bound
+          {boneName ? ` · working on ${boneName}` : ' · no part picked'}
+          {data.hideOthers ? ' · what other parts have taken is hidden' : ''}
         </p>
       </div>
     </EditorShell>

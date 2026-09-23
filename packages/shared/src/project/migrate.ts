@@ -5,6 +5,8 @@ import { getFlowKind } from '../registry/flowKinds';
 import { DEFAULT_DERIVE_OPTIONS, DEFAULT_EXTRACT_OPTIONS } from '../text/corpus';
 import { DEFAULT_GRAMMAR_OPTIONS } from '../text/grammarDatabase';
 import { normaliseMeanings } from '../text/senses';
+import { DEFAULT_IK_OPTIONS } from '../flows/pose';
+import { DEFAULT_RIG_OPTIONS, emptyRigFlowData } from '../flows/rig';
 import {
   DEFAULT_PALETTE_OPTIONS,
   derivePalette,
@@ -94,6 +96,73 @@ export function normaliseFlowData(data: FlowData): FlowData {
     case 'grammar': {
       const options = fill(data.options, DEFAULT_GRAMMAR_OPTIONS);
       return options.filled ? { ...data, options: options.value } : data;
+    }
+    case 'rig': {
+      /*
+       * A skeleton with no bones in it is not a skeleton.
+       *
+       * Everything in the rig editor walks `bones` and `chains`, so a flow whose
+       * stored data is missing either takes the whole editor down with a blank
+       * screen rather than showing an empty rig — which is the worst way to find
+       * out, because there is nothing left on screen to find out *from*.
+       */
+      const kind = data.kind ?? 'human';
+      const template = emptyRigFlowData(kind);
+      const bones = Array.isArray(data.bones) && data.bones.length > 0 ? data.bones : template.bones;
+      const chains = Array.isArray(data.chains) ? data.chains : template.chains;
+      const options = fill(data.options, DEFAULT_RIG_OPTIONS);
+      if (bones === data.bones && chains === data.chains && !options.filled && data.kind) return data;
+      return { ...data, kind, bones, chains, options: options.value };
+    }
+    case 'bind': {
+      /*
+       * Everything a binding needs to be opened at all.
+       *
+       * The drawing and the skeleton gained places of their own, so a binding
+       * made before that has none — and a placement read as `undefined` renders
+       * the whole drawing at NaN. The rest is the same story one step further
+       * back: `summariseBinding` walks the binding table on every render, so a
+       * flow stored without one takes the editor down with a blank screen.
+       */
+      const fixed = {
+        ...data,
+        binding: data.binding ?? {},
+        selected: Array.isArray(data.selected) ? data.selected : [],
+        placement: data.placement ?? { x: 0, y: 0, scale: 1 },
+        hideOthers: data.hideOthers ?? false,
+        edits: typeof data.edits === 'number' ? data.edits : 0,
+      };
+      const same =
+        fixed.binding === data.binding &&
+        fixed.selected === data.selected &&
+        fixed.placement === data.placement &&
+        fixed.hideOthers === data.hideOthers &&
+        fixed.edits === data.edits;
+      return same ? data : fixed;
+    }
+    case 'pose': {
+      /*
+       * The same, for a pose.
+       *
+       * The angles are read on every render and so are the solver's settings, so
+       * a pose flow stored without either — which is any pose flow made before
+       * this flow had a solver — throws on `ik.respectLimits` the moment it is
+       * opened, and the editor goes blank.
+       */
+      const ik = fill(data.ik, DEFAULT_IK_OPTIONS);
+      const fixed = {
+        ...data,
+        pose: data.pose ?? {},
+        mode: data.mode ?? 'forward',
+        selected: data.selected ?? null,
+        ik: ik.value,
+      };
+      const same =
+        fixed.pose === data.pose &&
+        fixed.mode === data.mode &&
+        fixed.selected === data.selected &&
+        !ik.filled;
+      return same ? data : fixed;
     }
     case 'vectorize': {
       /*
