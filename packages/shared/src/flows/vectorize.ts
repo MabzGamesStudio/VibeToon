@@ -3,7 +3,8 @@ import { boxOf, coverageFor, fillInto, strokeInto, type Box } from './fit';
 import { traceShared, type RegionLoops } from './arcs';
 import { detectEdges, growRegions, type EdgeMap, type GrownRegion } from './edges';
 import { joinLines, joinPolygons } from './join';
-import { colorDistance, fromHex, toHex } from './palette';
+import { QuadIndex, type Bounds, type SpatialIndex } from './spatial';
+import { fromHex, toHex, toOklab } from './palette';
 import {
   isConvex,
   type VectorImage,
@@ -747,81 +748,180 @@ export function toConvexPieces(points: VectorPoint[]): VectorPoint[][] {
  *    has a good corner and nothing inside it, and makes a cut straight through
  *    the middle of nothing.
  */
-export function earClip(points: VectorPoint[]): number[][] {
+export function earClip(
+  points: VectorPoint[],
+  makeIndex: (bounds: Bounds) => SpatialIndex = (bounds) => new QuadIndex(bounds),
+): number[][] {
+  const count = points.length;
+  if (count < 3) return [];
   const winding = signedArea(points) > 0 ? 1 : -1;
-  const remaining = points.map((_, index) => index);
+
+  /*
+   * The same clipping as always, made fast without changing a single choice.
+   *
+   * It used to test every corner against every other corner and every edge, on
+   * every round: cubic in the outline's length, which on a photographed region a
+   * few hundred points long was most of a minute. Two things take that away.
+   *
+   * **Indexes** of the corners, the edges and each corner's ear triangle, so a
+   * test looks only at what is near it (`spatial.ts`).
+   *
+   * **Remembering** each corner's answer between rounds. Clipping an ear changes
+   * the polygon only inside that ear's triangle — a corner and two edges go, one
+   * edge comes — so a corner whose own triangle's box does not overlap it gets the
+   * same answer to every test as before: the removed corner cannot be inside it,
+   * the changed edges cannot cross its cut, and the new edge and the two old ones
+   * are crossed by any ray from outside the clipped triangle an even number of
+   * times between them, so its middle is inside or outside exactly as it was. Only
+   * the corners near the clip are asked again.
+   *
+   * Corners are still visited in their order in the outline and the fattest ear
+   * still wins with the first one kept on a tie, so the triangles are the ones the
+   * slow version made, to the bit.
+   */
+  const prev = new Int32Array(count);
+  const next = new Int32Array(count);
+  for (let index = 0; index < count; index += 1) {
+    prev[index] = (index - 1 + count) % count;
+    next[index] = (index + 1) % count;
+  }
+  const alive = new Uint8Array(count).fill(1);
+  let remaining = count;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const point of points) {
+    if (point.x < minX) minX = point.x;
+    if (point.y < minY) minY = point.y;
+    if (point.x > maxX) maxX = point.x;
+    if (point.y > maxY) maxY = point.y;
+  }
+  const bounds: Bounds = { minX, minY, maxX, maxY };
+  const corners = makeIndex(bounds);
+  /** Each edge, filed under the corner it leaves from. */
+  const edges = makeIndex(bounds);
+  /** Each corner's ear triangle: itself and its two neighbours. */
+  const ears = makeIndex(bounds);
+
+  const fileEdge = (from: number) => {
+    const a = points[from]!;
+    const b = points[next[from]!]!;
+    edges.insert(from, Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y));
+  };
+  const fileEar = (at: number) => {
+    const a = points[prev[at]!]!;
+    const b = points[at]!;
+    const c = points[next[at]!]!;
+    ears.insert(
+      at,
+      Math.min(a.x, b.x, c.x),
+      Math.min(a.y, b.y, c.y),
+      Math.max(a.x, b.x, c.x),
+      Math.max(a.y, b.y, c.y),
+    );
+  };
+  for (let index = 0; index < count; index += 1) {
+    const point = points[index]!;
+    corners.insert(index, point.x, point.y, point.x, point.y);
+    fileEdge(index);
+    fileEar(index);
+  }
+
+  /** How good an ear this corner is right now, or -1 if it is not one. */
+  const judge = (at: number): number => {
+    const before = prev[at]!;
+    const after = next[at]!;
+    const previous = points[before]!;
+    const ear = points[at]!;
+    const following = points[after]!;
+
+    // The two ends of a slit, which is not an ear but a fold.
+    if (same(previous, following)) return -1;
+
+    const turn =
+      (ear.x - previous.x) * (following.y - ear.y) - (ear.y - previous.y) * (following.x - ear.x);
+    if (turn * winding <= 0) return -1;
+
+    let blocked = false;
+    corners.query(
+      Math.min(previous.x, ear.x, following.x),
+      Math.min(previous.y, ear.y, following.y),
+      Math.max(previous.x, ear.x, following.x),
+      Math.max(previous.y, ear.y, following.y),
+      (other) => {
+        if (blocked || other === at || other === before || other === after) return;
+        if (strictlyInside(points[other]!, previous, ear, following)) blocked = true;
+      },
+    );
+    if (blocked) return -1;
+
+    edges.query(
+      Math.min(previous.x, following.x),
+      Math.min(previous.y, following.y),
+      Math.max(previous.x, following.x),
+      Math.max(previous.y, following.y),
+      (from) => {
+        if (blocked) return;
+        const to = next[from]!;
+        if (from === before || to === before || from === after || to === after) return;
+        if (from === at || to === at) return;
+        if (segmentsCross(previous, following, points[from]!, points[to]!)) blocked = true;
+      },
+    );
+    if (blocked) return -1;
+
+    // The cut's middle is inside the shape: an even-odd ray to the right, which
+    // only ever meets edges in its own row.
+    const middle = { x: (previous.x + following.x) / 2, y: (previous.y + following.y) / 2 };
+    let inside = false;
+    edges.query(middle.x, middle.y, bounds.maxX, middle.y, (from) => {
+      const a = points[next[from]!]!;
+      const b = points[from]!;
+      if (a.y > middle.y === b.y > middle.y) return;
+      if (middle.x < ((b.x - a.x) * (middle.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+    });
+    if (!inside) return -1;
+
+    /*
+     * The fattest ear on offer, not the first one that will do.
+     *
+     * Taking the first leaves a fan of splinters along every curve, and a
+     * splinter is a real problem rather than an untidiness: it is thinner than
+     * a stroke, so the rule that says a piece that thin should be a stroke
+     * fires on it — and a stroke is not part of the partition, so swapping one
+     * in opens a seam down both of its long sides. Fifty-one of them took a
+     * drawing from 825 wrong pixels to 1067.
+     *
+     * Measured by how square the triangle is: its shortest way across over its
+     * longest, which is 0 for a splinter and highest for an equilateral one.
+     */
+    return squareness(previous, ear, following);
+  };
+
+  const quality = new Float64Array(count);
+  const known = new Uint8Array(count);
   const out: number[][] = [];
   let guard = 0;
 
-  while (remaining.length > 3 && guard < points.length * points.length + 64) {
+  while (remaining > 3 && guard < count * count + 64) {
     guard += 1;
-    const count = remaining.length;
     let clipped = -1;
     let fattest = -1;
-
-    for (let index = 0; index < count; index += 1) {
-      const before = (index - 1 + count) % count;
-      const after = (index + 1) % count;
-      const previous = points[remaining[before]!]!;
-      const ear = points[remaining[index]!]!;
-      const next = points[remaining[after]!]!;
-
-      // The two ends of a slit, which is not an ear but a fold.
-      if (same(previous, next)) continue;
-
-      const turn = (ear.x - previous.x) * (next.y - ear.y) - (ear.y - previous.y) * (next.x - ear.x);
-      if (turn * winding <= 0) continue;
-
-      let blocked = false;
-      for (let other = 0; other < count && !blocked; other += 1) {
-        if (other === index || other === before || other === after) continue;
-        if (strictlyInside(points[remaining[other]!]!, previous, ear, next)) blocked = true;
+    for (let at = 0; at < count; at += 1) {
+      if (!alive[at]) continue;
+      if (!known[at]) {
+        quality[at] = judge(at);
+        known[at] = 1;
       }
-      if (blocked) continue;
-
-      for (let edge = 0; edge < count && !blocked; edge += 1) {
-        const to = (edge + 1) % count;
-        if (edge === before || to === before || edge === after || to === after) continue;
-        if (edge === index || to === index) continue;
-        if (segmentsCross(previous, next, points[remaining[edge]!]!, points[remaining[to]!]!)) {
-          blocked = true;
-        }
-      }
-      if (blocked) continue;
-
-      const middle = { x: (previous.x + next.x) / 2, y: (previous.y + next.y) / 2 };
-      if (!insideRing(middle, remaining.map((at) => points[at]!))) continue;
-
-      /*
-       * The fattest ear on offer, not the first one that will do.
-       *
-       * Taking the first leaves a fan of splinters along every curve, and a
-       * splinter is a real problem rather than an untidiness: it is thinner than
-       * a stroke, so the rule that says a piece that thin should be a stroke
-       * fires on it — and a stroke is not part of the partition, so swapping one
-       * in opens a seam down both of its long sides. Fifty-one of them took a
-       * drawing from 825 wrong pixels to 1067.
-       *
-       * Measured by how square the triangle is: its shortest way across over its
-       * longest, which is 0 for a splinter and highest for an equilateral one.
-       * Choosing on that costs one pass over the corners instead of stopping at
-       * the first, and it leaves almost nothing for the rule to fire on.
-       */
-      const quality = squareness(previous, ear, next);
-      if (quality > fattest) {
-        fattest = quality;
-        clipped = index;
+      if (quality[at]! > fattest) {
+        fattest = quality[at]!;
+        clipped = at;
       }
     }
 
-    if (clipped >= 0) {
-      const count2 = remaining.length;
-      out.push([
-        remaining[(clipped - 1 + count2) % count2]!,
-        remaining[clipped]!,
-        remaining[(clipped + 1) % count2]!,
-      ]);
-    }
+    if (clipped >= 0) out.push([prev[clipped]!, clipped, next[clipped]!]);
 
     /*
      * Nothing would clip. Before giving up, drop a corner that is on the
@@ -829,21 +929,55 @@ export function earClip(points: VectorPoint[]): number[][] {
      * the shape nothing, and it is usually the thing that was in the way.
      */
     if (clipped < 0) {
-      for (let index = 0; index < count && clipped < 0; index += 1) {
-        const previous = points[remaining[(index - 1 + count) % count]!]!;
-        const ear = points[remaining[index]!]!;
-        const next = points[remaining[(index + 1) % count]!]!;
-        const turn = (ear.x - previous.x) * (next.y - ear.y) - (ear.y - previous.y) * (next.x - ear.x);
-        if (Math.abs(turn) < 1e-9) clipped = index;
+      for (let at = 0; at < count && clipped < 0; at += 1) {
+        if (!alive[at]) continue;
+        const previous = points[prev[at]!]!;
+        const ear = points[at]!;
+        const following = points[next[at]!]!;
+        const turn =
+          (ear.x - previous.x) * (following.y - ear.y) - (ear.y - previous.y) * (following.x - ear.x);
+        if (Math.abs(turn) < 1e-9) clipped = at;
       }
     }
     // A polygon that will not clip at all is self-intersecting or degenerate.
     // Give back what has been found rather than looping, and let the caller
     // report it.
     if (clipped < 0) break;
-    remaining.splice(clipped, 1);
+
+    // Take the corner out, and forget what was known near it.
+    const before = prev[clipped]!;
+    const after = next[clipped]!;
+    const a = points[before]!;
+    const b = points[clipped]!;
+    const c = points[after]!;
+    const near = {
+      minX: Math.min(a.x, b.x, c.x),
+      minY: Math.min(a.y, b.y, c.y),
+      maxX: Math.max(a.x, b.x, c.x),
+      maxY: Math.max(a.y, b.y, c.y),
+    };
+    alive[clipped] = 0;
+    remaining -= 1;
+    next[before] = after;
+    prev[after] = before;
+    corners.remove(clipped);
+    edges.remove(clipped);
+    ears.remove(clipped);
+    fileEdge(before);
+    ears.query(near.minX, near.minY, near.maxX, near.maxY, (at) => {
+      known[at] = 0;
+    });
+    known[before] = 0;
+    known[after] = 0;
+    fileEar(before);
+    fileEar(after);
   }
-  if (remaining.length === 3) out.push([...remaining]);
+
+  if (remaining === 3) {
+    const last: number[] = [];
+    for (let at = 0; at < count; at += 1) if (alive[at]) last.push(at);
+    out.push(last);
+  }
   return out;
 }
 
@@ -871,18 +1005,6 @@ function strictlyInside(point: VectorPoint, a: VectorPoint, b: VectorPoint, c: V
   const three = side(point, c, a);
   if (one === 0 || two === 0 || three === 0) return false;
   return one > 0 === two > 0 && two > 0 === three > 0;
-}
-
-/** Even-odd ray cast, for asking whether a cut runs through the shape or past it. */
-function insideRing(point: VectorPoint, ring: VectorPoint[]): boolean {
-  let inside = false;
-  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
-    const a = ring[index]!;
-    const b = ring[previous]!;
-    if (a.y > point.y === b.y > point.y) continue;
-    if (point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
-  }
-  return inside;
 }
 
 export function signedArea(points: VectorPoint[]): number {
@@ -1053,7 +1175,8 @@ export function vectorize(
   const plain: Budget = { detail: options.detail, maxPoints: options.maxPoints };
   let detail: (points: VectorPoint[]) => Budget = () => plain;
   let best = build(image, found, options, makeId, detail);
-  let measured = difference(image, best.image, options);
+  const lab = sourceLab(image);
+  let measured = difference(image, best.image, options, lab);
 
   /*
    * Round by round, spend the effort where the drawing is actually wrong.
@@ -1085,7 +1208,7 @@ export function vectorize(
     };
     detail = (points) => (hot.runsThrough(points) ? rich : plain);
     const next = build(image, found, options, makeId, detail);
-    const score = difference(image, next.image, options);
+    const score = difference(image, next.image, options, lab);
     // Only kept if it is actually better. Spending anchors on the worst part of
     // the picture almost always is, and "almost always" is not a reason to stop
     // checking — a round that comes back worse is the loop's answer that the
@@ -1332,10 +1455,44 @@ export interface Difference {
  * of what the flow spent its time on; asking it once over the whole picture says
  * just as much about whether the answer is any good, and costs one pass.
  */
+/**
+ * Every pixel of the source in OKLab, three numbers a pixel.
+ *
+ * Worked out once per decomposition and handed to every `difference`, which
+ * used to convert each source pixel again on every round — two thirds of the
+ * time an 800-pixel drawing took was spent converting the same colors over and
+ * over. The same arithmetic as `colorDistance`, so every comparison comes out
+ * exactly as it did.
+ */
+export function sourceLab(source: Bitmap): Float64Array {
+  const lab = new Float64Array(source.width * source.height * 3);
+  const seen = new Map<number, number>();
+  for (let index = 0; index < source.width * source.height; index += 1) {
+    const at = index * 4;
+    const packed = (source.data[at]! << 16) | (source.data[at + 1]! << 8) | source.data[at + 2]!;
+    // Flat artwork is a few colors across a great many pixels, so converting
+    // each color once and copying it is most of the saving.
+    const known = seen.get(packed);
+    if (known !== undefined) {
+      lab[index * 3] = lab[known * 3]!;
+      lab[index * 3 + 1] = lab[known * 3 + 1]!;
+      lab[index * 3 + 2] = lab[known * 3 + 2]!;
+      continue;
+    }
+    const color = toOklab({ r: source.data[at]!, g: source.data[at + 1]!, b: source.data[at + 2]! });
+    lab[index * 3] = color.L;
+    lab[index * 3 + 1] = color.a;
+    lab[index * 3 + 2] = color.b;
+    seen.set(packed, index);
+  }
+  return lab;
+}
+
 export function difference(
   source: Bitmap,
   drawn: VectorImage,
   options: VectorizeOptions,
+  lab: Float64Array = sourceLab(source),
 ): Difference {
   const { width, height } = source;
   const box: Box = { x: 0, y: 0, width, height };
@@ -1358,6 +1515,18 @@ export function difference(
     }
   }
 
+  // The drawing's colors in OKLab, once each: a drawing has a few dozen.
+  const painting = new Map<number, [number, number, number]>();
+  const paintedLab = (packed: number): [number, number, number] => {
+    let known = painting.get(packed);
+    if (!known) {
+      const color = toOklab({ r: (packed >> 16) & 255, g: (packed >> 8) & 255, b: packed & 255 });
+      known = [color.L, color.a, color.b];
+      painting.set(packed, known);
+    }
+    return known;
+  };
+
   const error = new Float32Array(width * height);
   let wrong = 0;
   let plain = 0;
@@ -1375,10 +1544,9 @@ export function difference(
       }
     } else if (got < 0) cost = 1;
     else {
-      const distance = colorDistance(
-        { r: (got >> 16) & 255, g: (got >> 8) & 255, b: got & 255 },
-        { r: source.data[at]!, g: source.data[at + 1]!, b: source.data[at + 2]! },
-      );
+      const [L, a, b] = paintedLab(got);
+      const distance =
+        100 * Math.hypot(L - lab[index * 3]!, a - lab[index * 3 + 1]!, b - lab[index * 3 + 2]!);
       // Judged by eye rather than by byte: a pixel a shade off is not wrong.
       cost = distance > 8 ? 1 : 0;
     }
@@ -1651,11 +1819,57 @@ export function bridgeHoles(outer: VectorPoint[], holes: VectorPoint[][]): Vecto
     // cutting it first leaves the small ones the room they need.
     .sort((a, b) => Math.abs(signedArea(b)) - Math.abs(signedArea(a)));
 
+  /*
+   * Every edge a cut may not cross, filed once for the whole shape.
+   *
+   * That is the ring's edges and every hole's. Bridging a hole in adds nothing
+   * to that but the bridge itself — the hole's own edges were already there, and
+   * the ring keeps every edge it had — so the file is kept up to date by adding
+   * the one new edge rather than being rebuilt for every hole.
+   */
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const loop of [outer, ...pending]) {
+    for (const point of loop) {
+      if (point.x < minX) minX = point.x;
+      if (point.y < minY) minY = point.y;
+      if (point.x > maxX) maxX = point.x;
+      if (point.y > maxY) maxY = point.y;
+    }
+  }
+  const walls = new QuadIndex({ minX, minY, maxX, maxY });
+  const starts: VectorPoint[] = [];
+  const ends: VectorPoint[] = [];
+  const wall = (c: VectorPoint, d: VectorPoint) => {
+    walls.insert(starts.length, Math.min(c.x, d.x), Math.min(c.y, d.y), Math.max(c.x, d.x), Math.max(c.y, d.y));
+    starts.push(c);
+    ends.push(d);
+  };
+  for (const loop of [outer, ...pending]) {
+    for (let at = 0; at < loop.length; at += 1) wall(loop[at]!, loop[(at + 1) % loop.length]!);
+  }
+  const crosses = (a: VectorPoint, b: VectorPoint): boolean => {
+    let found = false;
+    walls.query(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y), (edge) => {
+      if (found) return;
+      const c = starts[edge]!;
+      const d = ends[edge]!;
+      // An edge that begins or ends at the cut's own endpoints is not a crossing —
+      // that is the cut arriving, which is the whole point of it.
+      if (same(a, c) || same(a, d) || same(b, c) || same(b, d)) return;
+      if (segmentsCross(a, b, c, d)) found = true;
+    });
+    return found;
+  };
+
   let ring = [...outer];
   for (const hole of pending) {
-    const bridge = shortestCut(ring, hole, pending);
+    const bridge = shortestCut(ring, hole, crosses);
     if (!bridge) continue;
     const [at, from] = bridge;
+    wall(ring[at]!, hole[from]!);
     ring = [
       ...ring.slice(0, at + 1),
       ...hole.slice(from),
@@ -1671,37 +1885,54 @@ export function bridgeHoles(outer: VectorPoint[], holes: VectorPoint[][]): Vecto
 function shortestCut(
   ring: VectorPoint[],
   hole: VectorPoint[],
-  others: VectorPoint[][],
+  crosses: (a: VectorPoint, b: VectorPoint) => boolean,
 ): [number, number] | null {
-  const pairs: Array<[number, number, number]> = [];
+  /*
+   * Shortest first, taken off a heap rather than sorting every pair.
+   *
+   * Only the first few are ever looked at — the shortest cut almost always
+   * crosses nothing — so sorting all of ring × hole pairs was work thrown away.
+   * Ordered by length and then by position, which is exactly the order the
+   * stable sort it replaces left ties in, so the same cut is chosen.
+   */
+  const width = hole.length;
+  const total = ring.length * width;
+  const lengths = new Float64Array(total);
   for (let at = 0; at < ring.length; at += 1) {
-    for (let from = 0; from < hole.length; from += 1) {
-      pairs.push([at, from, Math.hypot(ring[at]!.x - hole[from]!.x, ring[at]!.y - hole[from]!.y)]);
+    for (let from = 0; from < width; from += 1) {
+      lengths[at * width + from] = Math.hypot(ring[at]!.x - hole[from]!.x, ring[at]!.y - hole[from]!.y);
     }
   }
-  pairs.sort((a, b) => a[2] - b[2]);
+  const before = (one: number, two: number) =>
+    lengths[one]! < lengths[two]! || (lengths[one] === lengths[two] && one < two);
+  const heap = new Int32Array(total);
+  for (let at = 0; at < total; at += 1) heap[at] = at;
+  const sift = (start: number, size: number) => {
+    let at = start;
+    for (;;) {
+      const left = at * 2 + 1;
+      const right = left + 1;
+      let least = at;
+      if (left < size && before(heap[left]!, heap[least]!)) least = left;
+      if (right < size && before(heap[right]!, heap[least]!)) least = right;
+      if (least === at) return;
+      const swap = heap[at]!;
+      heap[at] = heap[least]!;
+      heap[least] = swap;
+      at = least;
+    }
+  };
+  for (let at = Math.floor(total / 2) - 1; at >= 0; at -= 1) sift(at, total);
 
-  for (const [at, from] of pairs) {
-    const a = ring[at]!;
-    const b = hole[from]!;
-    if (crossesAny(a, b, ring) || crossesAny(a, b, hole)) continue;
-    if (others.some((other) => other !== hole && crossesAny(a, b, other))) continue;
-    return [at, from];
+  for (let size = total; size > 0; size -= 1) {
+    const pair = heap[0]!;
+    heap[0] = heap[size - 1]!;
+    sift(0, size - 1);
+    const at = Math.floor(pair / width);
+    const from = pair % width;
+    if (!crosses(ring[at]!, hole[from]!)) return [at, from];
   }
   return null;
-}
-
-/** Does the segment cut through any edge of this ring, other than at its ends? */
-function crossesAny(a: VectorPoint, b: VectorPoint, ring: VectorPoint[]): boolean {
-  for (let index = 0; index < ring.length; index += 1) {
-    const c = ring[index]!;
-    const d = ring[(index + 1) % ring.length]!;
-    // An edge that begins or ends at the cut's own endpoints is not a crossing —
-    // that is the cut arriving, which is the whole point of it.
-    if (same(a, c) || same(a, d) || same(b, c) || same(b, d)) continue;
-    if (segmentsCross(a, b, c, d)) return true;
-  }
-  return false;
 }
 
 function segmentsCross(a: VectorPoint, b: VectorPoint, c: VectorPoint, d: VectorPoint): boolean {

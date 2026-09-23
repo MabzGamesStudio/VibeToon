@@ -249,11 +249,14 @@ function step(radians: number): [number, number] {
 
 const cbrt = Math.cbrt;
 
+/** sRGB's curve for each byte, looked up rather than raised to a power per pixel. */
+const LINEAR = Float64Array.from({ length: 256 }, (_, index) => linear(index / 255));
+
 /** sRGB to OKLab, on raw bytes, without allocating. */
 function oklab(r8: number, g8: number, b8: number): { l: number; a: number; b: number } {
-  const r = linear(r8 / 255);
-  const g = linear(g8 / 255);
-  const b = linear(b8 / 255);
+  const r = LINEAR[r8] ?? linear(r8 / 255);
+  const g = LINEAR[g8] ?? linear(g8 / 255);
+  const b = LINEAR[b8] ?? linear(b8 / 255);
 
   const l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
   const m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);

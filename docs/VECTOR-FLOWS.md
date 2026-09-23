@@ -376,6 +376,59 @@ filled, offset and point-tested, which some consumers want. Nothing in the studi
 needs it: hit-testing is even-odd, which works for any simple polygon, and the
 editor's cut handles concave shapes (below).
 
+## How fast, and where the time goes
+
+Measured with V8's profiler on four pictures — the 256-pixel face, an 800-pixel
+cartoon, and a photograph-like test of smooth gradients and noise at 200 and 400
+pixels — and every change below was checked to give **exactly the same shapes**
+as before, point for point.
+
+| Picture | Before | After |
+| --- | --- | --- |
+| Face, 256 × 256 | 0.54 s | 0.33 s |
+| Cartoon, 800 × 800 | 3.0 s | 1.4 s |
+| Photo-like, 200 × 200 | 57.6 s | 0.33 s |
+| Photo-like, 400 × 400 | did not finish in 20 minutes | 3.6 s |
+
+**Color conversion was a third of the time on drawings.** sRGB's curve is a
+`pow`, asked for three times a pixel by every measurement, and the measure of the
+finished drawing against the picture converted every source pixel again on every
+round. The curve is now looked up — it has 256 possible answers — and the source
+is converted once per decomposition and shared.
+
+**Cutting regions into convex pieces was the cliff on photographs.** Ear clipping
+tested every corner against every other corner and every edge, on every round:
+cubic in the length of the outline, and a photographed region has an outline
+hundreds of points long with holes bridged into it. 96% of the 200-pixel photo's
+minute went there. Two things took it away, without changing a single triangle:
+
+- **A quadtree** (the flat form of an octree) over the corners, the edges and each
+  corner's ear, so "is any corner inside this ear" and "does anything cross this
+  cut" are asked of what is nearby rather than of everything.
+- **Remembering each corner's answer.** Clipping an ear changes the outline only
+  inside that ear, so only corners whose own ear overlaps it can get a different
+  answer; the rest keep theirs. An 800-corner outline went from 70 seconds to a
+  quarter of one.
+
+Bridging holes into a region was next, for the same reason: every pair of corners
+sorted, and each candidate checked against every edge. It now takes candidates
+shortest-first off a heap, checks them against a quadtree of the edges, and keeps
+one index for the whole region, adding only each new bridge to it.
+
+**A flat grid against the quadtree.** Both were built behind the same interface
+and measured. On whole pictures they were the same to within the noise; on a
+2,000-corner outline the quadtree was faster (3.1 s against 3.8 s), and it needs no
+cell size tuned to the picture. The quadtree was kept.
+
+**The GPU.** Only the per-pixel stages — color conversion, edge detection, and
+measuring the drawing against the picture — are the kind of work a graphics card
+does well, and after the changes above they are about a fifth of the time on a
+drawing and less on a photograph. The rest is flood-filling regions, tracing their
+outlines and cutting them up: sequential, geometric work a GPU does not speed up.
+So even an infinitely fast GPU could save at most about a fifth, before paying to
+move the pixels there and back — not worth a second implementation of each stage
+to keep in step with the first.
+
 ## What a line stores
 
 The **anchors**, plus whether the run between them is smoothed — not cubic

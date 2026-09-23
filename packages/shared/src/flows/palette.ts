@@ -84,10 +84,23 @@ export function fromHex(hex: string): Rgba | undefined {
   };
 }
 
+function curve(value: number): number {
+  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+}
+
+/**
+ * The curve for every whole byte, worked out once.
+ *
+ * It is a `pow`, and it is asked for millions of times — every pixel of a
+ * picture being measured, three times over — with one of only 256 answers.
+ * Measured, looking it up took the decomposition of an 800-pixel drawing from
+ * about 3 seconds to about 2, with every result the same to the last bit.
+ */
+const LINEAR = Float64Array.from({ length: 256 }, (_, index) => curve(index / 255));
+
 /** sRGB's transfer curve. Averaging or measuring gamma-encoded values is wrong. */
 function toLinear(channel: number): number {
-  const value = channel / 255;
-  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  return Number.isInteger(channel) && channel >= 0 && channel <= 255 ? LINEAR[channel]! : curve(channel / 255);
 }
 
 export interface Oklab {
