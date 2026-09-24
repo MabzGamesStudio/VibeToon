@@ -1,4 +1,5 @@
 import {
+  allPoints,
   boundRigOf,
   restPose,
   summariseBinding,
@@ -70,7 +71,7 @@ export async function generateBind(ctx: GenerationContext): Promise<GenerationRe
   for (const shape of bound.image.shapes) {
     const held = bound.points[shape.id];
     if (!held) continue;
-    shape.points.forEach((point, index) => {
+    allPoints(shape).forEach((point, index) => {
       const bone = held[index];
       const key = `${point.x},${point.y}`;
       if (!bone || seen.has(key)) return;
@@ -87,7 +88,7 @@ export async function generateBind(ctx: GenerationContext): Promise<GenerationRe
   for (const shape of bound.image.shapes) {
     const held = bound.points[shape.id];
     if (!held) continue;
-    shape.points.forEach((point, index) => {
+    allPoints(shape).forEach((point, index) => {
       const bone = held[index];
       if (!bone) return;
       const entry = carried.get(bone) ?? { nodes: new Set(), shapes: new Set() };

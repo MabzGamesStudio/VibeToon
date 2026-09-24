@@ -209,18 +209,17 @@ test('the shapes read back as what was written', async () => {
 test('the report explains the rule, not just the count', async () => {
   const doc = await file(VEC, 'vector.md');
   assert.match(doc, /## What counts as a line/);
-  assert.match(doc, /thin/);
-  assert.match(doc, /different things on either/);
-  // The example the whole flow is built around.
+  assert.match(doc, /Polygons come first, and only polygons/);
+  assert.match(doc, /\*\*skinny\*\*/);
+  assert.match(doc, /\*\*hole\*\*/);
   assert.match(doc, /red box beside a blue box/);
-  assert.match(doc, /convex/);
   assert.match(doc, /`#de2929`/, 'and the colors it found');
 });
 
 test('the report says whether same-color shapes were joined, and what that means', async () => {
   const joined = await file(VEC, 'vector.md');
   assert.match(joined, /Shapes of the same color that touch: joined/);
-  assert.match(joined, /cannot\s+go round a hole/);
+  assert.match(joined, /one filling a hole in the other/);
 
   await setData(VEC, {
     ...emptyVectorizeFlowData(),
@@ -230,8 +229,8 @@ test('the report says whether same-color shapes were joined, and what that means
   } satisfies VectorizeFlowData);
   await generate(VEC);
   const pieces = await file(VEC, 'vector.md');
-  assert.match(pieces, /left as the convex pieces they were cut into/);
-  assert.match(pieces, /is convex: a traced region/);
+  assert.match(pieces, /every polygon cut into convex pieces with its holes bridged/);
+  assert.match(pieces, /is convex: each region is cut into/);
 });
 
 

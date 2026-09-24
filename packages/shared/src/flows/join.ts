@@ -3,19 +3,20 @@ import type { VectorLine, VectorPoint, VectorPolygon, VectorShape } from './vect
 /**
  * Joining shapes of one color that touch.
  *
- * The decomposition hands back a region as the convex pieces it was cut into,
- * and a stroke as the runs its middle was traced in. Both are right about the
- * picture and wrong about the drawing: a person looking at a red cheek sees one
- * shape, not seven triangles, and a line that forks is two lines that meet, not
- * three that happen to end in the same place. So once the picture has been
- * measured into shapes, neighbours of the same color are put back together.
+ * Two regions of the picture can come out exactly the same color and touching —
+ * a flat area split by a faint edge — and a stroke is traced as the runs its
+ * middle was drawn in. Both are right about the picture and wrong about the
+ * drawing: a person looking at a red cheek sees one shape, and a line that forks
+ * is two lines that meet, not three that happen to end in the same place. So
+ * once the picture has been measured into shapes, neighbours of the same color
+ * are put back together.
  *
  * Two rules, one for each kind of shape:
  *
- * - **Polygons that share a side** and are exactly the same color become one
- *   polygon — unless the one polygon would have to touch itself or have a hole,
- *   which a polygon (a single loop of points) cannot. A ring cut into pieces
- *   therefore comes back as two, not one.
+ * - **Polygons that meet** and are exactly the same color become one polygon —
+ *   side by side, or one filling a hole in the other — unless the one polygon
+ *   would have to touch itself or come apart in two. A ring cut into pieces
+ *   comes back as one polygon with a hole.
  * - **Lines whose ends are close** and are exactly the same color become one
  *   line. Where three or more ends meet, the pair that carries on straightest is
  *   joined and the rest are left, which is how a fork reads as a line with a
@@ -125,6 +126,90 @@ export function unionOfTwo(one: VectorPoint[], two: VectorPoint[]): VectorPoint[
   return loop;
 }
 
+/** An outline and its holes. */
+export interface Rings {
+  outer: VectorPoint[];
+  holes: VectorPoint[][];
+}
+
+/**
+ * Two polygons with holes as one, or `null` when they cannot be.
+ *
+ * The same cancelling as `unionOfTwo`, over every loop of both: outlines wound
+ * one way and holes the other, so wherever the two meet — side by side along
+ * their outlines, or one sitting in a hole of the other — the shared sides come
+ * in opposite directions and cancel. What is left is walked into loops; the one
+ * wound like an outline is the outline, and every loop wound the other way is a
+ * hole. So a shape that exactly fills a hole closes it, and one that fills part
+ * of a hole shrinks it.
+ *
+ * Refused, as before, when what is left touches itself, is not one outline, or
+ * shares nothing — and when a side appears twice the same way round, which is
+ * two shapes overlapping rather than meeting.
+ */
+export function unionOfRegions(one: Rings, two: Rings): Rings | null {
+  const rings: VectorPoint[][] = [];
+  for (const shape of [one, two]) {
+    const outer = normalised(shape.outer);
+    if (outer.length < 3) return null;
+    rings.push(outer);
+    for (const hole of shape.holes) {
+      const ring = normalised(hole);
+      if (ring.length >= 3) rings.push(ring.reverse());
+    }
+  }
+
+  const edges: Array<[VectorPoint, VectorPoint]> = [];
+  const directed = new Set<string>();
+  for (const ring of rings) {
+    for (let index = 0; index < ring.length; index += 1) {
+      const from = ring[index]!;
+      const to = ring[(index + 1) % ring.length]!;
+      const name = `${key(from)}>${key(to)}`;
+      if (directed.has(name)) return null; // overlapping, not meeting
+      directed.add(name);
+      edges.push([from, to]);
+    }
+  }
+
+  let shared = 0;
+  const next = new Map<string, VectorPoint>();
+  const left: VectorPoint[] = [];
+  for (const [from, to] of edges) {
+    if (directed.has(`${key(to)}>${key(from)}`)) {
+      shared += 1;
+      continue;
+    }
+    const name = key(from);
+    if (next.has(name)) return null; // touches itself here
+    next.set(name, to);
+    left.push(from);
+  }
+  if (shared === 0 || left.length < 3) return null;
+
+  const used = new Set<string>();
+  let outer: VectorPoint[] | null = null;
+  const holes: VectorPoint[][] = [];
+  for (const start of left) {
+    if (used.has(key(start))) continue;
+    const loop: VectorPoint[] = [];
+    let at: VectorPoint | undefined = start;
+    while (at && !used.has(key(at))) {
+      used.add(key(at));
+      loop.push(at);
+      at = next.get(key(at));
+    }
+    if (!at || key(at) !== key(start) || loop.length < 3) return null; // a loose end
+    const size = area(loop);
+    if (Math.abs(size) < 1e-9) return null;
+    if (size > 0) {
+      if (outer) return null; // two pieces, not one
+      outer = loop;
+    } else holes.push(loop);
+  }
+  return outer ? { outer, holes } : null;
+}
+
 /**
  * Join every pair of same-color polygons that share a side, as far as joining
  * goes.
@@ -141,15 +226,19 @@ export function unionOfTwo(one: VectorPoint[], two: VectorPoint[]): VectorPoint[
 export function joinPolygons(shapes: VectorShape[]): { shapes: VectorShape[]; joined: number } {
   interface Live {
     polygon: VectorPolygon;
-    points: VectorPoint[];
+    rings: Rings;
     order: number;
     alive: boolean;
   }
 
   const live: Live[] = [];
   const owner = new Map<string, Live>();
+  // Every side of every loop, outline and holes alike: a neighbour sitting in a
+  // hole meets the polygon along the hole.
   const sides = (entry: Live) =>
-    entry.points.map((point, index) => `${key(point)}>${key(entry.points[(index + 1) % entry.points.length]!)}`);
+    [entry.rings.outer, ...entry.rings.holes].flatMap((ring) =>
+      ring.map((point, index) => `${key(point)}>${key(ring[(index + 1) % ring.length]!)}`),
+    );
   const claim = (entry: Live) => {
     for (const side of sides(entry)) owner.set(side, entry);
   };
@@ -159,9 +248,10 @@ export function joinPolygons(shapes: VectorShape[]): { shapes: VectorShape[]; jo
 
   shapes.forEach((shape, order) => {
     if (shape.kind !== 'polygon') return;
-    const points = normalised(shape.points);
-    if (points.length < 3) return;
-    const entry: Live = { polygon: shape, points, order, alive: true };
+    const outer = normalised(shape.points);
+    if (outer.length < 3) return;
+    const holes = (shape.holes ?? []).map((hole) => normalised(hole).reverse()).filter((hole) => hole.length >= 3);
+    const entry: Live = { polygon: shape, rings: { outer, holes }, order, alive: true };
     live.push(entry);
     claim(entry);
   });
@@ -173,28 +263,27 @@ export function joinPolygons(shapes: VectorShape[]): { shapes: VectorShape[]; jo
     if (!entry.alive) continue;
 
     let merged: Live | null = null;
-    for (let index = 0; index < entry.points.length && !merged; index += 1) {
-      const from = entry.points[index]!;
-      const to = entry.points[(index + 1) % entry.points.length]!;
-      const other = owner.get(`${key(to)}>${key(from)}`);
-      if (!other || other === entry || !other.alive) continue;
-      if (other.polygon.color !== entry.polygon.color) continue;
+    const rings = [entry.rings.outer, ...entry.rings.holes];
+    for (const ring of rings) {
+      for (let index = 0; index < ring.length && !merged; index += 1) {
+        const from = ring[index]!;
+        const to = ring[(index + 1) % ring.length]!;
+        const other = owner.get(`${key(to)}>${key(from)}`);
+        if (!other || other === entry || !other.alive) continue;
+        if (other.polygon.color !== entry.polygon.color) continue;
 
-      const points = unionOfTwo(entry.points, other.points);
-      if (!points) continue;
+        const union = unionOfRegions(entry.rings, other.rings);
+        if (!union) continue;
 
-      const bigger =
-        Math.abs(area(entry.points)) >= Math.abs(area(other.points)) ? entry.polygon : other.polygon;
-      release(entry);
-      release(other);
-      entry.alive = false;
-      other.alive = false;
-      merged = {
-        polygon: { ...bigger, points },
-        points,
-        order: Math.min(entry.order, other.order),
-        alive: true,
-      };
+        const bigger =
+          Math.abs(area(entry.rings.outer)) >= Math.abs(area(other.rings.outer)) ? entry.polygon : other.polygon;
+        release(entry);
+        release(other);
+        entry.alive = false;
+        other.alive = false;
+        merged = { polygon: bigger, rings: union, order: Math.min(entry.order, other.order), alive: true };
+      }
+      if (merged) break;
     }
 
     if (merged) {
@@ -206,7 +295,7 @@ export function joinPolygons(shapes: VectorShape[]): { shapes: VectorShape[]; jo
   }
 
   const byOrder = new Map<number, VectorPolygon>();
-  for (const entry of live) if (entry.alive) byOrder.set(entry.order, { ...entry.polygon, points: entry.points });
+  for (const entry of live) if (entry.alive) byOrder.set(entry.order, withRings(entry.polygon, entry.rings));
 
   const out: VectorShape[] = [];
   shapes.forEach((shape, order) => {
@@ -220,6 +309,12 @@ export function joinPolygons(shapes: VectorShape[]): { shapes: VectorShape[]; jo
     else if (normalised(shape.points).length < 3) out.push(shape);
   });
   return { shapes: out, joined };
+}
+
+/** A polygon given new loops; `holes` left off when there are none. */
+export function withRings(polygon: VectorPolygon, rings: Rings): VectorPolygon {
+  const { holes: _old, ...rest } = polygon;
+  return rings.holes.length > 0 ? { ...rest, points: rings.outer, holes: rings.holes } : { ...rest, points: rings.outer };
 }
 
 /* ------------------------------------------------------------------ *

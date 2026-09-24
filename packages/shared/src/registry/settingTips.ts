@@ -590,7 +590,7 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
   'vectorize.lineWidth': {
     what: 'The widest a stroke can be and still be treated as a drawn line rather than an area.',
     examples: [
-      'This is the setting that decides what the picture is. Below it a thin shape is a mark with a middle; above it the same shape is a long thin area with an inside.',
+      'This is the setting that decides what the picture is. Every region is drawn as a polygon first; then any no wider than this, and at least twice as long as it is wide, is drawn again as a line down its middle.',
       '2 to 4 — clean line art drawn with a thin pen.',
       '8 and up — a brushy drawing, or a scan where the ink has spread.',
       'There is no right answer in general: it depends how the picture was drawn, so turn it and watch the result.',
@@ -712,16 +712,15 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     examples: [
       '0 — every line is kept.',
       '4 — the default: stubs a few pixels long go.',
-      '10 or more — only proper strokes are lines; dashes and dots are drawn as the small areas they are.',
+      '10 or more — only proper strokes are lines; dashes and dots stay the small polygons they are.',
     ],
-    note: 'A stroke whose lines are all shorter than this is drawn as an area, so its ink is kept; a short stub off a longer line is dropped. A thin piece of an area only becomes a stroke if the stroke would be at least this long.',
+    note: 'A skinny polygon whose lines would all be shorter than this stays a polygon, so its ink is kept; a short stub off a longer line is dropped.',
   },
   'vectorize.joinShapes': {
     what: 'Whether shapes of exactly the same color that touch are put back together once the picture has been cut up.',
     examples: [
-      'On — polygons that share a side become one polygon, and lines whose ends meet become one line. A cheek is one shape rather than seven triangles.',
-      'Off — every area is the convex pieces it was cut into, for a consumer that needs every polygon convex.',
-      'A shape with a hole in it stays two polygons even when on: a polygon is one loop of points, and cannot go round a hole.',
+      'On — polygons of one color that meet become one polygon (side by side, or one filling a hole in the other), and lines whose ends meet become one line.',
+      'Off — every polygon is cut into convex pieces, its holes bridged, for a consumer that needs every polygon convex.',
     ],
     note: 'Exactly the same color means the same hex. Two shapes a shade apart are two things in the picture.',
   },

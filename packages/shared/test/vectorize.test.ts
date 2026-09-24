@@ -5,9 +5,8 @@ import {
   DEFAULT_VECTORIZE_OPTIONS,
   centreline,
   findRegions,
-  isLineRegion,
+  isSkinny,
   looksCurved,
-  asStroke,
   convexPieces,
   difference,
   hotBlocks,
@@ -111,8 +110,8 @@ test('a stroke between the same two blocks is a line, and they are still areas',
   assert.equal(linesOf(result)[0]!.color, '#141414');
 });
 
-test('a thin shape bordering only one thing is an area, not a stroke', () => {
-  // Thin is half the rule. A sliver of color on its own is a shape.
+test('a thin shape that is not long is an area, not a stroke', () => {
+  // Thin is half the rule; long is the other. Two wide and four long is a scrap.
   const result = run([
     '..........',
     '..KK......',
@@ -121,9 +120,22 @@ test('a thin shape bordering only one thing is an area, not a stroke', () => {
     '..KK......',
     '..........',
   ]);
-  assert.equal(result.report.lines, 0, 'nothing for it to separate');
+  assert.equal(result.report.lines, 0, 'not three times longer than it is wide');
   assert.equal(result.report.polygons, 1);
-  assert.equal(result.report.thinButNotSeparating, 1, 'and it is reported as the near miss it is');
+  assert.equal(result.report.skinny, 0);
+});
+
+test('a long thin shape is a line even with only one thing beside it', () => {
+  // The smile on a face borders nothing but the face, and it is a line.
+  const result = run([
+    '..............',
+    '..KKKKKKKKKK..',
+    '..KKKKKKKKKK..',
+    '..............',
+  ]);
+  assert.equal(result.report.lines, 1);
+  assert.equal(result.report.polygons, 0);
+  assert.equal(result.report.skinny, 1);
 });
 
 test('the line width setting is what decides which it is', () => {
@@ -433,7 +445,13 @@ const ELL = [
 ];
 
 function coveredArea(result: ReturnType<typeof run>): number {
-  return polygonsOf(result).reduce((sum, polygon) => sum + Math.abs(signedArea(polygon.points)), 0);
+  return polygonsOf(result).reduce(
+    (sum, polygon) =>
+      sum +
+      Math.abs(signedArea(polygon.points)) -
+      (polygon.holes ?? []).reduce((holes, hole) => holes + Math.abs(signedArea(hole)), 0),
+    0,
+  );
 }
 
 test('a concave area of one color comes back as one polygon, not the pieces it was cut into', () => {
@@ -443,7 +461,7 @@ test('a concave area of one color comes back as one polygon, not the pieces it w
   assert.equal(polygonsOf(joined).length, 1);
   assert.equal(coveredArea(joined), coveredArea(pieces), 'covering exactly what the pieces covered');
   assert.equal(joined.report.wrongPixels, pieces.report.wrongPixels);
-  assert.equal(joined.report.joinedPolygons, polygonsOf(pieces).length - 1);
+  assert.equal(joined.report.joinedPolygons, 0, 'drawn whole from the start, with nothing to join');
 });
 
 test('areas of different colors are never joined, however long the side they share', () => {
@@ -460,7 +478,7 @@ test('areas of different colors are never joined, however long the side they sha
   assert.notEqual(colors[0], colors[1]);
 });
 
-test('an area with a hole in it stays more than one polygon, because a polygon cannot have a hole', () => {
+test('an area with a hole in it is one polygon with a hole', () => {
   // Walls thicker than a stroke, so every side of the frame is an area.
   const RING = [
     'RRRRRRRRRRRRRRRR',
@@ -482,7 +500,9 @@ test('an area with a hole in it stays more than one polygon, because a polygon c
   const pieces = run(RING, { joinShapes: false });
   assert.equal(linesOf(pieces).length, 0, 'the picture this test needs: all area, no strokes');
   assert.ok(polygonsOf(pieces).length > 2);
-  assert.equal(polygonsOf(result).length, 2, 'one join short of closing the ring');
+  assert.equal(polygonsOf(result).length, 1, 'the whole frame');
+  assert.equal(polygonsOf(result)[0]!.holes?.length, 1, 'round the empty middle');
+  assert.equal(result.report.holes, 1);
   assert.equal(coveredArea(result), coveredArea(pieces));
   assert.equal(result.report.overNothing, 0, 'and the hole is still empty');
 });
@@ -571,9 +591,10 @@ test('strokeWidth reports one for a path with no length rather than dividing by 
   assert.equal(strokeWidth(10, [{ points: [{ x: 1, y: 1 }], closed: false }]), 1);
 });
 
-test('a line region with nothing traceable is reported rather than dropped in silence', () => {
-  const region = { id: 0, color: { r: 0, g: 0, b: 0 }, pixels: [], neighbours: new Set([1, 2]), thickness: 1 };
-  assert.equal(isLineRegion(region, options()), true, 'thin and separating');
+test('skinny is no wider than a stroke, whatever is beside it', () => {
+  assert.equal(isSkinny({ thickness: 1 }, options()), true);
+  assert.equal(isSkinny({ thickness: 4 }, options({ lineWidth: 3 })), true, 'a pixel of slack for even widths');
+  assert.equal(isSkinny({ thickness: 6 }, options({ lineWidth: 3 })), false);
 });
 
 /* ---------------- simplifying a ring ---------------- */
@@ -656,7 +677,7 @@ function paintPerPixel(drawn: ReturnType<typeof run>['image']): Float64Array {
   for (const shape of drawn.shapes) {
     if (shape.kind !== 'polygon') continue;
     const scratch = coverageFor(box);
-    fillInto(shape.points, box, scratch);
+    fillInto(shape.points, box, scratch, shape.holes);
     for (let index = 0; index < scratch.length; index += 1) total[index]! += scratch[index]!;
   }
   return total;
@@ -755,57 +776,6 @@ test('the convex pieces of a shape tile it exactly', () => {
   assert.ok(pieces.length > 1, 'a ring cannot be one convex piece');
   assert.ok(Math.abs(got - want) < 1e-6 * want, `pieces cover ${got.toFixed(1)}, the ring is ${want.toFixed(1)}`);
   for (const piece of pieces) assert.equal(isConvex(piece), true, 'a piece came out concave');
-});
-
-/* ---------------- thin pieces ---------------- */
-
-test('a piece thinner than a stroke is offered as one, measured across its narrowest way', () => {
-  // A 2 × 30 rectangle: narrowest across is 2, which is under a 3px stroke.
-  const slim = asStroke(
-    [
-      { x: 0, y: 0 },
-      { x: 30, y: 0 },
-      { x: 30, y: 2 },
-      { x: 0, y: 2 },
-    ],
-    3,
-  );
-  assert.ok(slim, 'a 2px band was not offered as a stroke');
-  assert.ok(Math.abs(slim!.width - 2) < 0.01, `width came out ${slim!.width}`);
-  assert.equal(slim!.points.length, 2);
-  assert.ok(Math.abs(slim!.points[0]!.y - 1) < 0.01, 'and it runs down the middle');
-});
-
-test('a piece that is merely small is not a stroke', () => {
-  // Thin is half the rule here as well. A scrap two pixels across and three long
-  // is not a mark, and drawn as one it is a round-capped blob in the wrong place.
-  assert.equal(
-    asStroke(
-      [
-        { x: 0, y: 0 },
-        { x: 3, y: 0 },
-        { x: 3, y: 2 },
-        { x: 0, y: 2 },
-      ],
-      3,
-    ),
-    null,
-  );
-});
-
-test('a piece wider than a stroke is an area', () => {
-  assert.equal(
-    asStroke(
-      [
-        { x: 0, y: 0 },
-        { x: 30, y: 0 },
-        { x: 30, y: 9 },
-        { x: 0, y: 9 },
-      ],
-      3,
-    ),
-    null,
-  );
 });
 
 /* ---------------- refining the worst parts ---------------- */
@@ -919,4 +889,126 @@ test('a picture of a few hundred pixels a side is decomposed in well under a sec
   // of convex pieces rather than one.
   const points = result.image.shapes.reduce((sum, shape) => sum + shape.points.length, 0);
   assert.ok(points < 400, `it spent ${points} points on three rings`);
+});
+
+/* ---------------- polygons with holes, then lines ---------------- */
+
+/**
+ * A yellow smiley on a transparent background: a disc, two black eyes, and a
+ * smile drawn as a two-and-a-half pixel line. Antialiased by supersampling, like
+ * anything drawn in a paint program, so the edges are blended and the flow has to
+ * cope with that rather than with a clean-cut test picture.
+ */
+function smiley(size = 120): Bitmap {
+  const aa = 4;
+  const data = new Uint8ClampedArray(size * size * 4);
+  const centre = size / 2;
+  const sample = (x: number, y: number): [number, number, number, number] => {
+    if (Math.hypot(x - centre, y - centre) > size * 0.42) return [0, 0, 0, 0];
+    for (const eye of [centre - size * 0.15, centre + size * 0.15]) {
+      if (Math.hypot(x - eye, y - (centre - size * 0.12)) <= size * 0.06) return [20, 20, 20, 255];
+    }
+    const mouth = centre - size * 0.02;
+    const turn = Math.atan2(y - mouth, x - centre);
+    if (turn > Math.PI * 0.2 && turn < Math.PI * 0.8 && Math.abs(Math.hypot(x - centre, y - mouth) - size * 0.24) <= 1.25) {
+      return [20, 20, 20, 255];
+    }
+    return [250, 210, 40, 255];
+  };
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const sum = [0, 0, 0, 0];
+      for (let j = 0; j < aa; j += 1) {
+        for (let i = 0; i < aa; i += 1) {
+          const [r, g, b, a] = sample(x + (i + 0.5) / aa, y + (j + 0.5) / aa);
+          sum[0]! += r * a;
+          sum[1]! += g * a;
+          sum[2]! += b * a;
+          sum[3]! += a;
+        }
+      }
+      const at = (y * size + x) * 4;
+      data[at + 3] = Math.round(sum[3]! / (aa * aa));
+      if (sum[3]! > 0) {
+        data[at] = Math.round(sum[0]! / sum[3]!);
+        data[at + 1] = Math.round(sum[1]! / sum[3]!);
+        data[at + 2] = Math.round(sum[2]! / sum[3]!);
+      }
+    }
+  }
+  return { width: size, height: size, data };
+}
+
+const sameLoop = (one: VectorPolygon['points'], two: VectorPolygon['points']) =>
+  one.length === two.length && one.every((point) => two.some((other) => other.x === point.x && other.y === point.y));
+
+test('a smiley comes out as the face, its two eyes and its smile', () => {
+  for (const size of [60, 120, 240]) {
+    // The settings anyone gets without touching a slider.
+    const result = vectorize(smiley(size), DEFAULT_VECTORIZE_OPTIONS, ids());
+    const shapes = result.image.shapes;
+    const describe = shapes.map((shape) => `${shape.kind} ${shape.color}`).join(', ');
+    assert.equal(shapes.length, 4, `${size}px: ${describe}`);
+
+    const [face, ...rest] = polygonsOf(result);
+    const eyes = rest;
+    const smile = linesOf(result);
+    assert.equal(face!.color, '#fad228', 'the face is yellow');
+    assert.equal(eyes.length, 2, 'two eyes');
+    assert.ok(eyes.every((eye) => eye.color === '#141414' && !eye.holes), 'black, and solid');
+    assert.equal(smile.length, 1, 'one smile');
+    assert.equal(smile[0]!.color, '#141414');
+    assert.equal(smile[0]!.closed, false);
+    assert.ok(smile[0]!.width <= DEFAULT_VECTORIZE_OPTIONS.lineWidth, `the smile is a stroke, ${smile[0]!.width} wide`);
+
+    // The face has a hole for each eye, and each eye fits its hole exactly;
+    // the smile's hole was closed over, with the line drawn on top of the face.
+    assert.equal(face!.holes?.length, 2, `${size}px: the face has holes for the eyes and nothing else`);
+    for (const eye of eyes) {
+      assert.ok(face!.holes!.some((hole) => sameLoop(hole, eye.points)), 'an eye sits exactly in its hole');
+    }
+    assert.equal(result.report.skinny, 1);
+    assert.equal(result.report.filledUnder, 1);
+
+    // Nothing overlaps: every pixel is painted by one polygon at most.
+    const paint = paintPerPixel(result.image);
+    assert.ok(paint.every((value) => value <= 255), 'no pixel is painted by two polygons');
+  }
+});
+
+test('a transparent gap inside a shape is a hole with nothing in it', () => {
+  const image = donut();
+  const result = vectorize(image, options(), ids());
+  const polygons = polygonsOf({ ...result } as ReturnType<typeof run>);
+  assert.equal(polygons.length, 1);
+  assert.equal(polygons[0]!.holes?.length, 1);
+  // Nothing at all painted in the middle; the edges may overshoot by a fraction
+  // of the tolerance, as the test above allows.
+  const paint = paintPerPixel(result.image);
+  for (let y = 25; y < 35; y += 1) for (let x = 25; x < 35; x += 1) assert.equal(paint[y * image.width + x], 0, `${x},${y}`);
+});
+
+test('a skinny shape on the boundary between two others keeps the room it had', () => {
+  // The stroke between red and blue is inside neither, so neither closes over it.
+  const result = run([
+    'RRRRRRKKBBBBBB',
+    'RRRRRRKKBBBBBB',
+    'RRRRRRKKBBBBBB',
+    'RRRRRRKKBBBBBB',
+    'RRRRRRKKBBBBBB',
+    'RRRRRRKKBBBBBB',
+    'RRRRRRKKBBBBBB',
+  ]);
+  assert.equal(result.report.skinny, 1);
+  assert.equal(result.report.filledUnder, 0);
+  assert.equal(coveredArea(result), 12 * 7);
+});
+
+test('joining off cuts each polygon with holes into convex pieces covering the same', () => {
+  const whole = vectorize(smiley(60), options(), ids());
+  const pieces = vectorize(smiley(60), options({ joinShapes: false }), ids());
+  assert.ok(polygonsOf(pieces as ReturnType<typeof run>).every((piece) => !piece.holes && isConvex(piece.points)));
+  assert.ok(
+    Math.abs(coveredArea(pieces as ReturnType<typeof run>) - coveredArea(whole as ReturnType<typeof run>)) < 1e-6,
+  );
 });

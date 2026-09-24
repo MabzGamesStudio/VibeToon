@@ -1,6 +1,14 @@
 import { newId } from '../ids';
 import { boneById, childrenOf, restPose, type Bone, type RigFlowData } from './rig';
-import { containsPoint, emptyVectorImage, type VectorImage, type VectorPoint, type VectorShape } from './vector';
+import {
+  allPoints,
+  containsPoint,
+  emptyVectorImage,
+  mapPoints,
+  type VectorImage,
+  type VectorPoint,
+  type VectorShape,
+} from './vector';
 
 /**
  * Binding a drawing to a skeleton.
@@ -72,7 +80,7 @@ export interface BindNode {
 export function nodesOf(image: VectorImage): BindNode[] {
   const byKey = new Map<string, BindNode>();
   for (const shape of image.shapes) {
-    for (const point of shape.points) {
+    for (const point of allPoints(shape)) {
       const key = nodeKey(point);
       const known = byKey.get(key);
       if (known) known.uses += 1;
@@ -165,8 +173,7 @@ export function placedImage(data: BindFlowData): VectorImage {
   if (place.x === 0 && place.y === 0 && place.scale === 1) return image;
 
   const shapes = image.shapes.map((shape) => ({
-    ...shape,
-    points: shape.points.map((point) => ({
+    ...mapPoints(shape, (point) => ({
       x: point.x * place.scale + place.x,
       y: point.y * place.scale + place.y,
     })),
@@ -394,10 +401,11 @@ export function nodesFor(data: BindFlowData, boneId: string): string[] {
  * bends across a joint is partly in each part.
  */
 export function shareOf(data: BindFlowData, shape: VectorShape, boneId: string): number {
-  if (shape.points.length === 0) return 0;
+  const points = allPoints(shape);
+  if (points.length === 0) return 0;
   let held = 0;
-  for (const point of shape.points) if (data.nodes[nodeKey(point)] === boneId) held += 1;
-  return held / shape.points.length;
+  for (const point of points) if (data.nodes[nodeKey(point)] === boneId) held += 1;
+  return held / points.length;
 }
 
 /* ------------------------------------------------------------------ *
@@ -513,7 +521,7 @@ export interface BoundRig {
   image: VectorImage;
   /**
    * For each shape, the bone each of its points follows, in the shape's own
-   * point order. `null` is a point bound to nothing, which stays put. A shape
+   * point order — the outline, then each hole's (`allPoints`). `null` is a point bound to nothing, which stays put. A shape
    * missing from here has no bound point at all.
    *
    * Per point of each shape rather than per node, so that nothing downstream has
@@ -527,7 +535,7 @@ export function boundRigOf(data: BindFlowData): BoundRig | null {
   if (!data.rig || !data.image) return null;
   const points: Record<string, Array<string | null>> = {};
   for (const shape of data.image.shapes) {
-    const bones = shape.points.map((point) => data.nodes[nodeKey(point)] ?? null);
+    const bones = allPoints(shape).map((point) => data.nodes[nodeKey(point)] ?? null);
     if (bones.some((bone) => bone !== null)) points[shape.id] = bones;
   }
   // The drawing goes out where it was put, so everything downstream sees the
@@ -560,10 +568,11 @@ export function readBoundRig(json: unknown): BoundRig | null {
   for (const shape of image.shapes) {
     let read: Array<string | null> | null = null;
     const list = stored?.[shape.id];
-    if (Array.isArray(list) && list.length === shape.points.length) read = list.map(real);
+    const every = allPoints(shape);
+    if (Array.isArray(list) && list.length === every.length) read = list.map(real);
     else if (!stored && legacy && shape.id in legacy) {
       const bone = real(legacy[shape.id]);
-      read = shape.points.map(() => bone);
+      read = every.map(() => bone);
     }
     if (read && read.some((bone) => bone !== null)) points[shape.id] = read;
   }
@@ -599,7 +608,7 @@ export function summariseBinding(data: BindFlowData): BindSummary {
   for (const shape of image.shapes) {
     const held = new Set<string>();
     let loose = 0;
-    for (const point of shape.points) {
+    for (const point of allPoints(shape)) {
       const bone = data.nodes[nodeKey(point)];
       if (bone) held.add(bone);
       else loose += 1;

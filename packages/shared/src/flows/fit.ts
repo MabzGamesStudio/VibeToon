@@ -74,8 +74,16 @@ export function coverageFor(box: Box): Coverage {
  * — so a candidate for one small region costs what that region is worth rather
  * than what the picture is.
  */
-export function fillInto(outline: VectorPoint[], box: Box, into: Coverage): Coverage {
+export function fillInto(
+  outline: VectorPoint[],
+  box: Box,
+  into: Coverage,
+  holes: readonly VectorPoint[][] = [],
+): Coverage {
   if (outline.length < 3 || box.width <= 0 || box.height <= 0) return into;
+  // Holes are more loops crossed on the same scanlines: even-odd, a pixel inside
+  // the outline and inside a hole is crossed an even number of times, and stays empty.
+  const rings = [outline, ...holes.filter((hole) => hole.length >= 3)];
 
   let top = Infinity;
   let bottom = -Infinity;
@@ -90,16 +98,18 @@ export function fillInto(outline: VectorPoint[], box: Box, into: Coverage): Cove
   for (let y = first; y <= last; y += 1) {
     crossings.length = 0;
     const scan = y + 0.5;
-    for (let index = 0; index < outline.length; index += 1) {
-      const a = outline[index]!;
-      const b = outline[(index + 1) % outline.length]!;
-      if (a.y === b.y) continue;
-      const lower = Math.min(a.y, b.y);
-      const upper = Math.max(a.y, b.y);
-      // Half-open on y, so a vertex sitting on a scanline counts once rather
-      // than twice or not at all — otherwise a shape leaks along flat edges.
-      if (scan < lower || scan >= upper) continue;
-      crossings.push(a.x + ((scan - a.y) / (b.y - a.y)) * (b.x - a.x));
+    for (const ring of rings) {
+      for (let index = 0; index < ring.length; index += 1) {
+        const a = ring[index]!;
+        const b = ring[(index + 1) % ring.length]!;
+        if (a.y === b.y) continue;
+        const lower = Math.min(a.y, b.y);
+        const upper = Math.max(a.y, b.y);
+        // Half-open on y, so a vertex sitting on a scanline counts once rather
+        // than twice or not at all — otherwise a shape leaks along flat edges.
+        if (scan < lower || scan >= upper) continue;
+        crossings.push(a.x + ((scan - a.y) / (b.y - a.y)) * (b.x - a.x));
+      }
     }
     if (crossings.length < 2) continue;
     crossings.sort((one, two) => one - two);

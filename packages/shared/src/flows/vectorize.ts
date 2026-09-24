@@ -1,8 +1,8 @@
 import type { Bitmap } from './cutout';
-import { boxOf, coverageFor, fillInto, strokeInto, type Box } from './fit';
+import { coverageFor, fillInto, strokeInto, type Box } from './fit';
 import { traceShared, type RegionLoops } from './arcs';
 import { detectEdges, growRegions, type EdgeMap, type GrownRegion } from './edges';
-import { joinLines, joinPolygons } from './join';
+import { joinLines, joinPolygons, unionOfRegions, withRings, type Rings } from './join';
 import { QuadIndex, type Bounds, type SpatialIndex } from './spatial';
 import { absorbSmallPolygons, spaceShapes } from './tidy';
 import { fromHex, toHex, toOklab, type Rgb } from './palette';
@@ -11,14 +11,13 @@ import {
   type VectorImage,
   type VectorLine,
   type VectorPoint,
-  type VectorPolygon,
   type VectorShape,
 } from './vector';
 
 /**
  * Turning a picture back into shapes.
  *
- * The work goes in four steps, and each one answers a question the next needs:
+ * The work goes in five steps, and each one answers a question the next needs:
  *
  * 1. **Where the edges are** — one Canny pass over the whole picture, in `edges.ts`.
  *    Finding the boundaries once, up front, is what makes the rest cheap: every
@@ -27,13 +26,14 @@ import {
  *    way a fill tool does, with no color comparison while spreading. The edge
  *    band is then handed to whichever side it looks like, so a region includes
  *    the blended boundary of the thing it stands for.
- * 3. **Which regions are strokes** — a region that is thin *and* separates two
- *    different things is a drawn line; everything else is an area.
- * 4. **What shape that is** — trace the outline (or the centreline), simplify to a
- *    tolerance and a point budget, decide straight or curved, and cut areas into
- *    convex pieces.
- * 5. **What belongs together** — put back together the pieces of one color that
- *    share a side, and the lines of one color whose ends meet (`join.ts`).
+ * 3. **Polygons, first and only** — every region's outline traced and simplified,
+ *    each boundary once and shared, and every region drawn as one polygon with a
+ *    hole wherever something else, or nothing, is inside it.
+ * 4. **Then lines** — a polygon that is skinny, no wider than a stroke and long,
+ *    is drawn again as a line down its middle, straight or curved.
+ * 5. **What belongs together** — polygons of one color that meet and lines of one
+ *    color whose ends meet are joined (`join.ts`), and the minimums applied
+ *    (`tidy.ts`).
  *
  * Nothing in that path measures a candidate against the pixels. `refine` turns on
  * a slower pass that does, for when you want the last percent.
@@ -170,11 +170,12 @@ export interface VectorizeReport {
   wrongPixels: number;
   /** Pixels the shapes were trying to account for. */
   drawnPixels: number;
-  /** Regions thin enough to be a stroke but bordering only one thing. */
-  thinButNotSeparating: number;
-  convexPieces: number;
-  /** Pieces too thin to be areas, given back as strokes instead. */
-  slivers: number;
+  /** Holes across every polygon: something else, or nothing, inside it. */
+  holes: number;
+  /** Polygons no wider than a stroke, drawn again as lines. */
+  skinny: number;
+  /** Of those, the ones wholly inside one other polygon, which closed over them. */
+  filledUnder: number;
   /** Joins of two same-color polygons that shared a side. */
   joinedPolygons: number;
   /** Joins of two same-color lines whose ends met. */
@@ -187,7 +188,7 @@ export interface VectorizeReport {
   smallDropped: number;
   /** Lines under the minimum length that were dropped as stubs. */
   shortLines: number;
-  /** Stroke regions too short to be lines, drawn as areas instead. */
+  /** Skinny polygons whose lines would all be under the minimum length, kept as polygons. */
   shortStrokes: number;
   transparent: number;
   /** Pixels the edge pass claimed, before they were handed back to regions. */
@@ -367,34 +368,25 @@ export function thicknessOf(pixels: readonly number[], width: number): number {
  * 2. Lines against areas
  * ------------------------------------------------------------------ */
 
+/** How many times longer than it is wide a skinny region must be to be a line. */
+const ELONGATED = 2;
+
 /**
- * Is this region a drawn line?
+ * Is this region skinny enough to be worth drawing as a line?
  *
- * Both halves matter, and the second is the one that makes the rule right.
+ * Nowhere wider than a stroke. Only a candidate: the second pass measures its
+ * real width down its middle, and a region that turns out wider, or whose middle
+ * is too short to be a line, stays the polygon it was drawn as first.
  *
- * **Thin** alone is not enough: a long thin rectangle of solid color sitting on
- * its own is a shape, not a stroke.
- *
- * **Separating** alone is not enough either: every region separates its
- * neighbours from each other in some sense.
- *
- * A stroke is thin *and* has different things on either side of it — which is
- * exactly the example that motivates the whole flow. A red box beside a blue box
- * is two areas and no line, because neither is thin. Put a black stroke between
- * them and the black is thin and has red one side and blue the other, so it is a
- * line and the boxes are still areas.
+ * It no longer has to separate two different things. A smile drawn on a face
+ * borders only the face, and it is still a line.
  */
-export function isLineRegion(
-  region: { thickness: number; neighbours: Set<number> },
-  options: VectorizeOptions,
-): boolean {
+export function isSkinny(region: { thickness: number }, options: VectorizeOptions): boolean {
   // A pixel short of the limit, because the distance transform reads an
   // even-width stroke as one pixel thinner than it is — a 2-wide stroke has no
   // pixel more than half a pixel from its edge. The real width is measured from
-  // the centreline afterwards, and `strokeWidth` is what the threshold is
-  // finally applied to; this only decides what is worth measuring.
-  if (region.thickness > options.lineWidth + 1) return false;
-  return region.neighbours.size >= 2;
+  // the centreline afterwards, and that is what the limit is finally applied to.
+  return region.thickness <= options.lineWidth + 1;
 }
 
 /**
@@ -1308,9 +1300,9 @@ function build(
     polygons: 0,
     wrongPixels: 0,
     drawnPixels: 0,
-    thinButNotSeparating: 0,
-    convexPieces: 0,
-    slivers: 0,
+    holes: 0,
+    skinny: 0,
+    filledUnder: 0,
     joinedPolygons: 0,
     joinedLines: 0,
     nodesMerged: 0,
@@ -1326,25 +1318,6 @@ function build(
     problems: [],
   };
 
-  /*
-   * Strokes first, because a stroke's region is not part of the partition.
-   *
-   * A stroke is drawn down the middle of its own band with a width, so the band
-   * is already accounted for; leaving it in as an area too would put a polygon
-   * under every line in the drawing.
-   */
-  const strokes = new Set(found.regions.filter((region) => isLineRegion(region, options)));
-  // Thin is half the rule, and the half that fails is worth saying out loud: a
-  // sliver of color with only one thing beside it is a shape, and someone
-  // wondering why their stroke came out as a polygon wants to be told which half
-  // it missed.
-  for (const region of found.regions) {
-    if (!strokes.has(region) && region.thickness <= options.lineWidth + 1) {
-      report.thinButNotSeparating += 1;
-    }
-  }
-
-  const shapes: VectorShape[] = [];
   const byId = new Map(found.regions.map((region) => [region.id, region]));
 
   /*
@@ -1364,98 +1337,68 @@ function build(
   });
 
   /*
-   * Areas by what they cover, biggest first, then strokes.
+   * First pass: polygons, and only polygons.
    *
-   * They no longer overlap, so this is not load-bearing for what the picture
-   * looks like — it decides only what sits on top where a stroke crosses an
-   * area, and it keeps the output in a stable, readable order.
+   * Every region is one polygon — its outline, with a hole wherever something
+   * else is inside it. An eye in a face is a hole in the face with the eye's own
+   * polygon in it; a transparent gap in a shape is a hole with nothing in it.
+   * The holes are the same arcs as the outlines of what fills them, so the
+   * polygons tile the picture exactly: nothing overlaps and nothing is left
+   * uncovered but the transparent parts. Biggest first.
    */
-  const areas = [...loops]
-    .filter(([id]) => byId.has(id) && !strokes.has(byId.get(id)!))
-    .sort((a, b) => Math.abs(signedArea(b[1].outer)) - Math.abs(signedArea(a[1].outer)));
-
-  const emit = (color: string, pieces: VectorPoint[][], pixels: Set<number>) => {
-    for (const piece of pieces) {
-      /*
-       * A piece thinner than a stroke *is* a stroke — if it covers the same ink.
-       *
-       * A sliver of polygon is a mark with a width pretending to be an area: it
-       * costs three or more anchors to say what two and a width say better, and
-       * it is miserable to grab hold of in the editor. Measured across its
-       * narrowest direction, which for a triangle is its shortest altitude.
-       *
-       * But it is also what a convex cut leaves along any curve, and *that* kind
-       * of sliver must stay a polygon. The pieces of a region are a partition —
-       * they tile it exactly, with no overlap and no gap — and a stroke is not
-       * part of that partition. Swapping one in for a piece opens a seam down
-       * both of its long sides, and on a finely traced boundary there are dozens
-       * of them: measured, it took a drawing from 825 wrong pixels to 1034.
-       *
-       * So the swap is measured rather than assumed. A real thin limb is covered
-       * better by a stroke than by the splinters it was cut into; a splinter of
-       * a curve is not, and keeps its place in the partition.
-       */
-      /*
-       * And only if the stroke would be long enough to be a line at all. A
-       * short thin piece is a speck of the area, and a stroke that short is
-       * something to be dropped, not drawn — so it keeps its place as a polygon.
-       */
-      const slim = asStroke(piece, options.lineWidth);
-      if (slim && pathLength(slim.points) >= options.minLineLength && coversBetter(slim, piece, pixels, width)) {
-        shapes.push({
-          id: makeId('line'),
-          kind: 'line',
-          color,
-          width: Math.max(0.5, Math.round(slim.width * 10) / 10),
-          points: slim.points,
-          curved: false,
-          closed: false,
-        } satisfies VectorLine);
-        report.lines += 1;
-        report.slivers += 1;
-        continue;
-      }
-      shapes.push({ id: makeId('poly'), kind: 'polygon', color, points: piece } satisfies VectorPolygon);
-      report.polygons += 1;
-    }
-    report.convexPieces += pieces.length;
-  };
-
-  for (const [id, region] of areas) {
-    const own = byId.get(id)!;
-    report.drawnPixels += own.pixels.length;
-
-    const pieces = convexPieces(region);
-    if (pieces.length === 0) {
-      report.problems.push(`An area at ${describe(own, width)} could not be cut into convex pieces.`);
-      continue;
-    }
-    emit(toHex(own.color), pieces, new Set(own.pixels));
+  interface Drawn {
+    region: PixelRegion;
+    rings: Rings;
+    /** Replaced by lines in the second pass. */
+    skinny: boolean;
   }
+  const drawn: Drawn[] = [];
+  for (const [id, traced] of loops) {
+    const region = byId.get(id);
+    if (!region || traced.outer.length < 3) continue;
+    report.drawnPixels += region.pixels.length;
+    drawn.push({
+      region,
+      rings: {
+        outer: wound(traced.outer, 1),
+        holes: traced.holes.filter((hole) => hole.length >= 3).map((hole) => wound(hole, -1)),
+      },
+      skinny: false,
+    });
+  }
+  drawn.sort((a, b) => Math.abs(signedArea(b.rings.outer)) - Math.abs(signedArea(a.rings.outer)));
 
-  for (const region of found.regions) {
-    if (!strokes.has(region)) continue;
+  /*
+   * Second pass: polygons that are skinny become lines.
+   *
+   * With every region filled in, the ones no wider than a stroke anywhere are
+   * drawn marks rather than areas — the smile on a face, an outline, a crease —
+   * and are drawn again as lines down their middle, with their measured width.
+   * A thin region is only a line if its middle is a line: one that turns out
+   * wider than a stroke once measured properly stays a polygon, and so does one
+   * whose lines would all be shorter than the minimum length, which is a dot or
+   * a dash rather than a mark.
+   */
+  const lines: VectorLine[] = [];
+  for (const entry of drawn) {
+    const region = entry.region;
+    if (!isSkinny(region, options)) continue;
     const color = toHex(region.color);
     const pixels = new Set(region.pixels);
-    report.drawnPixels += pixels.size;
-
     const paths = centreline(pixels, width, height);
-    const lines = paths
+    const fitted = paths
       .map((path) => quickLine(path, region, paths, detailAt(path.points)))
       .filter((line): line is FittedLine => line !== null);
+    const widest = Math.max(0, ...fitted.map((line) => line.width));
+    if (fitted.length === 0 || widest > options.lineWidth + 0.5) continue;
+    // Long as well as thin: a block three pixels square is no wider than a
+    // stroke, and it is still a block. A line is at least ELONGATED times longer
+    // than it is wide, measured along all of its middle.
+    const long = paths.reduce((sum, path) => sum + pathLength(path.points) + (path.closed ? closingStep(path.points) : 0), 0);
+    if (long < widest * ELONGATED) continue;
 
-    const widest = Math.max(0, ...lines.map((line) => line.width));
-    // With the real widths known, a squat blob that the thinness test let
-    // through can still turn out to be an area rather than a stroke.
-    if (lines.length === 0 || widest > options.lineWidth + 0.5) {
-      report.thinButNotSeparating += 1;
-      const loop = loops.get(region.id);
-      if (loop) emit(color, convexPieces(loop), pixels);
-      continue;
-    }
-
-    let marks: VectorLine[] = lines.map((line) => ({
-      id: makeId('line'),
+    let marks: VectorLine[] = fitted.map((line) => ({
+      id: '',
       kind: 'line',
       color,
       width: Math.max(0.5, Math.round(line.width * 10) / 10),
@@ -1467,49 +1410,88 @@ function build(
     }));
 
     /*
-     * The minimum length, judged on the lines as they will be drawn.
-     *
      * A stroke is traced as the runs of its middle between forks, so each run is
      * joined to the ones it carries on into first — a long line should not be
-     * dropped for arriving in short pieces. Then a region whose lines are all
-     * still too short is a dash or a dot rather than a line, and is drawn as the
-     * area it is, so its ink is not lost; and short stubs off a longer line —
-     * the spurs thinning leaves at a corner or a bump — are dropped.
+     * judged short for arriving in pieces. Then short stubs off a longer line,
+     * the spurs thinning leaves at a corner or a bump, are dropped.
      */
+    if (options.joinShapes) {
+      const joined = joinLines(marks, options.joinGap);
+      report.joinedLines += joined.joined;
+      marks = joined.shapes as VectorLine[];
+    }
     if (options.minLineLength > 0) {
-      if (options.joinShapes) {
-        const joined = joinLines(marks, options.joinGap);
-        report.joinedLines += joined.joined;
-        marks = joined.shapes as VectorLine[];
-      }
       const longest = Math.max(0, ...marks.map(lengthOf));
       if (longest < options.minLineLength) {
         report.shortStrokes += 1;
-        const loop = loops.get(region.id);
-        if (loop) emit(color, convexPieces(loop), pixels);
         continue;
       }
       const kept = marks.filter((mark) => lengthOf(mark) >= options.minLineLength);
       report.shortLines += marks.length - kept.length;
       marks = kept;
     }
-
-    shapes.push(...marks);
-    report.lines += marks.length;
+    entry.skinny = true;
+    report.skinny += 1;
+    lines.push(...marks.map((mark) => ({ ...mark, id: makeId('line') })));
   }
 
   /*
-   * Last, and after the slivers have been turned into strokes.
+   * What a line replaced is filled back in underneath it, where that is plain.
    *
-   * The convex cut is still what decides which parts of a region are too thin to
-   * be an area, because that is a question about a piece and not about the whole
-   * region. Joining first would leave nothing to ask it of. What survives as a
-   * polygon is then put back together with its neighbours of the same color.
+   * A skinny polygon wholly inside one other — the smile inside the face — was a
+   * hole in it; with the polygon gone the hole would be empty, and the line down
+   * its middle never covers a band's ragged edges exactly. So the one polygon it
+   * sat in closes over it, and the line is drawn on top, the way the picture was
+   * drawn. One on a boundary between several things keeps the room it had: there
+   * is no one of them it plainly belongs to.
+   */
+  const owner = new Map<string, Drawn>();
+  const sidesOf = (rings: Rings) =>
+    [rings.outer, ...rings.holes].flatMap((ring) =>
+      ring.map((point, at) => [point, ring[(at + 1) % ring.length]!] as const),
+    );
+  const side = (from: VectorPoint, to: VectorPoint) => `${from.x},${from.y}>${to.x},${to.y}`;
+  for (const entry of drawn) for (const [from, to] of sidesOf(entry.rings)) owner.set(side(from, to), entry);
+  for (const entry of drawn) {
+    if (!entry.skinny) continue;
+    const around = new Set(entry.rings.outer.map((point, at) => owner.get(side(entry.rings.outer[(at + 1) % entry.rings.outer.length]!, point))));
+    const [host] = [...around];
+    if (around.size !== 1 || !host || host.skinny) continue;
+    const union = unionOfRegions(host.rings, entry.rings);
+    if (!union) continue;
+    host.rings = union;
+    for (const [from, to] of sidesOf(union)) owner.set(side(from, to), host);
+    report.filledUnder += 1;
+  }
+
+  const shapes: VectorShape[] = [];
+  for (const entry of drawn) {
+    if (entry.skinny) continue;
+    const color = toHex(entry.region.color);
+    report.holes += entry.rings.holes.length;
+    if (options.joinShapes) {
+      shapes.push(withRings({ id: makeId('poly'), kind: 'polygon', color, points: [] }, entry.rings));
+      continue;
+    }
+    // Joining off: the convex pieces the polygon cuts into, holes bridged, for a
+    // consumer that needs every polygon convex.
+    const pieces = convexPieces(entry.rings);
+    if (pieces.length === 0) {
+      report.problems.push(`An area at ${describe(entry.region, width)} could not be cut into convex pieces.`);
+      continue;
+    }
+    for (const piece of pieces) shapes.push({ id: makeId('poly'), kind: 'polygon', color, points: piece });
+  }
+  shapes.push(...lines);
+
+  /*
+   * Then tidying, on the shapes as they will be drawn.
    *
-   * The smallest polygons are folded into their neighbours after joining, so a
-   * region's pieces are judged as the one shape they become rather than one
-   * crumb at a time — and joining runs again after, because a crumb folded away
-   * can leave two shapes of one color touching where it used to part them.
+   * Polygons of one color that meet are put back together — side by side, or
+   * one filling a hole in the other. The smallest polygons are folded into their
+   * neighbours after that, so a region's parts are judged as the one shape they
+   * become rather than one crumb at a time, and joining runs again after,
+   * because a crumb folded away can leave two shapes of one color touching.
    */
   let result = shapes;
   if (options.joinShapes) {
@@ -1545,6 +1527,11 @@ function build(
   report.polygons = result.filter((shape) => shape.kind === 'polygon').length;
   report.lines = result.filter((shape) => shape.kind === 'line').length;
   return { image: { width, height, shapes: result }, report };
+}
+
+/** A loop wound one way round: 1 for positive area, -1 for negative. */
+function wound(points: VectorPoint[], sign: 1 | -1): VectorPoint[] {
+  return signedArea(points) * sign >= 0 ? points : [...points].reverse();
 }
 
 /** A line's length end to end, its closing step included when it goes all the way round. */
@@ -1641,7 +1628,7 @@ export function difference(
   ];
   for (const shape of order) {
     scratch.fill(0);
-    if (shape.kind === 'polygon') fillInto(shape.points, box, scratch);
+    if (shape.kind === 'polygon') fillInto(shape.points, box, scratch, shape.holes);
     else strokeInto(shape.points, shape.width, box, scratch);
     const rgb = fromHex(shape.color);
     if (!rgb) continue;
@@ -2080,154 +2067,6 @@ function segmentsCross(a: VectorPoint, b: VectorPoint, c: VectorPoint, d: Vector
   const four = side(c, d, b);
   return one !== two && three !== four && one !== 0 && two !== 0 && three !== 0 && four !== 0;
 }
-
-/** How many times longer than it is wide a piece must be to be a mark. */
-const ELONGATED = 3;
-
-/**
- * Does drawing this piece as a stroke cover its ink at least as well as filling
- * it does?
- *
- * Judged over the piece's own box against the pixels of the region it came from,
- * so it costs what the piece is worth rather than what the picture is. A tie
- * goes to the stroke, because two anchors and a width beat three anchors when
- * they say the same thing.
- */
-function coversBetter(
-  slim: { points: VectorPoint[]; width: number },
-  piece: VectorPoint[],
-  pixels: Set<number>,
-  imageWidth: number,
-): boolean {
-  const box = boxOf(
-    piece.map((point) => Math.round(point.y) * imageWidth + Math.round(point.x)),
-    imageWidth,
-    2,
-  );
-  if (box.width <= 0 || box.height <= 0) return false;
-
-  const filled = coverageFor(box);
-  fillInto(piece, box, filled);
-  const stroked = coverageFor(box);
-  strokeInto(slim.points, slim.width, box, stroked);
-
-  let asArea = 0;
-  let asMark = 0;
-  for (let row = 0; row < box.height; row += 1) {
-    for (let column = 0; column < box.width; column += 1) {
-      const x = box.x + column;
-      const y = box.y + row;
-      if (x < 0 || y < 0 || x >= imageWidth) continue;
-      const index = y * imageWidth + x;
-      const ink = pixels.has(index);
-      const at = row * box.width + column;
-      if (filled[at]! >= 128 !== ink) asArea += 1;
-      if (stroked[at]! >= 128 !== ink) asMark += 1;
-    }
-  }
-  return asMark <= asArea;
-}
-
-/**
- * A convex piece measured across its narrowest direction, as a stroke — or
- * `null` if it is an area: wide enough, or too short to be a mark.
- *
- * The narrowest direction of a convex shape is always across one of its edges,
- * so trying each edge in turn finds it exactly. For a triangle that is its
- * shortest altitude, which is what "the minimum width of any triangle" means.
- *
- * What comes back runs the length of the piece along the middle of it, so the
- * stroke covers the same ink the polygon did with two anchors instead of three
- * or more.
- */
-export function asStroke(
-  piece: VectorPoint[],
-  lineWidth: number,
-): { points: VectorPoint[]; width: number } | null {
-  if (piece.length < 3) return null;
-
-  let width = Infinity;
-  let across: VectorPoint = { x: 1, y: 0 };
-  for (let index = 0; index < piece.length; index += 1) {
-    const a = piece[index]!;
-    const b = piece[(index + 1) % piece.length]!;
-    const length = Math.hypot(b.x - a.x, b.y - a.y);
-    if (length < 1e-9) continue;
-    // The edge's outward normal, and how far the furthest vertex is along it.
-    const nx = -(b.y - a.y) / length;
-    const ny = (b.x - a.x) / length;
-    let deepest = 0;
-    for (const point of piece) {
-      deepest = Math.max(deepest, Math.abs((point.x - a.x) * nx + (point.y - a.y) * ny));
-    }
-    if (deepest < width) {
-      width = deepest;
-      across = { x: nx, y: ny };
-    }
-  }
-  if (!Number.isFinite(width) || width > lineWidth) return null;
-
-  // Along the piece is across the narrow way, turned a quarter.
-  const along = { x: -across.y, y: across.x };
-  let low = Infinity;
-  let high = -Infinity;
-  let nearSide = Infinity;
-  let farSide = -Infinity;
-  for (const point of piece) {
-    const t = point.x * along.x + point.y * along.y;
-    const u = point.x * across.x + point.y * across.y;
-    low = Math.min(low, t);
-    high = Math.max(high, t);
-    nearSide = Math.min(nearSide, u);
-    farSide = Math.max(farSide, u);
-  }
-  if (high - low < 1e-6) return null;
-
-  /*
-   * Thin is half the rule here too.
-   *
-   * A mark has a length. A triangle a pixel wide and two long is not a stroke,
-   * it is a scrap of one — and drawn as a stroke it is a round-capped blob of
-   * roughly the right area in roughly the wrong place. At a tight tolerance a
-   * boundary is made of scraps like that by the hundred, and turning them all
-   * into strokes takes a drawing that was 1.2% wrong to 4.7%. Measured.
-   *
-   * Long enough to be a mark is the same question the region test asks, so it
-   * gets the same kind of answer: three times longer than it is wide.
-   */
-  if (high - low < width * ELONGATED) return null;
-
-  const middle = (nearSide + farSide) / 2;
-  const on = (t: number): VectorPoint => ({
-    x: along.x * t + across.x * middle,
-    y: along.y * t + across.y * middle,
-  });
-  /*
-   * Its area over its length, not the width that made it a sliver.
-   *
-   * A triangle tapers: at its base it is as wide as the narrowest measure and at
-   * its point it is nothing, so a band of the widest part covers half again too
-   * much ink and a band of the narrowest covers half too little. Area over
-   * length is the width of the rectangle that covers the same, which is the same
-   * rule a drawn stroke's width is measured by.
-   */
-  const covering = Math.abs(signedArea(piece)) / (high - low);
-  return { points: [on(low), on(high)], width: Math.max(Math.min(covering, width), 0.5) };
-}
-
-
-
-/* ------------------------------------------------------------------ *
- * The slow path
- *
- * Everything below is only reached with `refine` turned on. It measures each
- * candidate against the pixels instead of trusting the trace, which finds a
- * better answer and costs far more time — worth it for a final pass over a
- * drawing you are keeping, not for the twenty you throw away first.
- * ------------------------------------------------------------------ */
-
-
-
 
 function describe(region: PixelRegion, width: number): string {
   const first = region.pixels[0] ?? 0;
