@@ -32,6 +32,7 @@ import { Slider } from '../common/Slider';
 import { onScreen } from '../common/handles';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
+import { RigPreview } from './RigPreview';
 
 /** Padding round the skeleton in the drawing, in rig units. */
 const PAD = 12;
@@ -49,6 +50,8 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
   const data = node.data as RigFlowData;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showReference, setShowReference] = useState(true);
+  /** Editing the skeleton, or watching it move under forces. */
+  const [mode, setMode] = useState<'edit' | 'preview'>('edit');
   /** The joint being dragged: the far end of this bone. */
   const [dragging, setDragging] = useState<string | null>(null);
   const svg = useRef<SVGSVGElement | null>(null);
@@ -297,6 +300,14 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
       </aside>
 
       <div className="vt-editor-main">
+        {mode === 'preview' ? (
+          <RigPreview
+            data={data}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            tools={<ModeSwitch mode={mode} onChange={setMode} />}
+          />
+        ) : (
         <Stage
           zoomable
           title={selected ? selected.name : 'The skeleton'}
@@ -324,6 +335,7 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
                   Reference
                 </button>
               ) : null}
+              <ModeSwitch mode={mode} onChange={setMode} />
             </>
           }
         >
@@ -428,6 +440,7 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
           );
           }}
         </Stage>
+        )}
 
         {selected ? (
           <div className="vt-section">
@@ -590,5 +603,35 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
         )}
       </div>
     </EditorShell>
+  );
+}
+
+/** Editing the skeleton, or watching it move. */
+function ModeSwitch({
+  mode,
+  onChange,
+}: {
+  mode: 'edit' | 'preview';
+  onChange(mode: 'edit' | 'preview'): void;
+}): JSX.Element {
+  return (
+    <span className="vt-segmented" role="group" aria-label="Mode">
+      <button
+        type="button"
+        className={`vt-btn is-small${mode === 'edit' ? ' is-active' : ''}`}
+        aria-pressed={mode === 'edit'}
+        onClick={() => onChange('edit')}
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        className={`vt-btn is-small${mode === 'preview' ? ' is-active' : ''}`}
+        aria-pressed={mode === 'preview'}
+        onClick={() => onChange('preview')}
+      >
+        ▶ Preview
+      </button>
+    </span>
   );
 }

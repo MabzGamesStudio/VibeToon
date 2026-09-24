@@ -83,6 +83,54 @@ character with a loose left elbow and a tight right one is almost always a slip
 rather than a choice, and it is a slip that is very hard to see in a still pose.
 Turn it off for a character who is meant to be lopsided.
 
+## Moving joints
+
+Every joint has a handle: drag it and that bone's far end goes where you put it,
+and everything hanging off it comes along — pulling a wrist takes the hand with
+it and leaves the elbow alone. Only the dragged bone's offset changes, because
+bones are stored relative to the one above.
+
+**Symmetric moves** (on by default, beside the stage) moves the twin on the
+other side the matching way. Which way is read off the rig, not assumed: over
+all its twin pairs, a skeleton is mirrored left for right (a person face on),
+top for bottom (a fish's fins) or not at all (a horse side on, both legs in the
+same place), and the move is reflected accordingly. Only the move is mirrored,
+so a twin already a little different stays that much different.
+
+## Preview: the limits under load
+
+A range of motion and a stiffness are claims about how the rig will move, and
+**▶ Preview** tests them. The skeleton is put under forces and runs live:
+
+| Control | What it does |
+| --- | --- |
+| Gravity | In g — 1 is what a character this tall would feel. |
+| Wind, gusts | A sideways push, steady or coming and going. |
+| Air | Damping: 0 swings forever, 1 is like moving through water. |
+| Movement | The root carried about — swaying, bouncing, round in a circle — so the rest has to follow. |
+| A shove | A push to everything at once, left, right or up. |
+| Drag | Take hold of any joint, or the root (the square), and move it. Let go while moving and it is thrown. |
+
+Every rig setting changes the preview **while it runs**, carrying on from where
+the skeleton is, so what a stiffness does is seen as the difference it makes. A
+joint pressed against its hard stop is drawn red, a bone at the end of its
+stretch orange, and both are listed under the controls.
+
+How it works: position-based dynamics. Each joint is a particle, weighted by the
+bone around it; each step moves them under the forces, then corrects them to the
+rig — every bone's length inside its stretch range and every joint's angle inside
+its range of motion, as hard stops, applied last so no step ends past one.
+**Stiffness is a spring with a frequency**: 1 springs back about four times a
+second, 0.5 twice, 0 not at all. Its strength is scaled by everything the joint
+carries, so a stiffness means the same on a spine holding up a torso as on a
+fingertip — measured against the joint alone, a spine at 0.6 let the whole figure
+slump. Angle corrections move all three points of a joint along the angle's own
+gradient, so they turn the skeleton without pushing it along; the first version
+turned the two ends about the joint instead, and the energy that leaked in shook
+the skeleton apart within a second.
+
+Nothing in the preview is saved.
+
 ## What it checks
 
 The editor lists what is wrong with a rig in the terms whoever has to animate it

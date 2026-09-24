@@ -594,6 +594,56 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     ],
   },
 
+  /* Rig preview ------------------------------------------------------ */
+
+  'rigPreview.gravity': {
+    what: 'How hard the skeleton is pulled down, in g — 1 is what a character this tall would feel on Earth.',
+    examples: [
+      '0 — nothing pulls; a joint only moves when it is pushed or dragged.',
+      '1 — a neck with low stiffness nods under the weight of the head; a floppy tail hangs.',
+      '2 to 3 — a hard test of whether the stiffnesses hold a pose up.',
+    ],
+  },
+  'rigPreview.wind': {
+    what: 'A sideways push on every part of the skeleton, in g like gravity. Negative blows to the left.',
+    examples: [
+      'Shows which joints give and which hold: a loose chain streams out, a stiff limb barely moves.',
+      'With gusts, it comes and goes, which is where the damping shows.',
+    ],
+  },
+  'rigPreview.gust': {
+    what: 'How much the wind comes and goes.',
+    examples: ['0 — a steady push the rig settles against.', '1 — it rises and falls by most of its strength.'],
+  },
+  'rigPreview.damping': {
+    what: 'How much the air slows everything down.',
+    examples: [
+      '0 — a swing goes on and on, which shows the springs on their own.',
+      '0.3 — the default: a shove settles in a second or two.',
+      '1 — moving through water.',
+    ],
+  },
+  'rigPreview.motion': {
+    what: 'How the root of the skeleton is carried about, so the rest of it has to follow.',
+    examples: [
+      'Sway — side to side: loose parts lag behind and swing past.',
+      'Bounce — up and down, like walking: shows how springy the stretch is.',
+      'Carry round in a circle — both at once.',
+      'The root can also be dragged by hand: it is the square.',
+    ],
+  },
+  'rigPreview.motionSize': {
+    what: 'How far the root is carried, as a share of the skeleton’s height.',
+    examples: ['0.1 — a small shift.', '0.4 — thrown about.'],
+  },
+  'rigPreview.motionSpeed': {
+    what: 'How many times a second the movement repeats.',
+    examples: [
+      'Slower than a joint springs back — the joint keeps up.',
+      'Faster — it lags behind and whips, which is where floppiness and taper show most.',
+    ],
+  },
+
   /* Polygon decomposition ------------------------------------------- */
 
   'vectorize.lineWidth': {

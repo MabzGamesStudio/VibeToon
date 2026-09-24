@@ -1154,6 +1154,11 @@
   overflow: hidden;
 }
 
+/* Room to swing in: the preview frame leaves space round the rest pose. */
+.vt-rig-stage.is-preview {
+  min-height: min(56vh, 560px);
+}
+
 /** The design, behind the bones, so a skeleton can be laid over a drawing. */
 .vt-rig-reference {
   position: absolute;
@@ -1237,6 +1242,54 @@
 
 .vt-rig.is-dragging {
   cursor: grabbing;
+}
+
+/* A joint pressed against its hard stop, in the preview. */
+.vt-rig-handle.is-at-limit {
+  fill: rgba(232, 112, 90, 0.55);
+  stroke: $err;
+}
+
+/* A bone at the end of its stretch range. */
+.vt-rig-bone.is-stretched {
+  stroke: #f0a040;
+}
+
+/* The root, in the preview: square, because it is what the rest hangs from. */
+.vt-rig-root {
+  fill: rgba(255, 255, 255, 0.08);
+  stroke: rgba(255, 255, 255, 0.5);
+  cursor: grab;
+  pointer-events: all;
+
+  &:hover,
+  &.is-held {
+    fill: rgba(122, 162, 255, 0.35);
+    stroke: $accent;
+  }
+}
+
+.vt-rig-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 4px 18px;
+}
+
+/* Two or three buttons that are one choice. */
+.vt-segmented {
+  display: inline-flex;
+
+  > .vt-btn {
+    border-radius: 0;
+  }
+
+  > .vt-btn:first-child {
+    border-radius: $radius 0 0 $radius;
+  }
+
+  > .vt-btn:last-child {
+    border-radius: 0 $radius $radius 0;
+  }
 }
 
 /** The wedge the selected joint can turn through, drawn at the joint itself. */
