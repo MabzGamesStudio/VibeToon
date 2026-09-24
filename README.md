@@ -176,6 +176,15 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   bones is a chain with one floppiness, so a tentacle is one slider rather than
   eight, and editing a left bone writes its right twin.
   See [docs/SKELETAL-RIG.md](docs/SKELETAL-RIG.md).
+- **Timeline.** Events on a zoomable line through time, each with a time and
+  places known exactly or only in part ("March 2004", "somewhere in France"),
+  characters, tags and dialog. Filter by words, characters, places and tags, and
+  color by any of them. See [docs/TIMELINE.md](docs/TIMELINE.md).
+- **World map.** A generated world — land and sea, climate, what grows — zoomed
+  from continent to harbour wall, painted over, regenerated in parts, and filled
+  with named places from a catalogue of 780 kinds, each named at the scales where
+  it makes sense. Its places feed the timeline.
+  See [docs/WORLD-MAP.md](docs/WORLD-MAP.md).
 - **Animatic.** The board laid out in time: hold a shot longer, cut one out, aim
   at a runtime and fit the whole cut to it — none of which touches the board. It
   plays in the browser, and **Export video** records the same cut to a real video

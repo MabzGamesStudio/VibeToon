@@ -42,26 +42,75 @@ export interface VectorLine {
 }
 
 /**
- * An area of one color.
+ * An area of one color, with holes where something else is.
  *
- * Always **simple** — one loop of points that never crosses or touches itself —
- * and convex only when the decomposition was asked not to join. A region traced
- * out of an image is any shape at all; it is cut into convex pieces to find the
- * parts too thin to be areas, and what is left is joined back up with its
- * same-color neighbours, so a polygon is concave wherever its outline is. With
- * joining off the pieces stay convex, for a consumer that is simpler with a
- * convex polygon: one is trivially triangulated, point-in-tested and offset.
+ * The outline is **simple** — one loop of points that never crosses or touches
+ * itself — and so is each hole, which lies inside it. A hole is where the area
+ * is not: another color drawn inside it (an eye in a face) or a transparent gap
+ * in the picture. The decomposition makes one polygon per region of the picture,
+ * so a region with something inside it is a polygon with a hole, and the shape
+ * inside is its own polygon that fits the hole exactly — nothing overlaps.
  *
- * Nothing in the studio needs convexity. Hit-testing is even-odd, so any simple
- * polygon works; the one tool that behaves differently is the straight cut,
- * which refuses a cut crossing a concave outline more than twice rather than
- * guessing which two of the crossings were meant.
+ * Filled even-odd: a point is inside when it is inside the outline and outside
+ * every hole. `holes` is left off entirely when there are none, which is how
+ * every polygon made before holes existed reads back.
  */
 export interface VectorPolygon {
   id: string;
   kind: 'polygon';
   color: string;
   points: VectorPoint[];
+  /** Loops inside the outline that are not part of the area. */
+  holes?: VectorPoint[][];
+}
+
+/** A polygon's holes, none when it has none. */
+export function holesOf(shape: VectorShape): VectorPoint[][] {
+  return shape.kind === 'polygon' ? (shape.holes ?? []) : [];
+}
+
+/**
+ * The same shape with every point moved, holes included, in `allPoints` order —
+ * so an index into a per-point list (which bone each point follows) means the
+ * same point here as there.
+ */
+export function mapPoints<T extends VectorShape>(shape: T, move: (point: VectorPoint, index: number) => VectorPoint): T {
+  let index = 0;
+  const points = shape.points.map((point) => move(point, index++));
+  if (shape.kind !== 'polygon' || !shape.holes) return { ...shape, points };
+  const holes = shape.holes.map((hole) => hole.map((point) => move(point, index++)));
+  return { ...shape, points, holes };
+}
+
+/** Every point of a shape: its outline or path, then its holes'. */
+export function allPoints(shape: VectorShape): VectorPoint[] {
+  const holes = holesOf(shape);
+  return holes.length === 0 ? shape.points : [...shape.points, ...holes.flat()];
+}
+
+/**
+ * Where an index into `allPoints` falls: which loop (-1 for the outline or
+ * path, otherwise the hole's number) and where in it.
+ */
+export function ringOf(shape: VectorShape, index: number): { ring: number; at: number } | null {
+  if (index < 0) return null;
+  if (index < shape.points.length) return { ring: -1, at: index };
+  let start = shape.points.length;
+  const holes = holesOf(shape);
+  for (let ring = 0; ring < holes.length; ring += 1) {
+    if (index < start + holes[ring]!.length) return { ring, at: index - start };
+    start += holes[ring]!.length;
+  }
+  return null;
+}
+
+/** The same shape with one loop replaced, or a hole removed with `null`. */
+function withRing(shape: VectorShape, ring: number, points: VectorPoint[] | null): VectorShape {
+  if (ring < 0) return { ...shape, points: points ?? [] } as VectorShape;
+  if (shape.kind !== 'polygon') return shape;
+  const holes = (shape.holes ?? []).flatMap((hole, at) => (at !== ring ? [hole] : points ? [points] : []));
+  const { holes: _old, ...rest } = shape;
+  return holes.length > 0 ? { ...rest, holes } : rest;
 }
 
 export type VectorShape = VectorLine | VectorPolygon;
@@ -161,19 +210,24 @@ export function nearestSegment(
   shape: VectorShape,
   point: VectorPoint,
 ): { index: number; distance: number } | null {
-  const points = shape.points;
-  if (points.length < 2) return null;
+  if (shape.points.length < 2) return null;
   const wraps = shape.kind === 'polygon' || shape.closed;
-  const last = wraps ? points.length : points.length - 1;
 
+  // Indexed as `allPoints` is: a hole's segments come after the outline's, each
+  // named by the point it starts from.
   let index = 0;
   let distance = Infinity;
-  for (let at = 0; at < last; at += 1) {
-    const measured = distanceToSegment(point, points[at]!, points[(at + 1) % points.length]!);
-    if (measured < distance) {
-      distance = measured;
-      index = at;
+  let start = 0;
+  for (const points of [shape.points, ...holesOf(shape)]) {
+    const last = wraps ? points.length : points.length - 1;
+    for (let at = 0; at < last; at += 1) {
+      const measured = distanceToSegment(point, points[at]!, points[(at + 1) % points.length]!);
+      if (measured < distance) {
+        distance = measured;
+        index = start + at;
+      }
     }
+    start += points.length;
   }
   return { index, distance };
 }
@@ -188,15 +242,18 @@ export function nearestSegment(
  */
 export function containsPoint(shape: VectorShape, point: VectorPoint): boolean {
   if (shape.kind !== 'polygon' && !shape.closed) return false;
-  const points = shape.points;
-  if (points.length < 3) return false;
+  if (shape.points.length < 3) return false;
 
+  // Even-odd over the outline and every hole: a click in a hole is a click on
+  // whatever fills it, not on the shape round it.
   let inside = false;
-  for (let index = 0, previous = points.length - 1; index < points.length; previous = index, index += 1) {
-    const a = points[index]!;
-    const b = points[previous]!;
-    if (a.y > point.y === b.y > point.y) continue;
-    if (point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  for (const points of [shape.points, ...holesOf(shape)]) {
+    for (let index = 0, previous = points.length - 1; index < points.length; previous = index, index += 1) {
+      const a = points[index]!;
+      const b = points[previous]!;
+      if (a.y > point.y === b.y > point.y) continue;
+      if (point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+    }
   }
   return inside;
 }
@@ -209,7 +266,7 @@ export function nearestPoint(
   if (shape.points.length === 0) return null;
   let index = 0;
   let distance = Infinity;
-  shape.points.forEach((candidate, at) => {
+  allPoints(shape).forEach((candidate, at) => {
     const measured = Math.hypot(candidate.x - point.x, candidate.y - point.y);
     if (measured < distance) {
       distance = measured;
@@ -279,11 +336,21 @@ export function shapePath(shape: VectorShape): string {
     return `${head} ${body}${shape.closed ? ' Z' : ''}`;
   }
 
+  const closes = shape.kind === 'polygon' || shape.closed;
+  const outline = ringPath(points, closes);
+  // Each hole is one more closed subpath; drawn with fill-rule evenodd, it is cut out.
+  const holes = holesOf(shape)
+    .filter((hole) => hole.length >= 3)
+    .map((hole) => ringPath(hole, true));
+  return [outline, ...holes].join(' ');
+}
+
+function ringPath(points: VectorPoint[], closes: boolean): string {
+  const head = `M ${round(points[0]!.x)} ${round(points[0]!.y)}`;
   const body = points
     .slice(1)
     .map((point) => `L ${round(point.x)} ${round(point.y)}`)
     .join(' ');
-  const closes = shape.kind === 'polygon' || shape.closed;
   return `${head}${body ? ` ${body}` : ''}${closes ? ' Z' : ''}`;
 }
 
@@ -309,7 +376,7 @@ export function toSvg(image: VectorImage): string {
      */
     ...polygons.map(
       (shape) =>
-        `  <path d="${shapePath(shape)}" fill="${shape.color}" stroke="${shape.color}" stroke-width="0.5"/>`,
+        `  <path d="${shapePath(shape)}" fill="${shape.color}" fill-rule="evenodd" stroke="${shape.color}" stroke-width="0.5"/>`,
     ),
     ...lines.map(
       (shape) =>
@@ -365,9 +432,8 @@ export function movePoint(
   to: VectorPoint,
 ): VectorImage {
   const shape = shapeById(image, id);
-  if (!shape || index < 0 || index >= shape.points.length) return image;
-  const points = shape.points.map((point, at) => (at === index ? { ...to } : point));
-  return replace(image, id, { ...shape, points } as VectorShape);
+  if (!shape || !ringOf(shape, index)) return image;
+  return replace(image, id, mapPoints(shape, (point, at) => (at === index ? { ...to } : point)));
 }
 
 /**
@@ -378,10 +444,11 @@ export function movePoint(
  */
 export function addPoint(image: VectorImage, id: string, segment: number, at: VectorPoint): VectorImage {
   const shape = shapeById(image, id);
-  if (!shape || segment < 0 || segment >= shape.points.length) return image;
-  const points = [...shape.points];
-  points.splice(segment + 1, 0, { ...at });
-  return replace(image, id, { ...shape, points } as VectorShape);
+  const where = shape ? ringOf(shape, segment) : null;
+  if (!shape || !where) return image;
+  const points = [...(where.ring < 0 ? shape.points : holesOf(shape)[where.ring]!)];
+  points.splice(where.at + 1, 0, { ...at });
+  return replace(image, id, withRing(shape, where.ring, points));
 }
 
 /**
@@ -393,7 +460,13 @@ export function addPoint(image: VectorImage, id: string, segment: number, at: Ve
  */
 export function deletePoint(image: VectorImage, id: string, index: number): VectorImage {
   const shape = shapeById(image, id);
-  if (!shape || index < 0 || index >= shape.points.length) return image;
+  const where = shape ? ringOf(shape, index) : null;
+  if (!shape || !where) return image;
+  if (where.ring >= 0) {
+    // A hole left with two points is no hole: it closes.
+    const hole = holesOf(shape)[where.ring]!;
+    return replace(image, id, withRing(shape, where.ring, hole.length <= 3 ? null : hole.filter((_, at) => at !== where.at)));
+  }
   const minimum = shape.kind === 'polygon' ? 3 : 2;
   if (shape.points.length <= minimum) return deleteShape(image, id);
   const points = shape.points.filter((_, at) => at !== index);
@@ -549,10 +622,19 @@ export function splitPolygon(
   ];
   if (one.length < 3 || two.length < 3) return image;
 
-  return replace(image, id, [
-    { ...shape, id: makeId('poly'), points: one },
-    { ...shape, id: makeId('poly'), points: two },
-  ]);
+  // Each hole goes with the half it is in. A cut straight through a hole leaves
+  // it with whichever half holds the most of it.
+  const { holes: _holes, ...plain } = shape;
+  const halves: VectorPolygon[] = [
+    { ...plain, id: makeId('poly'), points: one },
+    { ...plain, id: makeId('poly'), points: two },
+  ];
+  for (const hole of shape.holes ?? []) {
+    const inOne = hole.filter((point) => containsPoint(halves[0]!, point)).length;
+    const half = halves[inOne * 2 >= hole.length ? 0 : 1]!;
+    half.holes = [...(half.holes ?? []), hole];
+  }
+  return replace(image, id, halves);
 }
 
 /** Where two segments cross, if they do. `u` is how far along the second. */
@@ -590,6 +672,17 @@ export function deleteRun(
 ): VectorImage {
   const shape = shapeById(image, id);
   if (!shape) return image;
+  const one = ringOf(shape, from);
+  const two = ringOf(shape, to);
+  if (!one || !two || one.ring !== two.ring) return image;
+  if (one.ring >= 0) {
+    // A bite out of a hole makes the hole smaller, or closes it.
+    const hole = holesOf(shape)[one.ring]!;
+    const low = Math.min(one.at, two.at);
+    const high = Math.max(one.at, two.at);
+    const rest = hole.filter((_, at) => at < low || at > high);
+    return replace(image, id, withRing(shape, one.ring, rest.length >= 3 ? rest : null));
+  }
   const first = Math.max(0, Math.min(from, to));
   const last = Math.min(shape.points.length - 1, Math.max(from, to));
 
@@ -645,7 +738,11 @@ export function readVectorImage(json: unknown): VectorImage {
     if (!id) continue;
 
     if (shape.kind === 'polygon') {
-      if (points.length >= 3) shapes.push({ id, kind: 'polygon', color, points });
+      if (points.length < 3) continue;
+      const holes = (Array.isArray(shape.holes) ? shape.holes : [])
+        .map(readPoints)
+        .filter((hole) => hole.length >= 3);
+      shapes.push(holes.length > 0 ? { id, kind: 'polygon', color, points, holes } : { id, kind: 'polygon', color, points });
       continue;
     }
     if (points.length >= 2) {
@@ -692,6 +789,8 @@ function readColor(value: unknown): string | undefined {
 export interface VectorSummary {
   shapes: number;
   polygons: number;
+  /** Holes across every polygon. */
+  holes: number;
   lines: number;
   straightLines: number;
   curvedLines: number;
@@ -706,10 +805,11 @@ export function summariseVector(image: VectorImage): VectorSummary {
   return {
     shapes: image.shapes.length,
     polygons: polygons.length,
+    holes: polygons.reduce((sum, polygon) => sum + (polygon.holes?.length ?? 0), 0),
     lines: lines.length,
     straightLines: lines.filter((line) => !line.curved).length,
     curvedLines: lines.filter((line) => line.curved).length,
-    points: image.shapes.reduce((sum, shape) => sum + shape.points.length, 0),
+    points: image.shapes.reduce((sum, shape) => sum + allPoints(shape).length, 0),
     colors: [...new Set(image.shapes.map((shape) => shape.color))].sort(),
     // Editing can make one, and a consumer relying on convexity should be told.
     concave: polygons.filter((polygon) => !isConvex(polygon.points)).length,

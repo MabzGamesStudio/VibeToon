@@ -228,6 +228,19 @@ fade the part of a picture that is that color, and an entry at `0%` erases it.
 There is no tolerance in this mode: every pixel has a nearest entry, and refusing
 to pick would leave a value in the picture that is not a palette color.
 
+**Snap can clear away specks: the smallest chunk.** Snapping decides each pixel
+on its own, so noise, a stray dot, or the flecks a soft edge leaves come out as
+patches of one or two pixels in the wrong color. Set **Smallest chunk** and any
+patch of one palette color smaller than that — pixels touching, corners included —
+takes the color of a patch it touches instead. Of the colors beside it, it takes
+the one closest to what its own pixels were, not whatever surrounds it most: a
+dark red speck between a blue sky and a red roof goes red. Smallest first, so a
+speck inside a speck is settled before the one around it. The transparent entry
+counts like any other color, so a pinhole in a shape closes and a speck floating
+in empty space goes. Every value in the result is still a palette value. Corners
+count as touching so that a line one pixel wide on the diagonal stays one line.
+Off (any size) by default; keep ignores it.
+
 **Keep hands the source pixel back, not the palette value.** It does not recolor
 anything: the palette is the question, and the picture is the answer. The point of
 a tolerance is to take in shading, and replacing the pixel with the entry it

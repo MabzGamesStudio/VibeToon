@@ -63,12 +63,24 @@ export interface PaletteFilterOptions {
   tolerance: number;
   /** Keep only these palette entries, by hex. Empty means all of them. */
   only: string[];
+  /**
+   * The smallest a chunk of one palette color may be after snapping, in pixels.
+   *
+   * A chunk is the pixels of one color that touch, corners included. One smaller
+   * than this — a stray dot, a speck of noise, a fleck of the wrong color along
+   * an edge — takes the color of a chunk it touches instead: whichever of those
+   * neighbouring colors is closest to what its own pixels were. The transparent
+   * entry counts like any other, so a pinhole in a shape closes and a speck in
+   * empty space goes. 0 or 1 leaves every pixel as it snapped. `keep` ignores it.
+   */
+  minChunk: number;
 }
 
 export const DEFAULT_PALETTE_FILTER_OPTIONS: PaletteFilterOptions = {
   mode: 'keep',
   tolerance: 8,
   only: [],
+  minChunk: 0,
 };
 
 export interface PaletteFilterFlowData {
@@ -174,6 +186,10 @@ export interface FilterReport {
   filled: number;
   /** How many pixels landed on each palette entry, by hex. */
   perEntry: Array<{ hex: string; pixels: number }>;
+  /** Chunks under the minimum chunk size that took a neighbour's color. */
+  chunksMerged: number;
+  /** The pixels in them. */
+  chunkPixels: number;
   problems: string[];
 }
 
@@ -201,6 +217,8 @@ export function filterImage(
     clearIn: 0,
     filled: 0,
     perEntry: active.hexes.map((hex) => ({ hex, pixels: 0 })),
+    chunksMerged: 0,
+    chunkPixels: 0,
     problems: [],
   };
 
@@ -226,6 +244,12 @@ export function filterImage(
    */
   const cache = new Map<number, Nearest>();
   const clear = swatchOf({ r: 0, g: 0, b: 0, a: 0 });
+  const keyOf = (index: number) => {
+    const a = image.data[index + 3]!;
+    return a === 0 ? -1 : ((image.data[index]! << 16) | (image.data[index + 1]! << 8) | image.data[index + 2]!) * 256 + a;
+  };
+  /** Which entry each pixel snapped to, for `snap`. */
+  const assigned = options.mode === 'snap' ? new Int32Array(image.width * image.height) : null;
 
   for (let index = 0; index < image.data.length; index += 4) {
     const r = image.data[index]!;
@@ -241,20 +265,8 @@ export function filterImage(
     if (a === 0) report.clearIn += 1;
     else report.considered += 1;
 
-    if (options.mode === 'snap') {
-      const target = active.colors[near.index]!;
-      out[index] = target.r;
-      out[index + 1] = target.g;
-      out[index + 2] = target.b;
-      out[index + 3] = target.a;
-      report.perEntry[near.index]!.pixels += 1;
-      if (a === 0) {
-        if (target.a > 0) report.filled += 1;
-      } else {
-        if (target.a > 0) report.kept += 1;
-        else report.dropped += 1;
-        if (near.distance > 1e-9) report.recolored += 1;
-      }
+    if (assigned) {
+      assigned[index / 4] = near.index;
       continue;
     }
 
@@ -275,6 +287,37 @@ export function filterImage(
     }
   }
 
+  if (assigned) {
+    if (options.minChunk > 1) {
+      const merged = mergeSmallChunks(assigned, image.width, image.height, options.minChunk, (pixel, entry) => {
+        const key = keyOf(pixel * 4);
+        const source = key === -1 ? clear : swatchOf({ r: image.data[pixel * 4]!, g: image.data[pixel * 4 + 1]!, b: image.data[pixel * 4 + 2]!, a: image.data[pixel * 4 + 3]! });
+        return swatchDistance(source, swatches[entry]!);
+      });
+      report.chunksMerged = merged.chunks;
+      report.chunkPixels = merged.pixels;
+    }
+    for (let pixel = 0; pixel < assigned.length; pixel += 1) {
+      const index = pixel * 4;
+      const entry = assigned[pixel]!;
+      const target = active.colors[entry]!;
+      out[index] = target.r;
+      out[index + 1] = target.g;
+      out[index + 2] = target.b;
+      out[index + 3] = target.a;
+      report.perEntry[entry]!.pixels += 1;
+      if (image.data[index + 3] === 0) {
+        if (target.a > 0) report.filled += 1;
+        continue;
+      }
+      if (target.a > 0) report.kept += 1;
+      else report.dropped += 1;
+      // Recolored unless it landed on a palette value it already exactly was.
+      const near = cache.get(keyOf(index))!;
+      if (near.distance > 1e-9 || near.index !== entry) report.recolored += 1;
+    }
+  }
+
   if (report.considered > 0 && report.kept === 0 && options.mode === 'keep') {
     report.problems.push(
       tolerance <= 0
@@ -288,6 +331,132 @@ export function filterImage(
     );
   }
   return { pixels: out, report };
+}
+
+/**
+ * Give every chunk smaller than `min` the color of a chunk it touches.
+ *
+ * A chunk is the pixels of one entry that touch, corners included — so a line a
+ * pixel wide drawn on the diagonal is one chunk, not a row of specks. Smallest
+ * first, so a speck inside a speck is settled before the one around it is judged.
+ * Of the entries the chunk touches, the one it takes is the one closest to what
+ * its own pixels were (`cost`, summed over them): the next nearest color that is
+ * actually there beside it, rather than whatever happens to surround it most.
+ * Taking a neighbour's color joins the chunk to that neighbour, and to any other
+ * chunk of that color it touched, so they grow together.
+ *
+ * A chunk with no neighbour of another color — the whole picture one color, say —
+ * is left alone. `assigned` is changed in place.
+ */
+export function mergeSmallChunks(
+  assigned: Int32Array,
+  width: number,
+  height: number,
+  min: number,
+  cost: (pixel: number, entry: number) => number,
+): { chunks: number; pixels: number } {
+  const count = width * height;
+  const label = new Int32Array(count).fill(-1);
+  const members: number[][] = [];
+  const entryOf: number[] = [];
+  const stack: number[] = [];
+  for (let start = 0; start < count; start += 1) {
+    if (label[start] !== -1) continue;
+    const id = members.length;
+    const entry = assigned[start]!;
+    const pixels: number[] = [];
+    label[start] = id;
+    stack.push(start);
+    while (stack.length > 0) {
+      const at = stack.pop()!;
+      pixels.push(at);
+      const x = at % width;
+      const y = (at - x) / width;
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const next = ny * width + nx;
+          if (label[next] !== -1 || assigned[next] !== entry) continue;
+          label[next] = id;
+          stack.push(next);
+        }
+      }
+    }
+    members.push(pixels);
+    entryOf.push(entry);
+  }
+
+  const parent = members.map((_, id) => id);
+  const root = (id: number): number => {
+    while (parent[id] !== id) {
+      parent[id] = parent[parent[id]!]!;
+      id = parent[id]!;
+    }
+    return id;
+  };
+
+  let chunks = 0;
+  let moved = 0;
+  const small = members
+    .map((pixels, id) => [pixels.length, id] as const)
+    .filter(([size]) => size < min)
+    .sort((one, two) => one[0] - two[0] || one[1] - two[1]);
+
+  for (const [, id] of small) {
+    if (root(id) !== id || members[id]!.length >= min) continue;
+    const pixels = members[id]!;
+    const entry = entryOf[id]!;
+
+    // The chunks it touches, by entry, and how much border it shares with each.
+    const touching = new Map<number, { roots: Set<number>; border: number }>();
+    for (const at of pixels) {
+      const x = at % width;
+      const y = (at - x) / width;
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const other = root(label[ny * width + nx]!);
+          if (other === id || entryOf[other] === entry) continue;
+          const side = touching.get(entryOf[other]!) ?? { roots: new Set(), border: 0 };
+          side.roots.add(other);
+          side.border += 1;
+          touching.set(entryOf[other]!, side);
+        }
+      }
+    }
+    if (touching.size === 0) continue;
+
+    let best = -1;
+    let bestCost = Infinity;
+    let bestBorder = -1;
+    for (const [candidate, side] of touching) {
+      let total = 0;
+      for (const at of pixels) total += cost(at, candidate);
+      if (total < bestCost - 1e-9 || (Math.abs(total - bestCost) <= 1e-9 && side.border > bestBorder)) {
+        best = candidate;
+        bestCost = total;
+        bestBorder = side.border;
+      }
+    }
+
+    // Join it, and every chunk of that color it touched, into the biggest of them.
+    const roots = [...touching.get(best)!.roots];
+    const into = roots.reduce((big, other) => (members[other]!.length > members[big]!.length ? other : big));
+    for (const at of pixels) assigned[at] = best;
+    for (const other of [id, ...roots]) {
+      if (other === into) continue;
+      parent[other] = into;
+      members[into] = members[into]!.concat(members[other]!);
+      members[other] = [];
+    }
+    chunks += 1;
+    moved += pixels.length;
+  }
+  return { chunks, pixels: moved };
 }
 
 export function summariseFilter(report: FilterReport, options: PaletteFilterOptions): string {
@@ -304,6 +473,9 @@ export function summariseFilter(report: FilterReport, options: PaletteFilterOpti
     ];
     if (report.dropped > 0) parts.push(`${share(report.dropped)} snapped to transparent`);
     if (report.filled > 0) parts.push(`${report.filled.toLocaleString()} transparent pixel(s) given a color`);
+    if (report.chunksMerged > 0) {
+      parts.push(`${report.chunksMerged.toLocaleString()} small chunk(s) (${report.chunkPixels.toLocaleString()} px) given a neighbour's color`);
+    }
     return `${parts.join(', ')}.`;
   }
   return `${share(report.kept)} kept exactly as it was, ${share(report.dropped)} made transparent.`;

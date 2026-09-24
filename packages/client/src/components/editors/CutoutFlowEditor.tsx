@@ -8,6 +8,7 @@ import {
   labelOf,
   linePoints,
   regionOutline,
+  unflatten,
   maskBounds,
   newId,
   objectsOf,
@@ -104,12 +105,19 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
   const [tool, setTool] = useState<Tool>('fill');
   const [bitmap, setBitmap] = useState<Bitmap | null>(null);
   /**
-   * How many screen pixels one image pixel is currently drawn as.
+   * How many screen pixels one image pixel is drawn as when the picture fits the
+   * stage — the layout's scale, before any zoom.
    *
    * The markers are drawn in the SVG's image-coordinate space, so without this a
-   * seed on a 200px reference is a blob covering half the subject at full screen,
-   * and a seed on a 4000px photograph is too small to find. Dividing by the scale
-   * keeps them the same size on screen whatever the picture is.
+   * seed on a 200px reference is a blob covering half the subject, and a seed on
+   * a 4000px photograph is too small to find. Dividing by it gives every picture
+   * the same size of marker at fit. Zooming the stage then scales them with the
+   * picture, like everything else in it: a node is a place in the picture, and
+   * zooming in on it should make it bigger, not leave it behind.
+   *
+   * Measured from the layout box (`offsetWidth`), not the one on screen, which
+   * includes the zoom — reading that made the markers jump between sizes
+   * whenever something happened to resize the stage mid-zoom.
    */
   const [zoom, setZoom] = useState(1);
   const [drawing, setDrawing] = useState<number[]>([]);
@@ -161,9 +169,10 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
     const surface = canvas.current;
     if (!surface || !bitmap) return undefined;
     const measure = () => {
-      const box = surface.getBoundingClientRect();
-      if (box.width === 0 || box.height === 0) return;
-      setZoom(Math.min(box.width / bitmap.width, box.height / bitmap.height) || 1);
+      const width = surface.offsetWidth;
+      const height = surface.offsetHeight;
+      if (width === 0 || height === 0) return;
+      setZoom(Math.min(width / bitmap.width, height / bitmap.height) || 1);
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -676,7 +685,7 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                 {/* The objects, drawn over the canvas so they stay clickable and
                     crisp at any zoom rather than being baked into the pixels. */}
                 <svg
-                  className="vt-cutout-objects"
+                  className={`vt-cutout-objects${drawing.length > 0 ? ' is-drawing' : ''}`}
                   viewBox={`0 0 ${scale.width} ${scale.height}`}
                   preserveAspectRatio="xMidYMid meet"
                 >
@@ -689,7 +698,7 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                       className={`vt-region${data.selected.includes(region.id) ? ' is-selected' : ''}${
                         region.muted ? ' is-muted' : ''
                       } is-${region.mode}`}
-                      strokeWidth={1.5 / zoom}
+                      strokeWidth={1.5}
                       onClick={(event) => {
                         event.stopPropagation();
                         patch(selectObject(data, region.id, event.shiftKey));
@@ -729,17 +738,33 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                           <polygon
                             className="vt-region is-drafting"
                             points={drafted}
-                            strokeWidth={1.5 / zoom}
+                            strokeWidth={1.5}
                           />
                         ) : (
                           <polyline
                             className="vt-cut-line is-drafting"
                             points={drafted}
-                            strokeWidth={1.5 / zoom}
+                            strokeWidth={1.5}
                           />
                         );
                       })()
                     : null}
+
+                  {/* The nodes of what is selected, so where a finished region or
+                      cut actually runs through can be seen — and zoomed in on. */}
+                  {[...(data.regions ?? []), ...data.lines]
+                    .filter((object) => data.selected.includes(object.id))
+                    .flatMap((object) =>
+                      unflatten(object.points).map((point, index) => (
+                        <circle
+                          key={`${object.id}:${index}`}
+                          className="vt-draft-point is-placed"
+                          cx={point.x}
+                          cy={point.y}
+                          r={3 / zoom}
+                        />
+                      )),
+                    )}
 
                   {/* The points as placed, so one dropped by mistake is visible. */}
                   {Array.from({ length: drawing.length / 2 }, (_, index) => (

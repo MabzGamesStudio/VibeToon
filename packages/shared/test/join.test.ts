@@ -91,12 +91,11 @@ test('a fan of pieces is rebuilt one piece at a time', () => {
   assert.equal(area(polygons(shapes)[0]!.points), area(hexagon));
 });
 
-test('a ring stops one short of closing, because a polygon cannot have a hole', () => {
+test('a ring closes into one polygon with a hole', () => {
   /*
-   * A square frame cut into four. Joining all four would need the outline to go
-   * round the outside and then round the inside, which is two loops — and a
-   * polygon is one. So the last join is refused and the ring stays two shapes,
-   * covering exactly what the four did.
+   * A square frame cut into four. Joining all four takes the outline round the
+   * outside and a hole round the inside — which a polygon can now have — so the
+   * frame is one shape again, covering exactly what the four did.
    */
   const frame = [
     polygon('top', '#000000', [0, 0], [3, 0], [2, 1], [1, 1]),
@@ -104,10 +103,12 @@ test('a ring stops one short of closing, because a polygon cannot have a hole', 
     polygon('bottom', '#000000', [3, 3], [0, 3], [1, 2], [2, 2]),
     polygon('left', '#000000', [0, 3], [0, 0], [1, 1], [1, 2]),
   ];
-  const { shapes } = joinPolygons(frame);
-  assert.equal(shapes.length, 2);
-  const total = polygons(shapes).reduce((sum, shape) => sum + area(shape.points), 0);
-  assert.equal(total, 9 - 1);
+  const { shapes, joined } = joinPolygons(frame);
+  assert.equal(joined, 3);
+  assert.equal(shapes.length, 1);
+  const [ring] = polygons(shapes);
+  assert.equal(ring!.holes?.length, 1);
+  assert.equal(area(ring!.points) - area(ring!.holes![0]!), 9 - 1);
 });
 
 test('a join that would leave the outline touching itself is refused', () => {

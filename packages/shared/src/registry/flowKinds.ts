@@ -269,22 +269,19 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     kind: 'story.timeline',
     category: 'story',
     label: 'Timeline',
-    summary: 'Story chronology, separate from the order the clip shows it in.',
+    summary: 'Events on a zoomable line: when and where, exact or partly known, who was there and what was said.',
     inputs: [
-      input('scenes', 'Scenes', ['json', 'text', 'markdown'], 'Scenes or outline.'),
-      input('world', 'World', ['markdown'], 'World history.'),
+      input('scenes', 'Scenes', ['json', 'text', 'markdown'], 'Scenes or outline, for reference.'),
+      input('world', 'World', ['markdown'], 'World history, for reference.'),
+      input('characters', 'Characters', ['markdown', 'json', 'text'], 'Character profiles: their names are offered when adding people to an event.'),
+      input('places', 'Places', ['json'], 'Named locations from a world map: offered as places, and linked to them.'),
     ],
     outputs: [
-      output('timeline', 'Timeline', ['json'], 'timeline.json', 'Events in story order.'),
+      output('timeline', 'Timeline', ['json'], 'timeline.json', 'Every event and all it holds, in time order.'),
       output('doc', 'Timeline doc', ['markdown'], 'timeline.md', 'Readable chronology.'),
     ],
-    editor: 'brief',
-    maturity: 'brief',
-    fields: [
-      field('events', 'Events', 'list', 'One per line: `when — what happened`.'),
-      field('present', 'Present day', 'line', 'Where the clip sits on this line.'),
-      field('offscreen', 'Off-screen', 'list', 'Events that happen between scenes.'),
-    ],
+    editor: 'timeline',
+    maturity: 'editor',
   },
   {
     kind: 'story.continuity',
@@ -347,6 +344,22 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       field('mood', 'Mood', 'text', 'Light, weather, sound of each place.'),
       field('staging', 'Staging notes', 'text', 'Where characters can stand, enter, hide.'),
     ],
+  },
+
+  {
+    kind: 'world.map',
+    category: 'world',
+    label: 'World Map',
+    summary: 'Generate a world — land, sea, climate, what grows — then paint it, build on it and name its places, at every scale.',
+    inputs: [input('world', 'World', ['markdown', 'text'], 'World design, for reference.')],
+    outputs: [
+      output('map', 'Map', ['json'], 'map.json', 'Everything that makes the map: settings, regions, paint and elements.'),
+      output('locations', 'Locations', ['json'], 'locations.json', 'Every named place, with the places it lies within — for a timeline, or anything that needs a where.'),
+      output('image', 'Map image', ['image'], 'map.png', 'The whole world, drawn.'),
+      output('doc', 'Map notes', ['markdown'], 'map.md', 'The places, by kind, with their descriptions.'),
+    ],
+    editor: 'map',
+    maturity: 'editor',
   },
 
   /* ---------------------------------------------------------------- *

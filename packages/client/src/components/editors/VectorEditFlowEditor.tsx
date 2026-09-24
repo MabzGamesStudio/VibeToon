@@ -3,6 +3,7 @@ import {
   VECTOR_TOOL_HINT,
   VECTOR_TOOL_LABEL,
   addPoint,
+  allPoints,
   adopt,
   containsPoint,
   deletePoint,
@@ -12,6 +13,7 @@ import {
   emptyVectorEditFlowData,
   imageOf,
   inputsForPort,
+  mapPoints,
   nearestPoint,
   nearestSegment,
   newId,
@@ -283,8 +285,8 @@ export function VectorEditFlowEditor({
     // edit rather than one per frame — and the undo count stays meaningful.
     const shape = shapeById(image, dragging.id);
     if (!shape) return;
-    const points = shape.points.map((existing, at) => (at === dragging.index ? found.point : existing));
-    patch({ image: { ...image, shapes: image.shapes.map((s) => (s.id === dragging.id ? ({ ...s, points } as VectorShape) : s)) } });
+    const moved = mapPoints(shape, (existing, at) => (at === dragging.index ? found.point : existing));
+    patch({ image: { ...image, shapes: image.shapes.map((s) => (s.id === dragging.id ? moved : s)) } });
   };
 
   const onUp = () => {
@@ -417,7 +419,7 @@ export function VectorEditFlowEditor({
                 <code>{one.color}</code>
               </dd>
               <dt>Points</dt>
-              <dd>{one.points.length}</dd>
+              <dd>{allPoints(one).length}</dd>
             </dl>
             {one.kind === 'line' ? (
               <Field label="Shape">
@@ -513,7 +515,7 @@ export function VectorEditFlowEditor({
                       <path
                         key={shape.id}
                         d={shapePath(shape)}
-                        fill={shape.color}
+                        fill={shape.color} fillRule="evenodd"
                         className={`vt-vector-shape${data.selected.includes(shape.id) ? ' is-selected' : ''}${
                           hover === shape.id ? ' is-hover' : ''
                         }`}
@@ -543,7 +545,7 @@ export function VectorEditFlowEditor({
                   {/* Anchors, on the selected shapes only: every point of every
                       shape at once is unreadable and unclickable. */}
                   {selected.slice(0, view.listLimit).map((shape) =>
-                    shape.points.map((point, index) => (
+                    allPoints(shape).map((point, index) => (
                       <circle
                         key={`${shape.id}:${index}`}
                         cx={point.x}

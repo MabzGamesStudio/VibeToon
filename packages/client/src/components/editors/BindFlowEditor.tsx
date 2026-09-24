@@ -12,6 +12,7 @@ import {
   intoDrawing,
   moveImage,
   moveJoint,
+  allPoints,
   moveRig,
   nodeKey,
   nodesFor,
@@ -377,7 +378,7 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
     if (!shape) return 0.35;
     const mine = data.boneId ? shareOf(data, shape, data.boneId) : 0;
     if (data.hideOthers && mine === 0) {
-      const taken = shape.points.every((point) => {
+      const taken = allPoints(shape).every((point) => {
         const bone = data.nodes[nodeKey(point)];
         return bone !== undefined && bone !== data.boneId;
       });
@@ -647,7 +648,7 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
                       <path
                         key={shape.id}
                         d={shapePath(shape)}
-                        fill={shape.color}
+                        fill={shape.color} fillRule="evenodd"
                         stroke={shape.color}
                         strokeWidth={0.5}
                         opacity={opacity}

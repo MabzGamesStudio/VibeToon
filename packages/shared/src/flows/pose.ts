@@ -1,6 +1,6 @@
 import { boneById, chainById, effectiveAngles, restPose, type Bone, type RigFlowData } from './rig';
 import type { BoundRig } from './rigBind';
-import type { VectorImage, VectorPoint, VectorShape } from './vector';
+import { mapPoints, type VectorImage, type VectorPoint, type VectorShape } from './vector';
 
 /**
  * Moving a bound rig.
@@ -259,12 +259,11 @@ export function posedImage(bound: BoundRig, pose: Pose): VectorImage {
   const shapes: VectorShape[] = bound.image.shapes.map((shape) => {
     const bones = bound.points[shape.id];
     if (!bones) return shape;
-    const points = shape.points.map((point, index) => {
+    return mapPoints(shape, (point, index) => {
       const bone = bones[index];
       const move = bone ? moves.get(bone) : undefined;
       return move ? move(point) : point;
     });
-    return { ...shape, points } as VectorShape;
   });
 
   return { ...bound.image, shapes };

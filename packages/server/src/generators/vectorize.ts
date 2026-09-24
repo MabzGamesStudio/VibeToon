@@ -77,8 +77,13 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
           }`,
         ]
       : []),
-    ...(found && found.slivers > 0
-      ? [`- Pieces too thin to be areas, given back as strokes: ${found.slivers}`]
+    ...(found
+      ? [
+          `- Polygons with holes: ${found.holes ?? 0} hole(s) where something else, or nothing, is inside a shape`,
+          `- Skinny polygons drawn again as lines: ${found.skinny ?? 0}${
+            found.filledUnder ? ` · ${found.filledUnder} closed over underneath, wholly inside another shape` : ''
+          }`,
+        ]
       : []),
     data.options.joinShapes
       ? `- Shapes of the same color that touch: joined${
@@ -86,7 +91,7 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
             ? ` · ${found.joinedPolygons ?? 0} polygon join(s), ${found.joinedLines ?? 0} line join(s), line ends within ${data.options.joinGap}px`
             : ''
         }`
-      : '- Shapes of the same color that touch: left as the convex pieces they were cut into',
+      : '- Shapes of the same color that touch: left alone, and every polygon cut into convex pieces with its holes bridged',
     `- Nodes at least ${data.options.minNodeGap}px apart${found?.nodesMerged ? ` · ${found.nodesMerged} merged` : ''}`,
     `- Polygons at least ${data.options.minPolygonArea}px²${
       found && (found.smallFolded || found.smallDropped)
@@ -95,7 +100,7 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
     }`,
     `- Lines at least ${data.options.minLineLength}px long${
       found && (found.shortLines || found.shortStrokes)
-        ? ` · ${found.shortLines ?? 0} stub(s) dropped, ${found.shortStrokes ?? 0} short stroke(s) drawn as areas`
+        ? ` · ${found.shortLines ?? 0} stub(s) dropped, ${found.shortStrokes ?? 0} skinny polygon(s) too short to be lines, kept as polygons`
         : ''
     }`,
     ...(found
@@ -118,22 +123,26 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
     'direction its own corners want, which leaves a sliver of overlap down one side',
     'of it and a sliver of gap down the other.',
     '',
-    'A shape with a hole in it is a shape with a hole in it. The hole is cut out with',
-    'a bridge — a slit from the hole to the outside — so that a black outline round a',
-    'face is a ring rather than a disc, and a shape with nothing in the middle of it',
-    'has nothing in the middle of it.',
+    'A shape with something inside it has a **hole** there. An eye in a face is a',
+    'hole in the face with the eye\'s own polygon filling it exactly; a transparent',
+    'gap in a shape is a hole with nothing in it. So a black outline round a face is',
+    'a ring rather than a disc, and a shape with nothing in the middle of it has',
+    'nothing in the middle of it.',
     '',
     '## What counts as a line',
     '',
-    'A line is a region that is **thin** *and* has **different things on either',
-    'side of it**. Both halves matter. A long thin shape on its own is a shape, not',
-    'a stroke; and every region separates its neighbours from each other in some',
-    'sense, so separating alone says nothing.',
+    'Polygons come first, and only polygons: every region of the picture is drawn as',
+    'one, holes and all. Then any polygon that is **skinny** — no wider than a stroke',
+    'anywhere, and at least twice as long as it is wide — is drawn again as a line',
+    'down its middle, with its measured width. The smile on a face is a line even',
+    'though it borders nothing but the face.',
+    '',
+    'A skinny polygon wholly inside one other, like that smile, was a hole in it; the',
+    'hole is closed over and the line drawn on top, the way the picture was drawn.',
+    'One on a boundary between several things keeps the room it had.',
     '',
     'A red box beside a blue box is two areas and no line, because neither is thin —',
-    'the boundary between two colors is not a drawn mark. Put a black stroke between',
-    'them and the black is thin with red one side and blue the other, so it becomes a',
-    'line and the boxes are still areas.',
+    'the boundary between two colors is not a drawn mark.',
     '',
     'Which leaves one number to set: how wide a stroke may be. Below it a thin shape',
     'is a mark with a middle, above it the same shape is a long thin area with an',
@@ -166,18 +175,16 @@ export async function generateVectorize(ctx: GenerationContext): Promise<Generat
     '',
     ...(data.options.joinShapes
       ? [
-          'A **polygon** is an area of one color. A traced region is cut into convex',
-          'pieces first — that is how a part too thin to be an area is found and given',
-          'back as a stroke — and the pieces that are left are then joined back up with',
-          'every neighbour of exactly the same color they share a side with. So a region',
-          'is one polygon, concave if its outline is, and never crosses itself. The one',
-          'exception is a region with a hole: a polygon is one loop of points and cannot',
-          'go round a hole, so that region stays two polygons that together leave it empty.',
+          'A **polygon** is an area of one color: an outline, and a hole wherever',
+          'something else is inside it. Each region is one polygon, concave if its',
+          'outline is, and no outline or hole crosses itself. Neighbours of exactly the',
+          'same color that meet — side by side, or one filling a hole in the other — are',
+          'joined into one. Holes are filled even-odd.',
         ]
       : [
-          'A **polygon** is an area of one color, and is convex: a traced region is any',
-          'shape at all, and is left as the convex pieces it was cut into because joining',
-          'is turned off. A convex polygon is trivially triangulated, filled and',
+          'A **polygon** is an area of one color, and is convex: each region is cut into',
+          'convex pieces, its holes bridged to the outside first, because joining is',
+          'turned off. A convex polygon is trivially triangulated, filled and',
           'point-tested, and never has the self-intersections that make a concave one a',
           'special case in every renderer that meets it.',
         ]),

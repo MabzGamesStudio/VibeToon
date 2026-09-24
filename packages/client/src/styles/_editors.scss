@@ -1052,6 +1052,37 @@
     max-height: 160px;
     object-fit: contain;
   }
+
+  /* Filling the screen: the picture takes all of it, letterboxed. */
+  &.is-full {
+    flex: 1;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    background-color: transparent;
+    background-image: none;
+
+    img {
+      height: 100%;
+      max-height: none;
+    }
+  }
+}
+
+/* In the sidebar the stage is a thumbnail with its controls: no frame of its own
+   round the picture's frame, and the header allowed to wrap. */
+.vt-palette-source-stage:not(.is-full) {
+  margin-bottom: 8px;
+
+  .vt-stage-body {
+    flex: none;
+  }
+
+  .vt-palette-source {
+    flex: 1;
+    border: 0;
+    border-radius: 0;
+  }
 }
 
 /**
@@ -1123,6 +1154,11 @@
   overflow: hidden;
 }
 
+/* Room to swing in: the preview frame leaves space round the rest pose. */
+.vt-rig-stage.is-preview {
+  min-height: min(56vh, 560px);
+}
+
 /** The design, behind the bones, so a skeleton can be laid over a drawing. */
 .vt-rig-reference {
   position: absolute;
@@ -1176,6 +1212,83 @@
   &.is-selected {
     fill: $accent;
     stroke: $accent;
+  }
+}
+
+/* A joint to drag. Faint until pointed at, so the skeleton still reads as bones. */
+.vt-rig-handle {
+  fill: rgba(255, 255, 255, 0.04);
+  stroke: rgba(255, 255, 255, 0.28);
+  cursor: grab;
+  pointer-events: all;
+
+  &:hover {
+    fill: rgba(122, 162, 255, 0.35);
+    stroke: $accent;
+  }
+
+  &.is-held {
+    fill: $accent;
+    stroke: #fff;
+    cursor: grabbing;
+  }
+
+  /* The twin moving along with it. */
+  &.is-twin {
+    fill: rgba(122, 162, 255, 0.35);
+    stroke: $accent;
+  }
+}
+
+.vt-rig.is-dragging {
+  cursor: grabbing;
+}
+
+/* A joint pressed against its hard stop, in the preview. */
+.vt-rig-handle.is-at-limit {
+  fill: rgba(232, 112, 90, 0.55);
+  stroke: $err;
+}
+
+/* A bone at the end of its stretch range. */
+.vt-rig-bone.is-stretched {
+  stroke: #f0a040;
+}
+
+/* The root, in the preview: square, because it is what the rest hangs from. */
+.vt-rig-root {
+  fill: rgba(255, 255, 255, 0.08);
+  stroke: rgba(255, 255, 255, 0.5);
+  cursor: grab;
+  pointer-events: all;
+
+  &:hover,
+  &.is-held {
+    fill: rgba(122, 162, 255, 0.35);
+    stroke: $accent;
+  }
+}
+
+.vt-rig-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 4px 18px;
+}
+
+/* Two or three buttons that are one choice. */
+.vt-segmented {
+  display: inline-flex;
+
+  > .vt-btn {
+    border-radius: 0;
+  }
+
+  > .vt-btn:first-child {
+    border-radius: $radius 0 0 $radius;
+  }
+
+  > .vt-btn:last-child {
+    border-radius: 0 $radius $radius 0;
   }
 }
 
@@ -1636,6 +1749,23 @@
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
+
+  /* The nodes of a finished, selected region or cut. */
+  &.is-placed {
+    fill: $accent;
+    stroke: #fff;
+  }
+}
+
+/* While something is being drawn every click is a point of it: what is already
+   there must not take the click and select itself instead. */
+.vt-cutout-objects.is-drawing {
+  .vt-region,
+  .vt-cut-line,
+  .vt-seed,
+  .vt-seed-hit {
+    pointer-events: none;
+  }
 }
 
 .vt-object-dot {
@@ -1797,5 +1927,520 @@
   &.is-removing {
     fill: rgba(255, 90, 90, 0.12);
     stroke: rgba(255, 90, 90, 0.9);
+  }
+}
+
+/* Timeline ------------------------------------------------------------ */
+
+.vt-timeline-stage {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  background: $bg-0;
+}
+
+.vt-timeline-overview {
+  border-bottom: 1px solid $line;
+  background: $bg-1;
+
+  svg {
+    display: block;
+    cursor: pointer;
+    user-select: none;
+  }
+}
+
+.vt-timeline-overview-label {
+  fill: $text-faint;
+  font-size: 9px;
+}
+
+/* The part of the span in view, in the overview. */
+.vt-timeline-brush {
+  fill: $accent-soft;
+  stroke: $accent;
+  stroke-width: 1.5;
+  cursor: grab;
+}
+
+.vt-timeline-canvas {
+  overflow-y: auto;
+  max-height: 560px;
+
+  svg {
+    display: block;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+
+    &.is-dragging {
+      cursor: grabbing;
+    }
+  }
+}
+
+.vt-timeline-grid {
+  stroke: $line;
+  stroke-width: 1;
+
+  &.is-major {
+    stroke: $line-strong;
+  }
+}
+
+.vt-timeline-tick {
+  fill: $text-faint;
+  font-size: 10px;
+
+  &.is-major {
+    fill: $text-dim;
+    font-weight: 600;
+  }
+}
+
+.vt-timeline-now {
+  stroke: $warn;
+  stroke-dasharray: 3 3;
+}
+
+.vt-timeline-now-label {
+  fill: $warn;
+  font-size: 9px;
+}
+
+.vt-timeline-event {
+  cursor: pointer;
+
+  rect,
+  path {
+    stroke: rgba(0, 0, 0, 0.35);
+    stroke-width: 1;
+  }
+
+  text {
+    fill: $text;
+    font-size: 11px;
+    paint-order: stroke;
+    stroke: rgba(10, 12, 16, 0.85);
+    stroke-width: 3px;
+    pointer-events: none;
+  }
+
+  &:hover rect,
+  &:hover path {
+    stroke: $text;
+  }
+
+  &.is-selected rect,
+  &.is-selected path {
+    stroke: #fff;
+    stroke-width: 2;
+  }
+}
+
+.vt-timeline-undated {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  padding: 6px 8px;
+  border-top: 1px solid $line;
+  font-size: 11px;
+}
+
+.vt-timeline-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.vt-timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 340px;
+  overflow-y: auto;
+
+}
+
+/* One event in the sidebar list: its color, its title, and when. */
+.vt-timeline-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 6px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: $radius-sm;
+  background: none;
+  color: $text;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+
+  > .vt-lexeme-word {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > .vt-faint {
+    grid-column: 2;
+    font-size: 10px;
+  }
+
+  &:hover {
+    background: $bg-3;
+  }
+
+  &.is-active {
+    background: $accent-soft;
+    border-color: $accent;
+  }
+}
+
+/* An event's own color: a swatch, not a bar across the panel. */
+.vt-timeline-panel input[type='color'] {
+  width: 44px;
+  height: 26px;
+  padding: 2px;
+  flex: none;
+}
+
+.vt-timeline-legend {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  li {
+    display: grid;
+    grid-template-columns: 26px 1fr auto;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  input[type='color'] {
+    width: 24px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    background: none;
+  }
+}
+
+.vt-timeline-keywords {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  input[type='color'] {
+    width: 28px;
+    flex: none;
+  }
+}
+
+.vt-timeline-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 4px 18px;
+}
+
+.vt-partial-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: -2px 0 6px;
+}
+
+.vt-partial-field {
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  color: $text-faint;
+
+  input[type='number'] {
+    width: 62px;
+  }
+}
+
+input.is-invalid {
+  border-color: $err;
+}
+
+.vt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+
+  > input {
+    flex: 1;
+    min-width: 120px;
+  }
+
+  .vt-chip button {
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 0 0 0 2px;
+  }
+}
+
+.vt-timeline-places,
+.vt-timeline-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.vt-timeline-place {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  width: 100%;
+
+  > input[type='text'] {
+    flex: 1;
+    min-width: 180px;
+  }
+}
+
+.vt-timeline-line {
+  display: grid;
+  grid-template-columns: 130px 1fr 150px auto auto;
+  gap: 4px;
+  width: 100%;
+}
+
+/* World map ----------------------------------------------------------- */
+
+.vt-map-stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  min-height: min(62vh, 640px);
+}
+
+.vt-map-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: #1b2331;
+
+  canvas,
+  svg {
+    position: absolute;
+    inset: 0;
+    display: block;
+  }
+}
+
+.vt-map-overlay {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+
+  &.is-panning {
+    cursor: grabbing;
+  }
+
+  &.is-paint,
+  &.is-region,
+  &.is-place {
+    cursor: crosshair;
+  }
+}
+
+.vt-map-tools {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.vt-map-toolbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 2px 14px;
+  align-items: end;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border: 1px solid $line;
+  border-radius: $radius;
+  background: $bg-1;
+}
+
+.vt-map-catalogue {
+  grid-template-columns: 1fr;
+
+  input[type='search'] {
+    flex: 1;
+  }
+}
+
+.vt-map-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.vt-map-result {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 3px 8px;
+  border: 1px solid $line;
+  border-radius: $radius-sm;
+  background: $bg-2;
+  color: $text;
+  font-size: 12px;
+  cursor: pointer;
+
+  .vt-faint {
+    font-size: 10px;
+  }
+
+  &:hover {
+    border-color: $line-strong;
+  }
+
+  &.is-active {
+    border-color: $accent;
+    background: $accent-soft;
+  }
+}
+
+.vt-map-toggles {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.vt-map-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  flex: none;
+}
+
+.vt-map-element {
+  pointer-events: none;
+
+  &.is-selected {
+    filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.9));
+  }
+}
+
+.vt-map-label {
+  fill: #1f1a17;
+  paint-order: stroke;
+  stroke: rgba(250, 247, 238, 0.85);
+  stroke-width: 3px;
+  font-weight: 600;
+  pointer-events: none;
+
+  &.is-big {
+    font-style: italic;
+    letter-spacing: 0.12em;
+    fill: #2c2a33;
+    font-weight: 500;
+  }
+
+  &.is-water {
+    fill: #184a82;
+    font-style: italic;
+  }
+
+  &.is-landform {
+    fill: #4d3b28;
+    font-style: italic;
+  }
+
+  &.is-transport,
+  &.is-structure,
+  &.is-site {
+    font-weight: 500;
+  }
+}
+
+.vt-map-patch {
+  pointer-events: none;
+
+  rect {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.55);
+    stroke-dasharray: 6 4;
+  }
+
+  text {
+    fill: #fff;
+    font-size: 11px;
+    paint-order: stroke;
+    stroke: rgba(0, 0, 0, 0.6);
+    stroke-width: 3px;
+  }
+}
+
+.vt-map-edge {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+}
+
+.vt-map-brush {
+  fill: rgba(255, 255, 255, 0.12);
+  stroke: #fff;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+
+.vt-map-region-draft {
+  fill: rgba(110, 168, 254, 0.15);
+  stroke: $accent;
+  stroke-dasharray: 5 3;
+  pointer-events: none;
+}
+
+.vt-map-drafting {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
+.vt-map-extent {
+  fill: none;
+  stroke: #fff;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
+.vt-map-handle {
+  fill: $accent;
+  stroke: #fff;
+  stroke-width: 1.5;
+  cursor: nwse-resize;
+
+  &.is-rotate {
+    fill: $warn;
+    cursor: grab;
   }
 }

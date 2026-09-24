@@ -13,27 +13,40 @@ Image ──▶ Polygon Decomposition ──▶ Vector Editor ──▶ vector.j
 
 `art.vectorize` · takes an **Image** · gives **`vector.json`**, **`vector.svg`** and **`vector.md`**
 
-## What counts as a line
+## Polygons first, then lines
 
-This is the whole idea, and it is a rule with two halves that both matter.
+The decomposition works in two passes, and the order is the whole idea.
 
-A **line** is a region that is **thin** *and* has **different things on either
-side of it**.
+**First, polygons — and only polygons.** Every region of the picture is drawn as
+one polygon: its outline, with a **hole** wherever something else is inside it.
+An eye in a face is a hole in the face, with the eye's own polygon filling it
+exactly; a transparent gap in a shape is a hole with nothing in it. The polygons
+tile the picture — nothing overlaps, and nothing is left uncovered but the
+transparent parts.
 
-Thin alone is not enough: a long thin rectangle of solid color sitting on its
-own is a shape, not a stroke. Separating alone is not enough either, because
-every region separates its neighbours from each other in some sense.
-
-The example the flow is built around:
+**Then, skinny polygons become lines.** With everything filled in, a polygon that
+is **skinny** — no wider than a stroke anywhere, and at least twice as long as it
+is wide — is a drawn mark rather than an area, and is drawn again as a line down
+its middle with its measured width. It does not matter what is beside it: the
+smile on a face borders nothing but the face, and it is a line.
 
 | Picture | What comes out |
 | --- | --- |
-| A red box beside a blue box | **Two areas, no line.** The boundary between two colors is not a drawn mark. |
-| The same, with a black stroke between them | **One line and two areas.** The black is thin, with red one side and blue the other. |
+| A yellow smiley with black eyes and a drawn smile | **Four shapes:** the face (one polygon, a hole for each eye), the two eyes, and the smile as one line. |
+| A red box beside a blue box | **Two polygons, no line.** Neither is thin; the boundary between two colors is not a drawn mark. |
+| The same, with a black stroke between them | **Two polygons and one line.** |
+| A ring with nothing in the middle | **One polygon with a hole.** |
 
-Transparency counts as one of the things a stroke can have on a side, so a black
-outline round a shape on a transparent background is a line: ink one side,
-nothing the other.
+**A skinny polygon wholly inside one other is closed over.** The smile was a hole
+in the face; with the smile drawn as a line, the hole is filled back in and the
+line drawn on top, the way the picture was drawn — a line down the middle of a
+band never covers its ragged edges exactly, and a hole left open would show
+through along them. One on a boundary between several things keeps the room it
+had, because there is no one of them it plainly belongs to.
+
+A thin region is only a line if its middle is a line: one that measures wider than
+a stroke down its centreline stays a polygon, and so does one whose lines would all
+be shorter than **Shortest line** — a dot or a dash rather than a mark.
 
 ## The one setting that decides what the picture is
 
@@ -55,11 +68,11 @@ The other settings are about where the boundaries are and how heavy the result i
 | Simplify to within | How far a boundary may move to lose a point. The main control over how heavy the result is. |
 | At most, per shape | A hard point budget, for when a tolerance alone will not promise one. |
 | Curved if bent by | How bent a run must be, relative to its length, to be a curve. |
-| Join shapes of the same color that touch | On by default: polygons sharing a side become one, and lines whose ends meet become one. Off leaves every area as convex pieces. |
+| Join shapes of the same color that touch | On by default: polygons of one color that meet become one, and lines whose ends meet become one. Off cuts every polygon into convex pieces, holes bridged. |
 | Join line ends within | How close two line ends of one color must be to join, in pixels. |
 | Nodes at least | The closest two nodes may be. Closer ones are merged, in every shape that shares them. |
 | Smallest polygon | A smaller polygon is folded into the neighbour it shares most outline with; one touching nothing is dropped. |
-| Shortest line | A stroke shorter than this is drawn as an area; a stub off a longer line is dropped. |
+| Shortest line | A skinny polygon whose lines would all be shorter stays a polygon; a stub off a longer line is dropped. |
 | Rounds of refinement | How many times to measure the result and do the worst part better. See below. |
 
 ## Boundaries first, and the fill between them
@@ -139,15 +152,15 @@ apart.
 
 ### A hole is a hole
 
-A shape with nothing in the middle of it has nothing in the middle of it.
+A shape with nothing in the middle of it has nothing in the middle of it, and a
+shape with something else in the middle has that something in the middle — not a
+second copy of itself underneath.
 
-Tracing an outline gives the boundary round the outside, and filling that gives a
-disc. For a black ring round a face that was *almost* right — the face is painted
-over the middle afterwards and only the rim shows — and for a ring with
-transparency in the middle it was plainly wrong: a washer came out as a coin. Now
-each hole is cut out with a **bridge**, a slit from the hole to the outside walked
-down one side and back up the other, so the ring stays one closed loop with a
-genuinely empty middle.
+Tracing a region gives the loop round its outside and a loop round each hole in
+it, and the polygon keeps them all: `points` is the outline and `holes` the loops
+inside it, filled **even-odd**. The hole is the same arc as the outline of what
+fills it, so the two meet exactly. A picture made before holes existed reads back
+unchanged: a polygon without `holes` has none.
 
 ### Nothing is drawn where the picture is not
 
@@ -156,21 +169,6 @@ wrong pixels**. A plain one-for-one count does not say it loudly enough: a bound
 spilling into the empty half of a picture is worth the same as a pixel a shade off,
 and it is spread thin along a boundary, so it vanishes into a block average. Counted
 properly, it is the first thing a round of refinement pulls back.
-
-### A piece thinner than a stroke is a stroke — if it covers the same ink
-
-A sliver of polygon is a mark with a width pretending to be an area: three or more
-anchors to say what two and a width say better, and miserable to grab hold of.
-Measured across its narrowest direction, which for a triangle is its shortest
-altitude.
-
-But a sliver is also what a convex cut leaves along any curve, and *that* kind has
-to stay a polygon — it is part of the partition, and a stroke is not, so swapping
-one in opens a seam down both of its long sides. On a finely traced boundary there
-are dozens: measured, it took a drawing from 825 wrong pixels to 1034. So the swap
-is measured rather than assumed. A real thin limb is covered better by a stroke
-than by the splinters it was cut into; a splinter of a curve is not, and keeps its
-place.
 
 ## Rounds of refinement: measure, then fix the worst part
 
@@ -275,7 +273,7 @@ Three things had to be right for that to work at all:
 **Regions.** Boundaries, then the fill between them, then the boundary pixels
 handed back, then the leftovers — as above.
 
-**Convex pieces**, all on *indices* rather than on coordinates. A shape with a
+**Convex pieces**, only when joining is off, all on *indices* rather than on coordinates. A shape with a
 hole bridged into it holds the same point twice, and every test — is this corner
 one of the ear's own, do these two pieces share this edge — comes out wrong when
 asked by position: the other copy answers yes, and clipping stalls with a sixth of
@@ -330,17 +328,14 @@ worse to edit and worse to read.
 
 ## Shapes of one color that touch are one shape
 
-The convex cut is a tool, not the answer. It is how the decomposition finds the
-parts of a region too thin to be an area — a question about a *piece*, which a
-whole region cannot be asked — and once that is settled, the pieces that are left
-are put back together. A person looking at a red cheek sees one shape, not seven
-triangles, and a drawing that disagrees is a drawing nobody wants to edit.
-
-Two rules, applied last, after the slivers have become strokes:
+Two regions can come out exactly the same color and touching — a flat area split
+by a faint edge — and a stroke is traced as the runs of its middle between forks.
+Both are right about the picture and wrong about the drawing, so once the picture
+is in shapes, neighbours of the same color are put back together:
 
 | | Joined when | Into |
 | --- | --- | --- |
-| **Polygons** | They share a side and are exactly the same color. | One polygon — unless it would have to touch itself or go round a hole. |
+| **Polygons** | They meet — side by side, or one filling a hole in the other — and are exactly the same color. | One polygon, with the holes of both — unless it would touch itself or come apart in two. |
 | **Lines** | An end of one is within **Join line ends within** of an end of the other, and they are exactly the same color. | One line, with a single point halfway between the two ends, so the gap between them is drawn. |
 
 *Exactly the same color* means the same hex. Two shapes a shade apart are two
@@ -349,15 +344,10 @@ things in the picture, and joining them would paint one of them the wrong color.
 **A shared side is found on exact coordinates.** Neighbours hold literally the
 same points along the boundary between them — that is what makes them fit, above —
 so a side one polygon walks from *a* to *b* is walked from *b* to *a* by its
-neighbour, and nothing has to be matched approximately. The union of two polygons
-is every side of both, less the sides they share, walked round; it is accepted
-only when that walk is one loop that visits no point twice.
-
-**A polygon cannot have a hole**, because a polygon is one loop of points. A ring
-cut into pieces is therefore joined until the next join would close it, and stays
-two polygons that between them leave the middle empty. Bridging the hole with a
-slit of zero width, as the convex cut does, would make it one polygon on paper and
-draw a hairline across the hole in every renderer that strokes its outline.
+neighbour. The union of two polygons is every side of every loop of both, outlines
+wound one way and holes the other, less the sides they share, walked back into
+loops: the one wound like an outline is the outline, the rest are holes. So a
+shape that exactly fills a hole closes it, and one that fills part of it shrinks it.
 
 **Where three line ends meet**, only two can join, and the two joined are the two
 that carry on straightest — the angle between one line leaving and the other
@@ -365,16 +355,11 @@ arriving. That is how a fork reads as a line with a branch rather than as three
 stubs. Each end is used once, and joining never closes a chain on itself: closing
 a loop is a different decision from joining two lines.
 
-Measured on a cartoon drawing with a head, a body, eyes and outlines, joining took
-**93 polygons to 13** at 256px and **150 to 17** at 800px, and the points in the
-drawing from 450 to 288 and 704 to 438 — with the pixels drawn wrong unchanged
-(1,060 to 1,058; 3,050 to 3,050). It covers exactly what the pieces covered,
-because it only ever removes a side two pieces had in common.
-
 ### Convex, when you need it
 
-Turn **Join shapes of the same color that touch** off and every area comes back
-as the convex pieces it was cut into. A convex polygon is trivially triangulated,
+Turn **Join shapes of the same color that touch** off and every polygon is cut
+into convex pieces instead, each hole bridged to the outside first so the pieces
+leave it empty. A convex polygon is trivially triangulated,
 filled, offset and point-tested, which some consumers want. Nothing in the studio
 needs it: hit-testing is even-odd, which works for any simple polygon, and the
 editor's cut handles concave shapes (below).
@@ -391,23 +376,23 @@ exactly. Shortest edges first, and only while the merged node stays within the
 distance of every node it took in, so a curve drawn as a run of one-pixel steps is
 thinned out rather than collapsed into a point. A node where three or more
 outlines meet stays put and the other comes to it. It runs on the finished shapes
-— merging before the convex cut moved the outlines that decide which thin pieces
-are strokes, and cost twice the accuracy for the same saving.
+— merging earlier moved the outlines that decide which regions are skinny, and
+cost twice the accuracy for the same saving.
 
 **Smallest polygon** (default 6 px²). A smaller polygon is folded into the
 neighbour it shares the most outline with, whatever that neighbour's color — it
-becomes part of it, so there is no hole where it was. One that touches no other
+becomes part of it, so there is no hole where it was; one sitting in a hole of a
+bigger polygon closes that hole. Its size is what it covers, holes taken off. One that touches no other
 polygon is dropped. Joining runs again afterwards, because folding a crumb away can
 leave two shapes of one color touching where it used to part them. This is not the
 same as **Drop regions under**, which works on pixels before anything is traced;
 this works on the shapes that came out.
 
-**Shortest line** (default 4 px, end to end). A thin piece of an area only becomes
-a stroke if the stroke would be this long. A stroke region's runs are joined first,
-so a long line is not dropped for arriving in pieces; then a region whose lines are
-all still too short is a dash or a dot, and is drawn as the small area it is so its
-ink is kept, and stubs shorter than this off a longer line — the spurs thinning
-leaves at a corner — are dropped.
+**Shortest line** (default 4 px, end to end). A skinny polygon's runs are joined
+first, so a long line is not judged short for arriving in pieces; then one whose
+lines are all still too short is a dash or a dot, and stays the polygon it was
+drawn as so its ink is kept, and stubs shorter than this off a longer line — the
+spurs thinning leaves at a corner — are dropped.
 
 Measured on the same four pictures, the defaults cost the face and the cartoon
 about 2% more pixels off for about 5% fewer points, and change a photograph
@@ -443,7 +428,7 @@ finished drawing against the picture converted every source pixel again on every
 round. The curve is now looked up — it has 256 possible answers — and the source
 is converted once per decomposition and shared.
 
-**Cutting regions into convex pieces was the cliff on photographs.** Ear clipping
+**Cutting regions into convex pieces was the cliff on photographs** (every region was cut then; now only with joining off). Ear clipping
 tested every corner against every other corner and every edge, on every round:
 cubic in the length of the outline, and a photographed region has an outline
 hundreds of points long with holes bridged into it. 96% of the 200-pixel photo's

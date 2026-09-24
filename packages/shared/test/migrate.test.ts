@@ -223,11 +223,11 @@ test('a filter saved in remove mode opens as keep, without the settings that wen
     options: { mode: 'remove', tolerance: 20, softness: 6, hardAlpha: true, only: ['#ff0000'] },
   } as unknown as FlowData;
   const migrated = normaliseFlowData(old) as PaletteFilterFlowData;
-  assert.deepEqual(migrated.options, { mode: 'keep', tolerance: 20, only: ['#ff0000'] });
+  assert.deepEqual(migrated.options, { mode: 'keep', tolerance: 20, only: ['#ff0000'], minChunk: 0 });
 });
 
 test('a filter already on the new modes is left as it is', () => {
-  const data = { ...emptyPaletteFilterFlowData(), options: { mode: 'snap' as const, tolerance: 3, only: [] } };
+  const data = { ...emptyPaletteFilterFlowData(), options: { mode: 'snap' as const, tolerance: 3, only: [], minChunk: 4 } };
   assert.equal(normaliseFlowData(data), data, 'nothing was missing, so nothing was rebuilt');
 });
 

@@ -576,6 +576,15 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'To drop a color rather than find it, keep the others: an inverted answer is the same question asked about the rest of the palette.',
     ],
   },
+  'paletteFilter.minChunk': {
+    what: 'In snap mode, the smallest patch of one palette color allowed, in pixels. A smaller patch takes the color of a patch it touches.',
+    examples: [
+      '0 — every pixel keeps the color it snapped to, stray dots and all.',
+      '4 to 10 — clears single-pixel dots and the flecks snapping leaves along soft edges.',
+      '50 and up — only real areas of color survive; small details go too.',
+      'Pixels touching at a corner are one patch, so a thin diagonal line is not broken into specks. Of the colors a small patch touches, it takes the one closest to what its own pixels were. Transparent counts as a color, so pinholes close and specks in empty space vanish.',
+    ],
+  },
   'paletteFilter.tolerance': {
     what: 'How close a pixel has to be to a palette color to count as that color, opacity included. Same OKLab scale the palette’s own minimum distance uses.',
     examples: [
@@ -585,12 +594,183 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     ],
   },
 
+  /* Timeline --------------------------------------------------------- */
+
+  'timeline.span': {
+    what: 'The stretch of time the timeline covers, in UTC. Events outside it cannot be seen on it.',
+    examples: [
+      'From 1 January 2000 to today — the default, and today moves on by itself.',
+      'Untick “today” to fix an end: a story set in 1850–1870 wants a span of those years.',
+      'UTC so the line never shifts an hour when the project is opened somewhere else.',
+    ],
+  },
+  'timeline.time': {
+    what: 'When, as much as is known: a year, a month, a day, down to the second. Leave a field empty when it is unknown.',
+    examples: [
+      '“2004” — the whole year; drawn as a bar a year long, faded, because it could be any of it.',
+      '“March 2004”, “15 Mar 2004”, “15 Mar 2004 14:30” — narrower and narrower.',
+      '“c. 1999” or “1999?” — the year itself is a guess.',
+      '“500 BC” works too.',
+    ],
+  },
+  'timeline.duration': {
+    what: 'How long an event lasts: from its start to its end.',
+    examples: [
+      'Set the end directly, or give a length and press “Set the end”.',
+      'Months and years are calendar ones: a month after 31 January is early March.',
+      'With vague ends the line shows a solid middle — when it was certainly happening — and faded edges.',
+    ],
+  },
+  'timeline.place': {
+    what: 'Where, broad to narrow, separated by slashes. Stop where knowledge runs out.',
+    examples: [
+      '“Europe / France / Paris / Rue de Rivoli” — exact.',
+      '“Europe / France” — somewhere in France.',
+      'Tick “Near” when the narrowest part is itself a guess.',
+      'With a world map wired in, pick one of its named locations to link the two.',
+    ],
+  },
+  'timeline.color': {
+    what: 'An event’s own color, over whatever the color setting gives it.',
+    examples: ['For the one event that has to stand out whatever the timeline is colored by.'],
+  },
+  'timeline.filter': {
+    what: 'Show only events containing every word typed — in the title, details, time note, places, people, tags or dialog.',
+    examples: [
+      'Pick characters, places or tags below to narrow further: any of the ones picked in a group, and every group.',
+      'Filtering only changes what is shown; every event is still written out when generating.',
+    ],
+  },
+  'timeline.colorBy': {
+    what: 'What an event’s color means.',
+    examples: [
+      'By character — each person’s thread in one color (the event’s first character).',
+      'By place — at the level of the place path chosen below.',
+      'By tag — the event’s first tag.',
+      'By keyword — the first of your keywords the event contains.',
+      'Click a swatch in the legend to change the color of that value.',
+    ],
+  },
+  'timeline.placeLevel': {
+    what: 'How far down the place path to color by.',
+    examples: ['1 — continents or countries.', '3 — cities: every city its own color.'],
+  },
+
+  /* World map -------------------------------------------------------- */
+
+  'map.seed': {
+    what: 'The world’s seed. The same seed and settings always make the same world, in the editor and on the server alike.',
+    examples: ['Any word or number. 🎲 picks a new one — a new world.', 'Regions generated apart each have a seed of their own.'],
+  },
+  'map.latitude': {
+    what: 'The latitude at the top and bottom edges of the map. The climate hangs on it: colder towards the poles.',
+    examples: ['70 to −20 — the default: arctic at the top, tropics along the bottom.', '10 to −10 — all tropical.', '80 to 50 — a cold world.'],
+  },
+  'map.land': {
+    what: 'How much of the map is land. Sea level is set to make it so, whatever the seed gives.',
+    examples: ['0.3 — oceans with continents in them, like Earth.', '0.7 — land with seas in it.', '1 — no sea at all.'],
+  },
+  'map.continentSize': {
+    what: 'How big a landmass typically is, in km.',
+    examples: ['300 — scattered islands.', '1600 — the default: a few continents.', '4000 — one supercontinent.'],
+  },
+  'map.roughness': {
+    what: 'How ragged the coasts and how broken the ground.',
+    examples: ['0 — smooth coasts, rolling land.', '1 — fjords, islands and craggy country.'],
+  },
+  'map.mountains': {
+    what: 'How mountainous the land is: the height and reach of its ranges.',
+    examples: ['0 — only low hills.', '0.5 — the default.', '1 — great ranges with snow on them.'],
+  },
+  'map.temperature': {
+    what: 'The whole world colder or hotter, by up to 15 °C either way, before latitude and height.',
+    examples: ['−1 — an ice age: tundra and glaciers creep south.', '+1 — a hothouse: jungle and desert spread.'],
+  },
+  'map.moisture': {
+    what: 'The whole world drier or wetter. What grows follows temperature and moisture together.',
+    examples: ['−1 — deserts and steppe.', '+1 — forests, jungle and swamp.'],
+  },
+  'map.density': {
+    what: 'How many cities, towns and villages generation places. They go to the best ground first: coasts, rivers, flat and mild land.',
+    examples: ['0 — a few cities, a scatter of towns.', '1 — a crowded world.'],
+  },
+  'map.paint': {
+    what: 'The kind of ground the brush puts down. Painted ground stays whatever the settings do.',
+    examples: [
+      'Painting ground over the sea makes land; painting water over land makes sea.',
+      '“Plain land” raises land and lets the climate decide what grows on it.',
+      '“Erase paint” gives back what was generated.',
+    ],
+  },
+  'map.feather': {
+    what: 'How far in from its edges a generated region blends from the world’s terrain to its own, in km.',
+    examples: ['0 — a hard edge, like a cliff where the rectangle is.', '60 — the default: a natural blend.'],
+  },
+  'map.name': {
+    what: 'What this place is called. Named places are listed in the map’s locations, with the named places they lie within — which a timeline wired to the map offers as places.',
+    examples: ['Names show on the map when the place is big enough on screen for its kind: a city from far off, a street only close in.'],
+  },
+  'map.size': {
+    what: 'How big it is, in metres: across for a point or an area, long for a line. It decides at what zoom it is drawn and named.',
+    examples: ['A city is about 18 km, a village about 1 km, a jetty 60 m, a house 12 m.', 'Drag the handle on the map to resize it there.'],
+  },
+
+  /* Rig preview ------------------------------------------------------ */
+
+  'rigPreview.gravity': {
+    what: 'How hard the skeleton is pulled down, in g — 1 is what a character this tall would feel on Earth.',
+    examples: [
+      '0 — nothing pulls; a joint only moves when it is pushed or dragged.',
+      '1 — a neck with low stiffness nods under the weight of the head; a floppy tail hangs.',
+      '2 to 3 — a hard test of whether the stiffnesses hold a pose up.',
+    ],
+  },
+  'rigPreview.wind': {
+    what: 'A sideways push on every part of the skeleton, in g like gravity. Negative blows to the left.',
+    examples: [
+      'Shows which joints give and which hold: a loose chain streams out, a stiff limb barely moves.',
+      'With gusts, it comes and goes, which is where the damping shows.',
+    ],
+  },
+  'rigPreview.gust': {
+    what: 'How much the wind comes and goes.',
+    examples: ['0 — a steady push the rig settles against.', '1 — it rises and falls by most of its strength.'],
+  },
+  'rigPreview.damping': {
+    what: 'How much the air slows everything down.',
+    examples: [
+      '0 — a swing goes on and on, which shows the springs on their own.',
+      '0.3 — the default: a shove settles in a second or two.',
+      '1 — moving through water.',
+    ],
+  },
+  'rigPreview.motion': {
+    what: 'How the root of the skeleton is carried about, so the rest of it has to follow.',
+    examples: [
+      'Sway — side to side: loose parts lag behind and swing past.',
+      'Bounce — up and down, like walking: shows how springy the stretch is.',
+      'Carry round in a circle — both at once.',
+      'The root can also be dragged by hand: it is the square.',
+    ],
+  },
+  'rigPreview.motionSize': {
+    what: 'How far the root is carried, as a share of the skeleton’s height.',
+    examples: ['0.1 — a small shift.', '0.4 — thrown about.'],
+  },
+  'rigPreview.motionSpeed': {
+    what: 'How many times a second the movement repeats.',
+    examples: [
+      'Slower than a joint springs back — the joint keeps up.',
+      'Faster — it lags behind and whips, which is where floppiness and taper show most.',
+    ],
+  },
+
   /* Polygon decomposition ------------------------------------------- */
 
   'vectorize.lineWidth': {
     what: 'The widest a stroke can be and still be treated as a drawn line rather than an area.',
     examples: [
-      'This is the setting that decides what the picture is. Below it a thin shape is a mark with a middle; above it the same shape is a long thin area with an inside.',
+      'This is the setting that decides what the picture is. Every region is drawn as a polygon first; then any no wider than this, and at least twice as long as it is wide, is drawn again as a line down its middle.',
       '2 to 4 — clean line art drawn with a thin pen.',
       '8 and up — a brushy drawing, or a scan where the ink has spread.',
       'There is no right answer in general: it depends how the picture was drawn, so turn it and watch the result.',
@@ -712,16 +892,15 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     examples: [
       '0 — every line is kept.',
       '4 — the default: stubs a few pixels long go.',
-      '10 or more — only proper strokes are lines; dashes and dots are drawn as the small areas they are.',
+      '10 or more — only proper strokes are lines; dashes and dots stay the small polygons they are.',
     ],
-    note: 'A stroke whose lines are all shorter than this is drawn as an area, so its ink is kept; a short stub off a longer line is dropped. A thin piece of an area only becomes a stroke if the stroke would be at least this long.',
+    note: 'A skinny polygon whose lines would all be shorter than this stays a polygon, so its ink is kept; a short stub off a longer line is dropped.',
   },
   'vectorize.joinShapes': {
     what: 'Whether shapes of exactly the same color that touch are put back together once the picture has been cut up.',
     examples: [
-      'On — polygons that share a side become one polygon, and lines whose ends meet become one line. A cheek is one shape rather than seven triangles.',
-      'Off — every area is the convex pieces it was cut into, for a consumer that needs every polygon convex.',
-      'A shape with a hole in it stays two polygons even when on: a polygon is one loop of points, and cannot go round a hole.',
+      'On — polygons of one color that meet become one polygon (side by side, or one filling a hole in the other), and lines whose ends meet become one line.',
+      'Off — every polygon is cut into convex pieces, its holes bridged, for a consumer that needs every polygon convex.',
     ],
     note: 'Exactly the same color means the same hex. Two shapes a shade apart are two things in the picture.',
   },

@@ -262,6 +262,17 @@ export function PaletteFilterFlowEditor({
               Nearness counts opacity, so a transparent pixel snaps to the palette&rsquo;s transparent entry
               rather than to black.
             </p>
+            <Slider
+              label="Smallest chunk"
+              value={data.options.minChunk ?? 0}
+              min={0}
+              max={200}
+              step={1}
+              tip="paletteFilter.minChunk"
+              format={(value) => (value <= 1 ? 'any size' : `${value} px`)}
+              hint="A patch of one color smaller than this takes the closest color it touches — stray dots and specks go."
+              onChange={(minChunk) => patch({ options: { ...data.options, minChunk } })}
+            />
           </div>
         ) : (
           <div className="vt-section">

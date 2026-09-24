@@ -1,5 +1,5 @@
 import type { RegionLoops } from './arcs';
-import { unionOfTwo } from './join';
+import { unionOfRegions, withRings, type Rings } from './join';
 import type { VectorPoint, VectorPolygon, VectorShape } from './vector';
 
 /**
@@ -194,7 +194,7 @@ export function spaceShapes(
   if (!(gap > 0)) return { shapes, merged: 0 };
   const loops = new Map<number, RegionLoops>();
   shapes.forEach((shape, order) => {
-    if (shape.kind === 'polygon') loops.set(order, { outer: shape.points, holes: [] });
+    if (shape.kind === 'polygon') loops.set(order, { outer: shape.points, holes: shape.holes ?? [] });
   });
   const spaced = spaceNodes(loops, gap);
   let merged = spaced.merged;
@@ -203,7 +203,7 @@ export function spaceShapes(
     if (shape.kind === 'polygon') {
       const loop = spaced.loops.get(order);
       if (!loop) return;
-      out.push(loop.outer === shape.points ? shape : { ...shape, points: loop.outer });
+      out.push(loop === loops.get(order) ? shape : withRings(shape, loop));
       return;
     }
     const points = spacePath(shape.points, gap);
@@ -224,14 +224,15 @@ export function spaceShapes(
  *
  * Into the neighbour they share the most outline with, whatever its color, which
  * takes the small one's place in the picture — the shapes still tile it, with no
- * hole where the small one was. Smallest first, so a crumb between two others
- * goes before either of them is judged. A small polygon that touches no other
- * polygon at all is dropped: there is nothing to fold it into, and a speck on its
- * own is what this setting is for.
+ * hole where the small one was. A small polygon sitting in a hole of a bigger one
+ * closes that hole. Smallest first, so a crumb between two others goes before
+ * either of them is judged. A small polygon that touches no other polygon at all
+ * is dropped: there is nothing to fold it into, and a speck on its own is what
+ * this setting is for.
  *
- * A fold that would leave the neighbour touching itself or wrapped round a hole
- * is not made (see `unionOfTwo`), and the next neighbour is tried; one that fits
- * none is left as it is.
+ * A fold that would leave the neighbour touching itself or in two pieces is not
+ * made (see `unionOfRegions`), and the next neighbour is tried; one that fits
+ * none is left as it is. Size is the area actually covered: outline less holes.
  */
 export function absorbSmallPolygons(
   shapes: VectorShape[],
@@ -241,56 +242,72 @@ export function absorbSmallPolygons(
 
   interface Live {
     shape: VectorPolygon;
-    points: VectorPoint[];
+    rings: Rings;
     order: number;
     alive: boolean;
+    changed: boolean;
   }
+  const wound = (points: VectorPoint[], sign: 1 | -1) => {
+    const clean = dedupe(points);
+    return area(clean) * sign >= 0 ? clean : [...clean].reverse();
+  };
+  const covered = (rings: Rings) =>
+    Math.abs(area(rings.outer)) - rings.holes.reduce((sum, hole) => sum + Math.abs(area(hole)), 0);
   const live: Live[] = [];
   shapes.forEach((shape, order) => {
     if (shape.kind !== 'polygon') return;
-    const points = dedupe(shape.points);
-    live.push({ shape, points: area(points) < 0 ? [...points].reverse() : points, order, alive: true });
+    const rings = { outer: wound(shape.points, 1), holes: (shape.holes ?? []).map((hole) => wound(hole, -1)) };
+    live.push({ shape, rings, order, alive: true, changed: false });
   });
 
   const owner = new Map<string, Live>();
-  const sides = (entry: Live) =>
-    entry.points.map((point, at) => `${key(point)}>${key(entry.points[(at + 1) % entry.points.length]!)}`);
-  for (const entry of live) for (const side of sides(entry)) owner.set(side, entry);
+  const sides = (rings: Rings) =>
+    [rings.outer, ...rings.holes].flatMap((ring) =>
+      ring.map((point, at) => [point, ring[(at + 1) % ring.length]!] as const),
+    );
+  const name = (from: VectorPoint, to: VectorPoint) => `${key(from)}>${key(to)}`;
+  const claim = (entry: Live) => {
+    for (const [from, to] of sides(entry.rings)) owner.set(name(from, to), entry);
+  };
+  const release = (entry: Live) => {
+    for (const [from, to] of sides(entry.rings)) if (owner.get(name(from, to)) === entry) owner.delete(name(from, to));
+  };
+  for (const entry of live) claim(entry);
 
   let absorbed = 0;
   let dropped = 0;
   const small = live
-    .filter((entry) => Math.abs(area(entry.points)) < minArea)
-    .sort((one, two) => Math.abs(area(one.points)) - Math.abs(area(two.points)) || one.order - two.order);
+    .filter((entry) => covered(entry.rings) < minArea)
+    .sort((one, two) => covered(one.rings) - covered(two.rings) || one.order - two.order);
 
   for (const entry of small) {
-    if (!entry.alive || Math.abs(area(entry.points)) >= minArea) continue;
+    if (!entry.alive || covered(entry.rings) >= minArea) continue;
 
     // Who it shares outline with, and how much.
     const shared = new Map<Live, number>();
-    entry.points.forEach((from, at) => {
-      const to = entry.points[(at + 1) % entry.points.length]!;
-      const other = owner.get(`${key(to)}>${key(from)}`);
-      if (!other || other === entry || !other.alive) return;
+    for (const [from, to] of sides(entry.rings)) {
+      const other = owner.get(name(to, from));
+      if (!other || other === entry || !other.alive) continue;
       shared.set(other, (shared.get(other) ?? 0) + Math.hypot(to.x - from.x, to.y - from.y));
-    });
+    }
 
     if (shared.size === 0) {
       entry.alive = false;
-      for (const side of sides(entry)) if (owner.get(side) === entry) owner.delete(side);
+      release(entry);
       dropped += 1;
       continue;
     }
 
     const ranked = [...shared].sort((one, two) => two[1] - one[1] || one[0].order - two[0].order);
     for (const [host] of ranked) {
-      const points = unionOfTwo(host.points, entry.points);
-      if (!points) continue;
-      for (const side of sides(host)) if (owner.get(side) === host) owner.delete(side);
-      for (const side of sides(entry)) if (owner.get(side) === entry) owner.delete(side);
-      host.points = points;
+      const rings = unionOfRegions(host.rings, entry.rings);
+      if (!rings) continue;
+      release(host);
+      release(entry);
+      host.rings = rings;
+      host.changed = true;
       entry.alive = false;
-      for (const side of sides(host)) owner.set(side, host);
+      claim(host);
       absorbed += 1;
       break;
     }
@@ -302,7 +319,7 @@ export function absorbSmallPolygons(
   shapes.forEach((shape, order) => {
     const entry = byOrder.get(order);
     if (!entry) out.push(shape);
-    else if (entry.alive) out.push(entry.points === entry.shape.points ? entry.shape : { ...entry.shape, points: entry.points });
+    else if (entry.alive) out.push(entry.changed ? withRings(entry.shape, entry.rings) : entry.shape);
   });
   return { shapes: out, absorbed, dropped };
 }

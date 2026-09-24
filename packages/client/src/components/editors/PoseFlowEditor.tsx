@@ -312,7 +312,7 @@ export function PoseFlowEditor({ project, node }: { project: Project; node: Flow
                 >
                   {drawing.shapes.map((shape) =>
                     shape.kind === 'polygon' ? (
-                      <path key={shape.id} d={shapePath(shape)} fill={shape.color} />
+                      <path key={shape.id} d={shapePath(shape)} fill={shape.color} fillRule="evenodd" />
                     ) : (
                       <path
                         key={shape.id}

@@ -25,6 +25,7 @@ import {
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
+import { Stage } from '../common/Stage';
 import { Field } from '../common/Field';
 import { Slider } from '../common/Slider';
 import { formatWhen } from '../common/format';
@@ -231,9 +232,16 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
           <h3>The image</h3>
           {artifact ? (
             <>
-              <div className="vt-palette-source">
-                <img src={api.artifactUrl(project.id, imagePath)} alt="" />
-              </div>
+              {/* Zoomable, and able to fill the screen: a palette is read off the
+                  picture's smallest details as much as its big areas, and those
+                  are what a sidebar thumbnail cannot show. */}
+              <Stage zoomable title="Source" className="vt-palette-source-stage">
+                {({ full }) => (
+                  <div className={`vt-palette-source${full ? ' is-full' : ''}`}>
+                    <img src={api.artifactUrl(project.id, imagePath)} alt="The image the palette is read from" />
+                  </div>
+                )}
+              </Stage>
               <dl className="vt-kv">
                 <dt>From</dt>
                 <dd>{imageInput?.sourceNode.name}</dd>

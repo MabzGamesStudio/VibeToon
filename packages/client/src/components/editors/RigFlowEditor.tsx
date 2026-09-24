@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_RIG_OPTIONS,
   RIG_KINDS,
@@ -12,6 +12,7 @@ import {
   emptyRigFlowData,
   inputsForPort,
   mirrorIdOf,
+  moveRigJoint,
   resetBone,
   restPose,
   rigProblems,
@@ -31,6 +32,7 @@ import { Slider } from '../common/Slider';
 import { onScreen } from '../common/handles';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
+import { RigPreview } from './RigPreview';
 
 /** Padding round the skeleton in the drawing, in rig units. */
 const PAD = 12;
@@ -48,6 +50,11 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
   const data = node.data as RigFlowData;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showReference, setShowReference] = useState(true);
+  /** Editing the skeleton, or watching it move under forces. */
+  const [mode, setMode] = useState<'edit' | 'preview'>('edit');
+  /** The joint being dragged: the far end of this bone. */
+  const [dragging, setDragging] = useState<string | null>(null);
+  const svg = useRef<SVGSVGElement | null>(null);
 
   const patch = useCallback((next: RigFlowData) => setFlowData(node.id, next), [node.id, setFlowData]);
   const options = { ...DEFAULT_RIG_OPTIONS, ...data.options };
@@ -83,6 +90,37 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
       height: Math.max(1, Math.max(...ys) - minY + PAD),
     };
   }, [posed]);
+
+  /*
+   * Held still while a joint is dragged. The drawing fits itself to the
+   * skeleton, and a skeleton that changes shape under the pointer would refit
+   * every frame — the joint would slide away from the cursor dragging it.
+   */
+  const [heldBox, setHeldBox] = useState<typeof box | null>(null);
+  const view = heldBox ?? box;
+
+  /** Where a pointer is, in rig units — through the stage's zoom and the fit. */
+  const rigPoint = (event: React.PointerEvent): { x: number; y: number } | null => {
+    const surface = svg.current;
+    const matrix = surface?.getScreenCTM();
+    if (!surface || !matrix) return null;
+    const point = surface.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const local = point.matrixTransform(matrix.inverse());
+    return { x: local.x, y: local.y };
+  };
+
+  const onDragMove = (event: React.PointerEvent) => {
+    if (!dragging) return;
+    const at = rigPoint(event);
+    if (at) patch(moveRigJoint(data, dragging, at));
+  };
+
+  const onDragEnd = () => {
+    setDragging(null);
+    setHeldBox(null);
+  };
 
   /**
    * The selected joint's range, as a wedge at the joint.
@@ -262,14 +300,32 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
       </aside>
 
       <div className="vt-editor-main">
+        {mode === 'preview' ? (
+          <RigPreview
+            data={data}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            tools={<ModeSwitch mode={mode} onChange={setMode} />}
+          />
+        ) : (
         <Stage
           zoomable
           title={selected ? selected.name : 'The skeleton'}
           tools={
             <>
               <span className="vt-faint" style={{ fontSize: 11 }}>
-                {selected ? 'Click a joint to edit it' : 'Click a bone to edit its limits'}
+                {selected ? 'Drag a joint to move it' : 'Click a bone to edit its limits, drag a joint to move it'}
               </span>
+              <label className="vt-row vt-faint" style={{ gap: 4, fontSize: 11 }} title="Dragging a joint moves its twin on the other side the matching way">
+                <input
+                  type="checkbox"
+                  style={{ width: 'auto' }}
+                  checked={options.mirrorMoves}
+                  aria-label="Move the matching joint on the other side too"
+                  onChange={(event) => patch({ ...data, options: { ...options, mirrorMoves: event.target.checked } })}
+                />
+                Symmetric moves
+              </label>
               {design ? (
                 <button
                   type="button"
@@ -279,6 +335,7 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
                   Reference
                 </button>
               ) : null}
+              <ModeSwitch mode={mode} onChange={setMode} />
             </>
           }
         >
@@ -290,8 +347,12 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
               <img className="vt-rig-reference" src={api.artifactUrl(project.id, designPath)} alt="" />
             ) : null}
             <svg
-              className="vt-rig"
-              viewBox={`${box.minX} ${box.minY} ${box.width} ${box.height}`}
+              ref={svg}
+              className={`vt-rig${dragging ? ' is-dragging' : ''}`}
+              viewBox={`${view.minX} ${view.minY} ${view.width} ${view.height}`}
+              onPointerMove={onDragMove}
+              onPointerUp={onDragEnd}
+              onPointerCancel={onDragEnd}
               role="group"
               aria-label={`${RIG_KIND_LABEL[data.kind]} skeleton, ${summary.bones} bones`}
             >
@@ -341,11 +402,45 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
                   </g>
                 );
               })}
+
+              {/* The joints to drag, over every bone: drawn with their own bones,
+                  the next bone's click target — which starts at the same joint —
+                  was on top of them and took the press. Every joint is some bone's
+                  far end, so this is every joint and every tip. */}
+              {data.bones.map((bone) => {
+                const place = posed.get(bone.id);
+                if (!place) return null;
+                return (
+                  <circle
+                    key={`handle-${bone.id}`}
+                    className={`vt-rig-handle${dragging === bone.id ? ' is-held' : ''}${
+                      dragging && dragging !== bone.id && mirrorIdOf(dragging) === bone.id && options.mirrorMoves
+                        ? ' is-twin'
+                        : ''
+                    }`}
+                    cx={place.to.x}
+                    cy={place.to.y}
+                    r={stroke * 3.2}
+                    strokeWidth={stroke * 0.8}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0 || event.shiftKey) return;
+                      event.stopPropagation();
+                      event.currentTarget.ownerSVGElement?.setPointerCapture(event.pointerId);
+                      setHeldBox(box);
+                      setDragging(bone.id);
+                      setSelectedId(bone.id);
+                    }}
+                  >
+                    <title>{`Drag to move the end of ${bone.name}`}</title>
+                  </circle>
+                );
+              })}
             </svg>
           </div>
           );
           }}
         </Stage>
+        )}
 
         {selected ? (
           <div className="vt-section">
@@ -508,5 +603,35 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
         )}
       </div>
     </EditorShell>
+  );
+}
+
+/** Editing the skeleton, or watching it move. */
+function ModeSwitch({
+  mode,
+  onChange,
+}: {
+  mode: 'edit' | 'preview';
+  onChange(mode: 'edit' | 'preview'): void;
+}): JSX.Element {
+  return (
+    <span className="vt-segmented" role="group" aria-label="Mode">
+      <button
+        type="button"
+        className={`vt-btn is-small${mode === 'edit' ? ' is-active' : ''}`}
+        aria-pressed={mode === 'edit'}
+        onClick={() => onChange('edit')}
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        className={`vt-btn is-small${mode === 'preview' ? ' is-active' : ''}`}
+        aria-pressed={mode === 'preview'}
+        onClick={() => onChange('preview')}
+      >
+        ▶ Preview
+      </button>
+    </span>
   );
 }

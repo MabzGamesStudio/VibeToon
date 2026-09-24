@@ -1,3 +1,11 @@
+import { DEFAULT_FEATURES, DEFAULT_LAYERS, DEFAULT_TERRAIN, defaultMapSettings } from '../flows/worldMap';
+import {
+  DEFAULT_COLOR_SETTING,
+  DEFAULT_SPAN,
+  EMPTY_FILTER,
+  emptyTimelineFlowData,
+  eventsFromBrief,
+} from '../flows/timeline';
 import { emptyAnimaticData, parseDuration } from '../flows/animatic';
 import { emptyDesignData } from '../flows/design';
 import { DEFAULT_DICTIONARY_OPTIONS } from '../flows/dictionary';
@@ -55,6 +63,13 @@ export function migrateFlowData(kind: string, data: FlowData): FlowData {
         };
       }
       break;
+    case 'timeline':
+      if (isBrief(data)) {
+        // Each `when — what` line of the old brief becomes an event.
+        const events = eventsFromBrief(data.fields);
+        return { ...emptyTimelineFlowData(), events, seq: events.length };
+      }
+      break;
     case 'brief':
       // Going the other way keeps the fields and drops what has no home.
       if ('fields' in data) return { editor: 'brief', fields: { ...data.fields } };
@@ -97,6 +112,57 @@ export function normaliseFlowData(data: FlowData): FlowData {
       const meanings = normaliseMeanings(data.meanings);
       if (!extract.filled && !derive.filled && !meanings.changed) return data;
       return { ...data, extract: extract.value, derive: derive.value, meanings: meanings.meanings };
+    }
+    case 'timeline': {
+      /*
+       * Everything the timeline editor walks, present: a flow stored before a
+       * setting existed would otherwise hand the editor `undefined` to filter by
+       * or color with, and take it down with a blank screen.
+       */
+      const filter = fill(data.filter, EMPTY_FILTER);
+      const color = fill(data.color, DEFAULT_COLOR_SETTING);
+      const span = fill(data.span, DEFAULT_SPAN);
+      const events = Array.isArray(data.events) ? data.events : [];
+      const brokenEvents = events.some((event) => !Array.isArray(event.places) || !Array.isArray(event.characters) || !Array.isArray(event.tags) || !Array.isArray(event.dialog) || !event.start);
+      if (!filter.filled && !color.filled && !span.filled && events === data.events && !brokenEvents && typeof data.seq === 'number') return data;
+      return {
+        ...data,
+        filter: filter.value,
+        color: { ...color.value, keywords: color.value.keywords ?? [], chosen: color.value.chosen ?? {} },
+        span: span.value,
+        seq: typeof data.seq === 'number' ? data.seq : events.length,
+        events: events.map((event) => ({
+          ...event,
+          start: event.start ?? {},
+          places: Array.isArray(event.places) ? event.places : [],
+          characters: Array.isArray(event.characters) ? event.characters : [],
+          tags: Array.isArray(event.tags) ? event.tags : [],
+          dialog: Array.isArray(event.dialog) ? event.dialog : [],
+          details: event.details ?? '',
+          title: event.title ?? 'Event',
+        })),
+      };
+    }
+    case 'map': {
+      // Settings a stored map predates are filled in, all the way down: the
+      // terrain, the switches, the layers.
+      const base = defaultMapSettings();
+      const stored = data.settings ?? base;
+      const terrain = fill(stored.terrain, DEFAULT_TERRAIN);
+      const features = fill(stored.features, DEFAULT_FEATURES);
+      const settings = fill(stored, base);
+      const layers = fill(data.layers, DEFAULT_LAYERS);
+      const lists = Array.isArray(data.patches) && Array.isArray(data.strokes) && Array.isArray(data.elements);
+      if (!terrain.filled && !features.filled && !settings.filled && !layers.filled && lists && typeof data.seq === 'number' && stored.biomes) return data;
+      return {
+        ...data,
+        settings: { ...settings.value, terrain: terrain.value, features: features.value, biomes: { ...base.biomes, ...(stored.biomes ?? {}) } },
+        layers: layers.value,
+        patches: Array.isArray(data.patches) ? data.patches : [],
+        strokes: Array.isArray(data.strokes) ? data.strokes : [],
+        elements: Array.isArray(data.elements) ? data.elements : [],
+        seq: typeof data.seq === 'number' ? data.seq : 0,
+      };
     }
     case 'grammar': {
       const options = fill(data.options, DEFAULT_GRAMMAR_OPTIONS);
@@ -222,10 +288,11 @@ export function normaliseFlowData(data: FlowData): FlowData {
         mode,
         tolerance: options.value.tolerance,
         only: Array.isArray(options.value.only) ? options.value.only : [],
+        minChunk: Math.max(0, Number(options.value.minChunk) || 0),
       };
       const same =
         !options.filled &&
-        Object.keys(data.options ?? {}).length === 3 &&
+        Object.keys(data.options ?? {}).length === 4 &&
         clean.mode === data.options?.mode;
       return same ? data : { ...data, options: clean };
     }

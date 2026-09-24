@@ -12,6 +12,8 @@ import type { VectorEditFlowData, VectorizeFlowData } from '../flows/vectorEdit'
 import type { ImageFlowData } from '../flows/image';
 import type { PaletteFlowData } from '../flows/palette';
 import type { PaletteFilterFlowData } from '../flows/paletteFilter';
+import type { TimelineFlowData } from '../flows/timeline';
+import type { WorldMapFlowData } from '../flows/worldMap';
 import type { RigFlowData } from '../flows/rig';
 import type { TextFlowData } from './text';
 
@@ -196,7 +198,9 @@ export type FlowData =
   | VectorizeFlowData
   | VectorEditFlowData
   | BindFlowData
-  | PoseFlowData;
+  | PoseFlowData
+  | TimelineFlowData
+  | WorldMapFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph

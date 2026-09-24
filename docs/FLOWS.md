@@ -156,13 +156,12 @@ One character: personality, history, want, voice.
 
 ### Timeline
 
-`story.timeline` · brief editor
+`story.timeline` · **bespoke editor**
 
-Story chronology, separate from the order the clip shows it in.
+Events on a zoomable line: when and where, exact or partly known, who was there and what was said.
 
-- **In:** Scenes, World
+- **In:** Scenes, World, Characters, Places
 - **Out:** Timeline `timeline.json`, Timeline doc `timeline.md`
-- **Fields:** Events, Present day, Off-screen
 
 ### Continuity
 
@@ -195,6 +194,15 @@ The specific places the clip happens in.
 - **In:** World
 - **Out:** Settings `settings.md`, Set list `sets.json`
 - **Fields:** Locations, Mood, Staging notes
+
+### World Map
+
+`world.map` · **bespoke editor**
+
+Generate a world — land, sea, climate, what grows — then paint it, build on it and name its places, at every scale.
+
+- **In:** World
+- **Out:** Map `map.json`, Locations `locations.json`, Map image `map.png`, Map notes `map.md`
 
 ## Animation
 
@@ -579,4 +587,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-47 flow kinds.
+48 flow kinds.

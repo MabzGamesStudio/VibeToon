@@ -372,7 +372,7 @@ export function VectorizeFlowEditor({
                           report.smallFolded ? `${report.smallFolded} small polygon(s) folded in` : '',
                           report.smallDropped ? `${report.smallDropped} speck(s) dropped` : '',
                           report.shortLines ? `${report.shortLines} stub(s) dropped` : '',
-                          report.shortStrokes ? `${report.shortStrokes} short stroke(s) drawn as areas` : '',
+                          report.shortStrokes ? `${report.shortStrokes} skinny polygon(s) too short to be lines` : '',
                         ]
                           .filter(Boolean)
                           .join(', ')}
@@ -448,7 +448,7 @@ export function VectorizeFlowEditor({
                       <path
                         key={shape.id}
                         d={shapePath(shape)}
-                        fill={shape.color}
+                        fill={shape.color} fillRule="evenodd"
                         // The areas tile the picture exactly, but a renderer
                         // antialiases each on its own — so without a hairline of
                         // its own color, every boundary shows the background
@@ -490,9 +490,8 @@ export function VectorizeFlowEditor({
           <>
             <p className="vt-faint" style={{ marginTop: 8, fontSize: 11 }}>
               {summariseVectorize(report)}
-              {report.thinButNotSeparating > 0
-                ? ` · ${report.thinButNotSeparating} thin shape(s) kept as areas because they border only one thing`
-                : ''}
+              {(report.holes ?? 0) > 0 ? ` · ${report.holes} hole(s) where something else, or nothing, is inside a shape` : ''}
+              {(report.skinny ?? 0) > 0 ? ` · ${report.skinny} skinny polygon(s) drawn again as lines` : ''}
             </p>
             {report.problems.length > 0 ? (
               <div className="vt-section">
