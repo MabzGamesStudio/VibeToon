@@ -222,10 +222,11 @@ export function normaliseFlowData(data: FlowData): FlowData {
         mode,
         tolerance: options.value.tolerance,
         only: Array.isArray(options.value.only) ? options.value.only : [],
+        minChunk: Math.max(0, Number(options.value.minChunk) || 0),
       };
       const same =
         !options.filled &&
-        Object.keys(data.options ?? {}).length === 3 &&
+        Object.keys(data.options ?? {}).length === 4 &&
         clean.mode === data.options?.mode;
       return same ? data : { ...data, options: clean };
     }

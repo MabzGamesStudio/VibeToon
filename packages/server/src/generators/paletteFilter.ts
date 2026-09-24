@@ -133,7 +133,11 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
     `- Palette: **${paletteInput.sourceNode.name}** (\`${paletteInput.artifact.fileName}\`)`,
     `- Mode: **${FILTER_MODE_LABEL[mode]}**`,
     ...(mode === 'snap'
-      ? []
+      ? [
+          (data.options.minChunk ?? 0) > 1
+            ? `- Smallest chunk: ${data.options.minChunk}px — any smaller patch of one color took the closest color it touched`
+            : '- Smallest chunk: any size — every pixel keeps the color it snapped to',
+        ]
       : [
           `- Tolerance: ${data.options.tolerance}${
             data.options.tolerance <= 0 ? ' — an exact match and nothing else' : ''

@@ -426,3 +426,92 @@ test('a green-only palette snaps a red image to green, not to nothing', () => {
   const { pixels } = filterImage(source, readPalette([GREEN]), options({ mode: 'snap' }));
   assert.deepEqual([pixels[0], pixels[1], pixels[2], pixels[3]], [0x28, 0xa0, 0x28, 255]);
 });
+
+/* ---------------- the smallest chunk ---------------- */
+
+/** An image from a character map: R red, B blue, G green, D dark red, . clear. */
+function grid(rows: string[]): Bitmap {
+  const colors: Record<string, [number, number, number, number]> = {
+    R: [220, 40, 40, 255],
+    B: [40, 60, 220, 255],
+    G: [40, 160, 40, 255],
+    D: [120, 20, 20, 255],
+    '.': [0, 0, 0, 0],
+  };
+  const height = rows.length;
+  const width = rows[0]!.length;
+  const data = new Uint8ClampedArray(width * height * 4);
+  rows.forEach((row, y) => [...row].forEach((c, x) => data.set(colors[c]!, (y * width + x) * 4)));
+  return { width, height, data };
+}
+
+const hexAt = (pixels: Uint8ClampedArray, width: number, x: number, y: number) => {
+  const at = (y * width + x) * 4;
+  return `#${[pixels[at]!, pixels[at + 1]!, pixels[at + 2]!].map((n) => n.toString(16).padStart(2, '0')).join('')}`;
+};
+
+test('a single stray pixel takes the color around it', () => {
+  const picture = grid(['RRRRR', 'RRRRR', 'RRBRR', 'RRRRR', 'RRRRR']);
+  const off = filterImage(picture, palette, options({ mode: 'snap' }));
+  assert.equal(hexAt(off.pixels, 5, 2, 2), BLUE, 'off by default: the dot stays');
+  const on = filterImage(picture, palette, options({ mode: 'snap', minChunk: 2 }));
+  assert.equal(hexAt(on.pixels, 5, 2, 2), RED);
+  assert.equal(on.report.chunksMerged, 1);
+  assert.equal(on.report.chunkPixels, 1);
+  assert.equal(on.report.perEntry.find((entry) => entry.hex === BLUE)!.pixels, 0);
+});
+
+test('a chunk at or over the minimum is left alone', () => {
+  const picture = grid(['RRRRR', 'RBBRR', 'RBBRR', 'RRRRR']);
+  const result = filterImage(picture, palette, options({ mode: 'snap', minChunk: 4 }));
+  assert.equal(result.report.chunksMerged, 0);
+  assert.equal(hexAt(result.pixels, 5, 1, 1), BLUE);
+  assert.equal(filterImage(picture, palette, options({ mode: 'snap', minChunk: 5 })).report.chunksMerged, 1);
+});
+
+test('corners count as touching, so a thin diagonal line is one chunk, not specks', () => {
+  const picture = grid(['BRRRR', 'RBRRR', 'RRBRR', 'RRRBR', 'RRRRB']);
+  const result = filterImage(picture, palette, options({ mode: 'snap', minChunk: 4 }));
+  assert.equal(result.report.chunksMerged, 0, 'five pixels joined corner to corner');
+});
+
+test('a small chunk takes the neighbouring color closest to what it was, not the one around it most', () => {
+  // A dark red speck on the border between a big blue area and a thin red one:
+  // it touches blue more, but it was a red, so it goes red.
+  const three = readPalette([RED, BLUE, '#781414']);
+  const picture = grid(['BBBBBB', 'BBBBBB', 'BBDBBB', 'RRRRRR']);
+  const result = filterImage(picture, three, options({ mode: 'snap', minChunk: 2 }));
+  assert.equal(hexAt(result.pixels, 6, 2, 2), RED);
+});
+
+test('the transparent entry is a color like any other: a pinhole closes and a speck in nothing goes', () => {
+  const withClear = readPalette([RED, BLUE, '#00000000']);
+  const picture = grid(['.......', '.RRRR..', '.R.RR.B', '.RRRR..', '.......']);
+  const result = filterImage(picture, withClear, options({ mode: 'snap', minChunk: 3 }));
+  assert.equal(hexAt(result.pixels, 7, 2, 2), RED, 'the pinhole in the red is red');
+  assert.equal(result.pixels[(2 * 7 + 6) * 4 + 3], 0, 'the blue speck in empty space is empty');
+  assert.equal(result.report.chunksMerged, 2);
+});
+
+test('after merging every value is still a palette value', () => {
+  const picture = noise(400);
+  const withClear = readPalette([RED, BLUE, GREEN, '#00000000']);
+  const result = filterImage({ ...picture, width: 20, height: 20 }, withClear, options({ mode: 'snap', minChunk: 6 }));
+  const values = new Set<string>();
+  for (let at = 0; at < result.pixels.length; at += 4) values.add(Array.from(result.pixels.slice(at, at + 4)).join(','));
+  const allowed = new Set(withClear.colors.map((color) => [color.r, color.g, color.b, color.a].join(',')));
+  assert.ok([...values].every((value) => allowed.has(value)), [...values].join(' '));
+  assert.ok(result.report.chunksMerged > 0);
+});
+
+test('keep ignores the minimum chunk', () => {
+  const picture = grid(['RRRRR', 'RRBRR', 'RRRRR']);
+  const result = filterImage(picture, palette, options({ mode: 'keep', minChunk: 5 }));
+  assert.equal(result.report.chunksMerged, 0);
+  assert.equal(hexAt(result.pixels, 5, 2, 1), BLUE);
+});
+
+test('a picture all one color has nothing to merge into', () => {
+  const result = filterImage(grid(['RR', 'RR']), palette, options({ mode: 'snap', minChunk: 10 }));
+  assert.equal(result.report.chunksMerged, 0);
+});

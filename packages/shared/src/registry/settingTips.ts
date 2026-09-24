@@ -576,6 +576,15 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'To drop a color rather than find it, keep the others: an inverted answer is the same question asked about the rest of the palette.',
     ],
   },
+  'paletteFilter.minChunk': {
+    what: 'In snap mode, the smallest patch of one palette color allowed, in pixels. A smaller patch takes the color of a patch it touches.',
+    examples: [
+      '0 — every pixel keeps the color it snapped to, stray dots and all.',
+      '4 to 10 — clears single-pixel dots and the flecks snapping leaves along soft edges.',
+      '50 and up — only real areas of color survive; small details go too.',
+      'Pixels touching at a corner are one patch, so a thin diagonal line is not broken into specks. Of the colors a small patch touches, it takes the one closest to what its own pixels were. Transparent counts as a color, so pinholes close and specks in empty space vanish.',
+    ],
+  },
   'paletteFilter.tolerance': {
     what: 'How close a pixel has to be to a palette color to count as that color, opacity included. Same OKLab scale the palette’s own minimum distance uses.',
     examples: [
