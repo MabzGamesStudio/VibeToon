@@ -1210,6 +1210,35 @@
   }
 }
 
+/* A joint to drag. Faint until pointed at, so the skeleton still reads as bones. */
+.vt-rig-handle {
+  fill: rgba(255, 255, 255, 0.04);
+  stroke: rgba(255, 255, 255, 0.28);
+  cursor: grab;
+  pointer-events: all;
+
+  &:hover {
+    fill: rgba(122, 162, 255, 0.35);
+    stroke: $accent;
+  }
+
+  &.is-held {
+    fill: $accent;
+    stroke: #fff;
+    cursor: grabbing;
+  }
+
+  /* The twin moving along with it. */
+  &.is-twin {
+    fill: rgba(122, 162, 255, 0.35);
+    stroke: $accent;
+  }
+}
+
+.vt-rig.is-dragging {
+  cursor: grabbing;
+}
+
 /** The wedge the selected joint can turn through, drawn at the joint itself. */
 .vt-rig-arc {
   fill: rgba(110, 168, 254, 0.18);

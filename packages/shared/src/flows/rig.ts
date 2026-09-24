@@ -136,6 +136,12 @@ export interface RigOptions {
   /** An edit to a left bone writes the same limits to its right twin. */
   mirror: boolean;
   /**
+   * Moving a joint moves its twin on the other side the matching way — mirrored
+   * across the body for a skeleton drawn face on, the same way for one drawn
+   * side on. On by default, for the same reason as `mirror`.
+   */
+  mirrorMoves: boolean;
+  /**
    * Multiplies every bone's stretch range, so a whole rig can be made rubbery
    * without touching each bone. 1 leaves the type's own values alone.
    */
@@ -146,6 +152,7 @@ export interface RigOptions {
 
 export const DEFAULT_RIG_OPTIONS: RigOptions = {
   mirror: true,
+  mirrorMoves: true,
   squashAndStretch: 1,
   looseness: 1,
 };
@@ -869,6 +876,75 @@ export function setChain(
   return {
     ...data,
     chains: data.chains.map((chain) => (targets.has(chain.id) ? { ...chain, ...change } : chain)),
+  };
+}
+
+const MIRROR = {
+  x: { x: -1, y: 1 },
+  y: { x: 1, y: -1 },
+  none: { x: 1, y: 1 },
+} as const;
+
+/**
+ * Which way a rig's two sides mirror each other, read off its twins.
+ *
+ * A person drawn face on is mirrored left for right (`x`); a fish seen from the
+ * side has its fins above and below (`y`); a horse seen from the side has both
+ * legs in the same place (`none`). Judged over every pair together rather than
+ * one at a time, because a single bone can fit two answers — a leg pointing
+ * straight down is its own reflection.
+ */
+export function mirrorAxis(data: RigFlowData): 'x' | 'y' | 'none' {
+  const cost = { x: 0, y: 0, none: 0 };
+  for (const bone of data.bones) {
+    if (!bone.id.startsWith('left-')) continue;
+    const twin = boneById(data, mirrorIdOf(bone.id)!);
+    if (!twin) continue;
+    for (const axis of ['x', 'y', 'none'] as const) {
+      const flip = MIRROR[axis];
+      cost[axis] += Math.hypot(bone.offset.x * flip.x - twin.offset.x, bone.offset.y * flip.y - twin.offset.y);
+    }
+  }
+  // Ties go to the plainest answer, which is also what a rig with no twins gets.
+  return cost.x < cost.none && cost.x <= cost.y ? 'x' : cost.y < cost.none ? 'y' : 'none';
+}
+
+/**
+ * Move a joint: the far end of a bone goes to `to`.
+ *
+ * Only the bone's own offset changes. Everything hanging off it is stored
+ * relative to it, so it comes along — pulling a wrist takes the hand with it
+ * and leaves the elbow where it was.
+ *
+ * With `mirrorMoves` on, the twin's joint moves the matching way, reflected
+ * across the rig's own mirror (`mirrorAxis`) — never assumed to be left for
+ * right. The twin's own shape is kept: an arm already raised a little higher
+ * than the other stays that much higher.
+ */
+export function moveRigJoint(data: RigFlowData, boneId: string, to: Vec2): RigFlowData {
+  const bone = boneById(data, boneId);
+  const place = restPose(data).get(boneId);
+  if (!bone || !place) return data;
+  const offset = { x: to.x - place.from.x, y: to.y - place.from.y };
+  const dx = offset.x - bone.offset.x;
+  const dy = offset.y - bone.offset.y;
+
+  const options = { ...DEFAULT_RIG_OPTIONS, ...data.options };
+  const twinId = options.mirrorMoves ? mirrorIdOf(boneId) : undefined;
+  const twin = twinId ? boneById(data, twinId) : undefined;
+  let twinOffset: Vec2 | undefined;
+  if (twin) {
+    const flip = MIRROR[mirrorAxis(data)];
+    twinOffset = { x: twin.offset.x + dx * flip.x, y: twin.offset.y + dy * flip.y };
+  }
+
+  return {
+    ...data,
+    bones: data.bones.map((candidate) => {
+      if (candidate.id === boneId) return { ...candidate, offset };
+      if (twin && twinOffset && candidate.id === twin.id) return { ...candidate, offset: twinOffset };
+      return candidate;
+    }),
   };
 }
 

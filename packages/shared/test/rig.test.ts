@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  mirrorAxis,
+  moveRigJoint,
   DEFAULT_RIG_OPTIONS,
   RIG_KINDS,
   boneById,
@@ -330,4 +332,60 @@ test('a bone’s length is the length of its offset, and only the root may have 
     }
   }
   assert.equal(boneLength({ id: 'a', name: 'A', offset: { x: 3, y: 4 }, stretch: { min: 1, max: 1, stiffness: 1 } }), 5);
+});
+
+/* ---------------- moving joints ---------------- */
+
+test('moving a joint moves that bone’s end, and everything hanging off it comes along', () => {
+  const rig = emptyRigFlowData('human');
+  const before = restPose(rig);
+  const elbow = before.get('left-upper-arm')!.to;
+  const moved = moveRigJoint({ ...rig, options: { ...rig.options, mirrorMoves: false } }, 'left-upper-arm', {
+    x: elbow.x - 5,
+    y: elbow.y + 2,
+  });
+  const after = restPose(moved);
+  assert.deepEqual(after.get('left-upper-arm')!.to, { x: elbow.x - 5, y: elbow.y + 2 });
+  assert.deepEqual(after.get('left-upper-arm')!.from, before.get('left-upper-arm')!.from, 'the shoulder stays');
+  const hand = before.get('left-forearm')!.to;
+  assert.deepEqual(after.get('left-forearm')!.to, { x: hand.x - 5, y: hand.y + 2 }, 'the forearm came with it');
+  assert.deepEqual(after.get('right-upper-arm'), before.get('right-upper-arm'), 'and the other arm did not');
+});
+
+test('with symmetric moves on, the twin moves the mirrored way', () => {
+  const rig = emptyRigFlowData('human');
+  assert.equal(rig.options.mirrorMoves, true, 'on by default');
+  const before = restPose(rig);
+  const elbow = before.get('left-upper-arm')!.to;
+  const twin = before.get('right-upper-arm')!.to;
+  const after = restPose(moveRigJoint(rig, 'left-upper-arm', { x: elbow.x - 5, y: elbow.y - 3 }));
+  assert.deepEqual(after.get('right-upper-arm')!.to, { x: twin.x + 5, y: twin.y - 3 }, 'out and up, on its own side');
+});
+
+test('the mirror is read off the rig: a side-on skeleton moves its twin the same way', () => {
+  assert.equal(mirrorAxis(emptyRigFlowData('human')), 'x');
+  assert.equal(mirrorAxis(emptyRigFlowData('fish')), 'y');
+  assert.equal(mirrorAxis(emptyRigFlowData('quadruped')), 'none');
+  const horse = emptyRigFlowData('quadruped');
+  const bone = horse.bones.find((entry) => entry.id.startsWith('left-'))!;
+  const twin = boneById(horse, mirrorIdOf(bone.id)!)!;
+  const end = restPose(horse).get(bone.id)!.to;
+  const moved = moveRigJoint(horse, bone.id, { x: end.x + 4, y: end.y + 1 });
+  assert.deepEqual(boneById(moved, twin.id)!.offset, { x: twin.offset.x + 4, y: twin.offset.y + 1 });
+});
+
+test('a twin keeps its own shape: only the move is mirrored, not the other bone', () => {
+  const rig = emptyRigFlowData('human');
+  const lifted = { ...rig, bones: rig.bones.map((bone) => (bone.id === 'right-upper-arm' ? { ...bone, offset: { x: 6, y: 10 } } : bone)) };
+  const end = restPose(lifted).get('left-upper-arm')!.to;
+  const moved = moveRigJoint(lifted, 'left-upper-arm', { x: end.x, y: end.y + 2 });
+  assert.deepEqual(boneById(moved, 'right-upper-arm')!.offset, { x: 6, y: 12 });
+});
+
+test('a bone with no twin moves on its own', () => {
+  const rig = emptyRigFlowData('human');
+  const root = rig.bones.find((bone) => !bone.parent)!;
+  const end = restPose(rig).get(root.id)!.to;
+  const moved = moveRigJoint(rig, root.id, { x: end.x + 1, y: end.y });
+  assert.equal(moved.bones.filter((bone, index) => bone !== rig.bones[index]).length, 1);
 });
