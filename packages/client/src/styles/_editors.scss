@@ -1052,6 +1052,37 @@
     max-height: 160px;
     object-fit: contain;
   }
+
+  /* Filling the screen: the picture takes all of it, letterboxed. */
+  &.is-full {
+    flex: 1;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    background-color: transparent;
+    background-image: none;
+
+    img {
+      height: 100%;
+      max-height: none;
+    }
+  }
+}
+
+/* In the sidebar the stage is a thumbnail with its controls: no frame of its own
+   round the picture's frame, and the header allowed to wrap. */
+.vt-palette-source-stage:not(.is-full) {
+  margin-bottom: 8px;
+
+  .vt-stage-body {
+    flex: none;
+  }
+
+  .vt-palette-source {
+    flex: 1;
+    border: 0;
+    border-radius: 0;
+  }
 }
 
 /**
