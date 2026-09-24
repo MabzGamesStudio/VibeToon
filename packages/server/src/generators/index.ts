@@ -9,6 +9,7 @@ import { generateDictionary } from './dictionary';
 import { generateGrammar } from './grammar';
 import { generateImage } from './image';
 import { generateLexicon } from './lexicon';
+import { generateMap } from './map';
 import { generatePalette } from './palette';
 import { generatePose } from './pose';
 import { generatePaletteFilter } from './paletteFilter';
@@ -29,6 +30,7 @@ import type { Generator } from './types';
 const GENERATORS: Record<string, Generator> = {
   'story.dialog': generateDialog,
   'story.timeline': generateTimeline,
+  'world.map': generateMap,
   'animation.storyboard': generateStoryboard,
   'text.random': generateText,
   'text.corpus': generateCorpus,

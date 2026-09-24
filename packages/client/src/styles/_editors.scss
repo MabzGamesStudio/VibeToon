@@ -2221,3 +2221,226 @@ input.is-invalid {
   gap: 4px;
   width: 100%;
 }
+
+/* World map ----------------------------------------------------------- */
+
+.vt-map-stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  min-height: min(62vh, 640px);
+}
+
+.vt-map-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: #1b2331;
+
+  canvas,
+  svg {
+    position: absolute;
+    inset: 0;
+    display: block;
+  }
+}
+
+.vt-map-overlay {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+
+  &.is-panning {
+    cursor: grabbing;
+  }
+
+  &.is-paint,
+  &.is-region,
+  &.is-place {
+    cursor: crosshair;
+  }
+}
+
+.vt-map-tools {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.vt-map-toolbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 2px 14px;
+  align-items: end;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border: 1px solid $line;
+  border-radius: $radius;
+  background: $bg-1;
+}
+
+.vt-map-catalogue {
+  grid-template-columns: 1fr;
+
+  input[type='search'] {
+    flex: 1;
+  }
+}
+
+.vt-map-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.vt-map-result {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 3px 8px;
+  border: 1px solid $line;
+  border-radius: $radius-sm;
+  background: $bg-2;
+  color: $text;
+  font-size: 12px;
+  cursor: pointer;
+
+  .vt-faint {
+    font-size: 10px;
+  }
+
+  &:hover {
+    border-color: $line-strong;
+  }
+
+  &.is-active {
+    border-color: $accent;
+    background: $accent-soft;
+  }
+}
+
+.vt-map-toggles {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.vt-map-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  flex: none;
+}
+
+.vt-map-element {
+  pointer-events: none;
+
+  &.is-selected {
+    filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.9));
+  }
+}
+
+.vt-map-label {
+  fill: #1f1a17;
+  paint-order: stroke;
+  stroke: rgba(250, 247, 238, 0.85);
+  stroke-width: 3px;
+  font-weight: 600;
+  pointer-events: none;
+
+  &.is-big {
+    font-style: italic;
+    letter-spacing: 0.12em;
+    fill: #2c2a33;
+    font-weight: 500;
+  }
+
+  &.is-water {
+    fill: #184a82;
+    font-style: italic;
+  }
+
+  &.is-landform {
+    fill: #4d3b28;
+    font-style: italic;
+  }
+
+  &.is-transport,
+  &.is-structure,
+  &.is-site {
+    font-weight: 500;
+  }
+}
+
+.vt-map-patch {
+  pointer-events: none;
+
+  rect {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.55);
+    stroke-dasharray: 6 4;
+  }
+
+  text {
+    fill: #fff;
+    font-size: 11px;
+    paint-order: stroke;
+    stroke: rgba(0, 0, 0, 0.6);
+    stroke-width: 3px;
+  }
+}
+
+.vt-map-edge {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+}
+
+.vt-map-brush {
+  fill: rgba(255, 255, 255, 0.12);
+  stroke: #fff;
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+
+.vt-map-region-draft {
+  fill: rgba(110, 168, 254, 0.15);
+  stroke: $accent;
+  stroke-dasharray: 5 3;
+  pointer-events: none;
+}
+
+.vt-map-drafting {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
+.vt-map-extent {
+  fill: none;
+  stroke: #fff;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
+.vt-map-handle {
+  fill: $accent;
+  stroke: #fff;
+  stroke-width: 1.5;
+  cursor: nwse-resize;
+
+  &.is-rotate {
+    fill: $warn;
+    cursor: grab;
+  }
+}

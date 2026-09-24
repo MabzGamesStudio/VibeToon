@@ -195,6 +195,15 @@ The specific places the clip happens in.
 - **Out:** Settings `settings.md`, Set list `sets.json`
 - **Fields:** Locations, Mood, Staging notes
 
+### World Map
+
+`world.map` · **bespoke editor**
+
+Generate a world — land, sea, climate, what grows — then paint it, build on it and name its places, at every scale.
+
+- **In:** World
+- **Out:** Map `map.json`, Locations `locations.json`, Map image `map.png`, Map notes `map.md`
+
 ## Animation
 
 ### Storyboard
@@ -578,4 +587,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-47 flow kinds.
+48 flow kinds.

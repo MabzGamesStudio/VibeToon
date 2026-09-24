@@ -346,6 +346,22 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     ],
   },
 
+  {
+    kind: 'world.map',
+    category: 'world',
+    label: 'World Map',
+    summary: 'Generate a world — land, sea, climate, what grows — then paint it, build on it and name its places, at every scale.',
+    inputs: [input('world', 'World', ['markdown', 'text'], 'World design, for reference.')],
+    outputs: [
+      output('map', 'Map', ['json'], 'map.json', 'Everything that makes the map: settings, regions, paint and elements.'),
+      output('locations', 'Locations', ['json'], 'locations.json', 'Every named place, with the places it lies within — for a timeline, or anything that needs a where.'),
+      output('image', 'Map image', ['image'], 'map.png', 'The whole world, drawn.'),
+      output('doc', 'Map notes', ['markdown'], 'map.md', 'The places, by kind, with their descriptions.'),
+    ],
+    editor: 'map',
+    maturity: 'editor',
+  },
+
   /* ---------------------------------------------------------------- *
    * Animation
    * ---------------------------------------------------------------- */

@@ -1,3 +1,4 @@
+import { DEFAULT_FEATURES, DEFAULT_LAYERS, DEFAULT_TERRAIN, defaultMapSettings } from '../flows/worldMap';
 import {
   DEFAULT_COLOR_SETTING,
   DEFAULT_SPAN,
@@ -140,6 +141,27 @@ export function normaliseFlowData(data: FlowData): FlowData {
           details: event.details ?? '',
           title: event.title ?? 'Event',
         })),
+      };
+    }
+    case 'map': {
+      // Settings a stored map predates are filled in, all the way down: the
+      // terrain, the switches, the layers.
+      const base = defaultMapSettings();
+      const stored = data.settings ?? base;
+      const terrain = fill(stored.terrain, DEFAULT_TERRAIN);
+      const features = fill(stored.features, DEFAULT_FEATURES);
+      const settings = fill(stored, base);
+      const layers = fill(data.layers, DEFAULT_LAYERS);
+      const lists = Array.isArray(data.patches) && Array.isArray(data.strokes) && Array.isArray(data.elements);
+      if (!terrain.filled && !features.filled && !settings.filled && !layers.filled && lists && typeof data.seq === 'number' && stored.biomes) return data;
+      return {
+        ...data,
+        settings: { ...settings.value, terrain: terrain.value, features: features.value, biomes: { ...base.biomes, ...(stored.biomes ?? {}) } },
+        layers: layers.value,
+        patches: Array.isArray(data.patches) ? data.patches : [],
+        strokes: Array.isArray(data.strokes) ? data.strokes : [],
+        elements: Array.isArray(data.elements) ? data.elements : [],
+        seq: typeof data.seq === 'number' ? data.seq : 0,
       };
     }
     case 'grammar': {

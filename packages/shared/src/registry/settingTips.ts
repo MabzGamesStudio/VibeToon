@@ -656,6 +656,65 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     examples: ['1 — continents or countries.', '3 — cities: every city its own color.'],
   },
 
+  /* World map -------------------------------------------------------- */
+
+  'map.seed': {
+    what: 'The world’s seed. The same seed and settings always make the same world, in the editor and on the server alike.',
+    examples: ['Any word or number. 🎲 picks a new one — a new world.', 'Regions generated apart each have a seed of their own.'],
+  },
+  'map.latitude': {
+    what: 'The latitude at the top and bottom edges of the map. The climate hangs on it: colder towards the poles.',
+    examples: ['70 to −20 — the default: arctic at the top, tropics along the bottom.', '10 to −10 — all tropical.', '80 to 50 — a cold world.'],
+  },
+  'map.land': {
+    what: 'How much of the map is land. Sea level is set to make it so, whatever the seed gives.',
+    examples: ['0.3 — oceans with continents in them, like Earth.', '0.7 — land with seas in it.', '1 — no sea at all.'],
+  },
+  'map.continentSize': {
+    what: 'How big a landmass typically is, in km.',
+    examples: ['300 — scattered islands.', '1600 — the default: a few continents.', '4000 — one supercontinent.'],
+  },
+  'map.roughness': {
+    what: 'How ragged the coasts and how broken the ground.',
+    examples: ['0 — smooth coasts, rolling land.', '1 — fjords, islands and craggy country.'],
+  },
+  'map.mountains': {
+    what: 'How mountainous the land is: the height and reach of its ranges.',
+    examples: ['0 — only low hills.', '0.5 — the default.', '1 — great ranges with snow on them.'],
+  },
+  'map.temperature': {
+    what: 'The whole world colder or hotter, by up to 15 °C either way, before latitude and height.',
+    examples: ['−1 — an ice age: tundra and glaciers creep south.', '+1 — a hothouse: jungle and desert spread.'],
+  },
+  'map.moisture': {
+    what: 'The whole world drier or wetter. What grows follows temperature and moisture together.',
+    examples: ['−1 — deserts and steppe.', '+1 — forests, jungle and swamp.'],
+  },
+  'map.density': {
+    what: 'How many cities, towns and villages generation places. They go to the best ground first: coasts, rivers, flat and mild land.',
+    examples: ['0 — a few cities, a scatter of towns.', '1 — a crowded world.'],
+  },
+  'map.paint': {
+    what: 'The kind of ground the brush puts down. Painted ground stays whatever the settings do.',
+    examples: [
+      'Painting ground over the sea makes land; painting water over land makes sea.',
+      '“Plain land” raises land and lets the climate decide what grows on it.',
+      '“Erase paint” gives back what was generated.',
+    ],
+  },
+  'map.feather': {
+    what: 'How far in from its edges a generated region blends from the world’s terrain to its own, in km.',
+    examples: ['0 — a hard edge, like a cliff where the rectangle is.', '60 — the default: a natural blend.'],
+  },
+  'map.name': {
+    what: 'What this place is called. Named places are listed in the map’s locations, with the named places they lie within — which a timeline wired to the map offers as places.',
+    examples: ['Names show on the map when the place is big enough on screen for its kind: a city from far off, a street only close in.'],
+  },
+  'map.size': {
+    what: 'How big it is, in metres: across for a point or an area, long for a line. It decides at what zoom it is drawn and named.',
+    examples: ['A city is about 18 km, a village about 1 km, a jetty 60 m, a house 12 m.', 'Drag the handle on the map to resize it there.'],
+  },
+
   /* Rig preview ------------------------------------------------------ */
 
   'rigPreview.gravity': {

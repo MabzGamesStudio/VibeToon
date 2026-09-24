@@ -17,6 +17,7 @@ import { emptyPaletteFilterFlowData } from '../flows/paletteFilter';
 import { emptyRigFlowData } from '../flows/rig';
 import { emptyTextData } from '../flows/text';
 import { emptyTimelineFlowData } from '../flows/timeline';
+import { emptyWorldMapFlowData } from '../flows/worldMap';
 import { newId } from '../ids';
 import { getFlowKind, requireFlowKind } from '../registry/flowKinds';
 import { parseRules, RULE_DIRECTIVES } from '../rules/parseRules';
@@ -80,6 +81,8 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyPoseFlowData();
     case 'timeline':
       return emptyTimelineFlowData();
+    case 'map':
+      return emptyWorldMapFlowData();
     default:
       return emptyBriefData(def);
   }
