@@ -1636,6 +1636,23 @@
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
+
+  /* The nodes of a finished, selected region or cut. */
+  &.is-placed {
+    fill: $accent;
+    stroke: #fff;
+  }
+}
+
+/* While something is being drawn every click is a point of it: what is already
+   there must not take the click and select itself instead. */
+.vt-cutout-objects.is-drawing {
+  .vt-region,
+  .vt-cut-line,
+  .vt-seed,
+  .vt-seed-hit {
+    pointer-events: none;
+  }
 }
 
 .vt-object-dot {
