@@ -156,13 +156,12 @@ One character: personality, history, want, voice.
 
 ### Timeline
 
-`story.timeline` · brief editor
+`story.timeline` · **bespoke editor**
 
-Story chronology, separate from the order the clip shows it in.
+Events on a zoomable line: when and where, exact or partly known, who was there and what was said.
 
-- **In:** Scenes, World
+- **In:** Scenes, World, Characters, Places
 - **Out:** Timeline `timeline.json`, Timeline doc `timeline.md`
-- **Fields:** Events, Present day, Off-screen
 
 ### Continuity
 

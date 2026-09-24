@@ -18,6 +18,7 @@ import { DialogEditor } from './DialogEditor';
 import { EditorShell } from './EditorShell';
 import { StoryboardEditor } from './StoryboardEditor';
 import { TextEditor } from './TextEditor';
+import { TimelineFlowEditor } from './TimelineFlowEditor';
 import { VectorEditFlowEditor } from './VectorEditFlowEditor';
 import { VectorizeFlowEditor } from './VectorizeFlowEditor';
 
@@ -67,6 +68,8 @@ export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
       return <PoseFlowEditor project={project} node={node} />;
     case 'rig':
       return <RigFlowEditor project={project} node={node} />;
+    case 'timeline':
+      return <TimelineFlowEditor project={project} node={node} />;
     default:
       return <BriefEditor project={project} node={node} />;
   }

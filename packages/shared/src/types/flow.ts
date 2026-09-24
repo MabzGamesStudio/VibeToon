@@ -56,6 +56,7 @@ export type EditorId =
   | 'vectorEdit'
   | 'bind'
   | 'pose'
+  | 'timeline'
   | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */

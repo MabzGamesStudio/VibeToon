@@ -16,6 +16,7 @@ import { generateRig } from './rig';
 import { generateDialog } from './dialog';
 import { generateStoryboard } from './storyboard';
 import { generateText } from './text';
+import { generateTimeline } from './timeline';
 import { generateVectorEdit } from './vectorEdit';
 import { generateVectorize } from './vectorize';
 import type { Generator } from './types';
@@ -27,6 +28,7 @@ import type { Generator } from './types';
  */
 const GENERATORS: Record<string, Generator> = {
   'story.dialog': generateDialog,
+  'story.timeline': generateTimeline,
   'animation.storyboard': generateStoryboard,
   'text.random': generateText,
   'text.corpus': generateCorpus,

@@ -1,3 +1,10 @@
+import {
+  DEFAULT_COLOR_SETTING,
+  DEFAULT_SPAN,
+  EMPTY_FILTER,
+  emptyTimelineFlowData,
+  eventsFromBrief,
+} from '../flows/timeline';
 import { emptyAnimaticData, parseDuration } from '../flows/animatic';
 import { emptyDesignData } from '../flows/design';
 import { DEFAULT_DICTIONARY_OPTIONS } from '../flows/dictionary';
@@ -55,6 +62,13 @@ export function migrateFlowData(kind: string, data: FlowData): FlowData {
         };
       }
       break;
+    case 'timeline':
+      if (isBrief(data)) {
+        // Each `when — what` line of the old brief becomes an event.
+        const events = eventsFromBrief(data.fields);
+        return { ...emptyTimelineFlowData(), events, seq: events.length };
+      }
+      break;
     case 'brief':
       // Going the other way keeps the fields and drops what has no home.
       if ('fields' in data) return { editor: 'brief', fields: { ...data.fields } };
@@ -97,6 +111,36 @@ export function normaliseFlowData(data: FlowData): FlowData {
       const meanings = normaliseMeanings(data.meanings);
       if (!extract.filled && !derive.filled && !meanings.changed) return data;
       return { ...data, extract: extract.value, derive: derive.value, meanings: meanings.meanings };
+    }
+    case 'timeline': {
+      /*
+       * Everything the timeline editor walks, present: a flow stored before a
+       * setting existed would otherwise hand the editor `undefined` to filter by
+       * or color with, and take it down with a blank screen.
+       */
+      const filter = fill(data.filter, EMPTY_FILTER);
+      const color = fill(data.color, DEFAULT_COLOR_SETTING);
+      const span = fill(data.span, DEFAULT_SPAN);
+      const events = Array.isArray(data.events) ? data.events : [];
+      const brokenEvents = events.some((event) => !Array.isArray(event.places) || !Array.isArray(event.characters) || !Array.isArray(event.tags) || !Array.isArray(event.dialog) || !event.start);
+      if (!filter.filled && !color.filled && !span.filled && events === data.events && !brokenEvents && typeof data.seq === 'number') return data;
+      return {
+        ...data,
+        filter: filter.value,
+        color: { ...color.value, keywords: color.value.keywords ?? [], chosen: color.value.chosen ?? {} },
+        span: span.value,
+        seq: typeof data.seq === 'number' ? data.seq : events.length,
+        events: events.map((event) => ({
+          ...event,
+          start: event.start ?? {},
+          places: Array.isArray(event.places) ? event.places : [],
+          characters: Array.isArray(event.characters) ? event.characters : [],
+          tags: Array.isArray(event.tags) ? event.tags : [],
+          dialog: Array.isArray(event.dialog) ? event.dialog : [],
+          details: event.details ?? '',
+          title: event.title ?? 'Event',
+        })),
+      };
     }
     case 'grammar': {
       const options = fill(data.options, DEFAULT_GRAMMAR_OPTIONS);

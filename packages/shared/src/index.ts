@@ -38,6 +38,7 @@ export * from './flows/pose';
 export * from './flows/fit';
 export * from './flows/rig';
 export * from './flows/rigSim';
+export * from './flows/timeline';
 
 export * from './text/tokenize';
 export * from './text/lexicon';

@@ -594,6 +594,68 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     ],
   },
 
+  /* Timeline --------------------------------------------------------- */
+
+  'timeline.span': {
+    what: 'The stretch of time the timeline covers, in UTC. Events outside it cannot be seen on it.',
+    examples: [
+      'From 1 January 2000 to today — the default, and today moves on by itself.',
+      'Untick “today” to fix an end: a story set in 1850–1870 wants a span of those years.',
+      'UTC so the line never shifts an hour when the project is opened somewhere else.',
+    ],
+  },
+  'timeline.time': {
+    what: 'When, as much as is known: a year, a month, a day, down to the second. Leave a field empty when it is unknown.',
+    examples: [
+      '“2004” — the whole year; drawn as a bar a year long, faded, because it could be any of it.',
+      '“March 2004”, “15 Mar 2004”, “15 Mar 2004 14:30” — narrower and narrower.',
+      '“c. 1999” or “1999?” — the year itself is a guess.',
+      '“500 BC” works too.',
+    ],
+  },
+  'timeline.duration': {
+    what: 'How long an event lasts: from its start to its end.',
+    examples: [
+      'Set the end directly, or give a length and press “Set the end”.',
+      'Months and years are calendar ones: a month after 31 January is early March.',
+      'With vague ends the line shows a solid middle — when it was certainly happening — and faded edges.',
+    ],
+  },
+  'timeline.place': {
+    what: 'Where, broad to narrow, separated by slashes. Stop where knowledge runs out.',
+    examples: [
+      '“Europe / France / Paris / Rue de Rivoli” — exact.',
+      '“Europe / France” — somewhere in France.',
+      'Tick “Near” when the narrowest part is itself a guess.',
+      'With a world map wired in, pick one of its named locations to link the two.',
+    ],
+  },
+  'timeline.color': {
+    what: 'An event’s own color, over whatever the color setting gives it.',
+    examples: ['For the one event that has to stand out whatever the timeline is colored by.'],
+  },
+  'timeline.filter': {
+    what: 'Show only events containing every word typed — in the title, details, time note, places, people, tags or dialog.',
+    examples: [
+      'Pick characters, places or tags below to narrow further: any of the ones picked in a group, and every group.',
+      'Filtering only changes what is shown; every event is still written out when generating.',
+    ],
+  },
+  'timeline.colorBy': {
+    what: 'What an event’s color means.',
+    examples: [
+      'By character — each person’s thread in one color (the event’s first character).',
+      'By place — at the level of the place path chosen below.',
+      'By tag — the event’s first tag.',
+      'By keyword — the first of your keywords the event contains.',
+      'Click a swatch in the legend to change the color of that value.',
+    ],
+  },
+  'timeline.placeLevel': {
+    what: 'How far down the place path to color by.',
+    examples: ['1 — continents or countries.', '3 — cities: every city its own color.'],
+  },
+
   /* Rig preview ------------------------------------------------------ */
 
   'rigPreview.gravity': {
