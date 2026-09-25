@@ -185,6 +185,11 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   with named places from a catalogue of 780 kinds, each named at the scales where
   it makes sense. Its places feed the timeline.
   See [docs/WORLD-MAP.md](docs/WORLD-MAP.md).
+- **Undo and redo everywhere.** Every change in every flow, on the graph and
+  from a sync can be undone (Ctrl+Z) and redone (Ctrl+Shift+Z). Inside an
+  editor, undo walks back that flow alone; a drag or a brush stroke is one
+  step. **Settings** sets the lowest and highest value, and the step, of every
+  slider in the studio, flow by flow. See [docs/UNDO.md](docs/UNDO.md).
 - **Animatic.** The board laid out in time: hold a shot longer, cut one out, aim
   at a runtime and fit the whole cut to it — none of which touches the board. It
   plays in the browser, and **Export video** records the same cut to a real video

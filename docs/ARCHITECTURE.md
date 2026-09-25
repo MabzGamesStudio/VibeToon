@@ -204,6 +204,12 @@ A single `StudioProvider` holds the project, autosaves 700ms after the last edit
 and coalesces edits made while a save is in flight. Generation, sync and upload
 flush pending saves first, then adopt the project the server returns.
 
+Every change passes through the provider's `commit`, which is where undo history
+is recorded: each entry holds the project before and after, scoped to one flow or
+to the graph, and a pointer gesture is one entry. See [UNDO.md](UNDO.md). Sliders
+take their ends from `SLIDER_RANGES` by key, over which the installation's own
+changes (Settings, stored server-side) are laid.
+
 The graph canvas is plain React and SVG: cards sit in a transformed world layer,
 edges are cubics between port anchors, and each interaction — pan, node drag, wire
 drag — is a pointer capture that commits once on release.

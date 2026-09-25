@@ -263,11 +263,9 @@ export function PaletteFilterFlowEditor({
               rather than to black.
             </p>
             <Slider
+              range="paletteFilter.minChunk"
               label="Smallest chunk"
               value={data.options.minChunk ?? 0}
-              min={0}
-              max={200}
-              step={1}
               tip="paletteFilter.minChunk"
               format={(value) => (value <= 1 ? 'any size' : `${value} px`)}
               hint="A patch of one color smaller than this takes the closest color it touches — stray dots and specks go."
@@ -278,11 +276,9 @@ export function PaletteFilterFlowEditor({
           <div className="vt-section">
             <h3>How close counts as the same</h3>
             <Slider
+              range="paletteFilter.tolerance"
               label="Tolerance"
               value={data.options.tolerance}
-              min={0}
-              max={80}
-              step={0.5}
               tip="paletteFilter.tolerance"
               format={(value) => (value === 0 ? 'exactly, and nothing else' : `within ${value}`)}
               hint="In OKLab, times 100: under 2 is invisible, 20 is navy against royal blue."

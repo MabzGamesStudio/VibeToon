@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import type { SliderRangeOverrides } from '@vibetoon/shared';
 import { DATA_ROOT } from './paths';
 
 /**
  * Settings that belong to this installation rather than to a project: which
- * dictionary to ask, and nothing else so far. A project is a folder you can
+ * dictionary to ask, and how far each slider reaches. A project is a folder you can
  * copy to another machine, and the dictionary you happen to have a key for
  * should not travel with it.
  *
@@ -26,6 +27,12 @@ export interface Settings {
    * written into an artifact, or recorded in the API log.
    */
   dictionaryKeys?: Record<string, string>;
+  /**
+   * The ends of the studio's sliders, where they have been changed from the
+   * defaults. Keyed by slider (see `SLIDER_RANGES`); nothing secret, and the
+   * only part of this file the browser is ever sent.
+   */
+  sliderRanges?: SliderRangeOverrides;
 }
 
 const SETTINGS_FILE = path.join(DATA_ROOT, 'settings.json');

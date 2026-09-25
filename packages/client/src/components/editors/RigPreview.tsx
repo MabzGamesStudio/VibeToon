@@ -270,26 +270,23 @@ export function RigPreview({
         <div className="vt-rig-preview-grid">
           <div>
             <Slider
+              range="rigPreview.gravity"
               label="Gravity"
               tip="rigPreview.gravity"
-              min={0}
-              max={3}
-              step={0.05}
               value={settings.gravity}
               format={(value) => (value === 0 ? 'none' : `${value.toFixed(2)} g`)}
               onChange={(gravity) => set({ gravity })}
             />
             <Slider
+              range="rigPreview.wind"
               label="Wind"
               tip="rigPreview.wind"
-              min={-1.5}
-              max={1.5}
-              step={0.05}
               value={settings.wind}
               format={(value) => (value === 0 ? 'still air' : `${Math.abs(value).toFixed(2)} g ${value < 0 ? '←' : '→'}`)}
               onChange={(wind) => set({ wind })}
             />
             <Slider
+              range="rigPreview.gust"
               label="Gusts"
               tip="rigPreview.gust"
               value={settings.gust}
@@ -297,6 +294,7 @@ export function RigPreview({
               onChange={(gust) => set({ gust })}
             />
             <Slider
+              range="rigPreview.damping"
               label="Air"
               tip="rigPreview.damping"
               value={settings.damping}
@@ -321,21 +319,17 @@ export function RigPreview({
             {settings.motion !== 'still' ? (
               <>
                 <Slider
+                  range="rigPreview.motionSize"
                   label="How far"
                   tip="rigPreview.motionSize"
-                  min={0}
-                  max={0.6}
-                  step={0.01}
                   value={settings.motionSize}
                   format={(value) => `${Math.round(value * 100)}% of its height`}
                   onChange={(motionSize) => set({ motionSize })}
                 />
                 <Slider
+                  range="rigPreview.motionSpeed"
                   label="How fast"
                   tip="rigPreview.motionSpeed"
-                  min={0.1}
-                  max={4}
-                  step={0.05}
                   value={settings.motionSpeed}
                   format={(value) => `${value.toFixed(2)} a second`}
                   onChange={(motionSpeed) => set({ motionSpeed })}

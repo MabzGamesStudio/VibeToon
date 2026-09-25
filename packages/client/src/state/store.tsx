@@ -12,7 +12,15 @@ import {
   createConnection,
   createNode,
   defaultRulesForConnection,
+  emptyHistory,
+  nextRedo,
+  nextUndo,
+  record,
+  redo as redoStep,
+  seal,
+  undo as undoStep,
   validateConnection,
+  type History,
   type ArtifactRef,
   type Connection,
   type FlowData,
@@ -35,6 +43,14 @@ export interface Toast {
   id: number;
   kind: 'info' | 'success' | 'warn' | 'error';
   message: string;
+}
+
+/** What undo and redo would do from where you are. */
+export interface UndoState {
+  canUndo: boolean;
+  canRedo: boolean;
+  undoLabel: string;
+  redoLabel: string;
 }
 
 export type Selection =
@@ -64,6 +80,10 @@ interface StudioValue {
   removeProject(id: string): Promise<void>;
   closeProject(): void;
 
+  /**
+   * Change the project's own fields — its name, settings, graph view. The draft
+   * is a shallow copy: nodes and connections have their own methods below.
+   */
   update(mutate: (draft: Project) => void): void;
   patchNode(nodeId: string, patch: Partial<FlowNode>): void;
   setFlowData(nodeId: string, data: FlowData): void;
@@ -75,6 +95,14 @@ interface StudioValue {
 
   select(selection: Selection): void;
   focusFlow(nodeId: string | null): void;
+
+  /**
+   * Take back the last change. Inside a flow's editor that is the last change
+   * to that flow; on the graph, the last change anywhere.
+   */
+  undo(): void;
+  redo(): void;
+  undoState: UndoState;
 
   generateFlow(nodeId: string, attachments?: AttachmentPayload[]): Promise<GenerationRun | null>;
   generateAll(): Promise<void>;
@@ -92,6 +120,8 @@ interface StudioValue {
   clearArtifacts(nodeId: string): Promise<void>;
   flushSave(): Promise<void>;
 }
+
+const flowName = (project: Project, nodeId: string) => project.nodes.find((node) => node.id === nodeId)?.name ?? 'a flow';
 
 const StudioContext = createContext<StudioValue | null>(null);
 
@@ -126,6 +156,25 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
   const savingRef = useRef<Promise<void> | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastId = useRef(0);
+  // Undo history. Kept in a ref so recording a change never waits on a render;
+  // `historyTick` re-renders what shows it.
+  const historyRef = useRef<History>(emptyHistory());
+  const gestureRef = useRef<number | null>(null);
+  const gestureSeq = useRef(0);
+  const [historyTick, setHistoryTick] = useState(0);
+  const focusedRef = useRef<string | null>(null);
+  focusedRef.current = focusedFlowId;
+
+  const setHistory = useCallback((next: History) => {
+    if (next === historyRef.current) return;
+    historyRef.current = next;
+    setHistoryTick((tick) => tick + 1);
+  }, []);
+
+  const resetHistory = useCallback(() => {
+    historyRef.current = emptyHistory();
+    setHistoryTick((tick) => tick + 1);
+  }, []);
 
   const notify = useCallback((kind: Toast['kind'], message: string) => {
     const id = (toastId.current += 1);
@@ -174,12 +223,13 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         notify('error', 'This project changed elsewhere. Reloading the saved version.');
         const fresh = await api.getProject(current.id);
         applyProject(fresh);
+        resetHistory();
         setSaveState('clean');
         return;
       }
       notify('error', `Could not save: ${(error as Error).message}`);
     }
-  }, [applyProject, notify]);
+  }, [applyProject, notify, resetHistory]);
 
   const flushSave = useCallback(async (): Promise<void> => {
     if (timerRef.current) {
@@ -225,17 +275,38 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
 
   const commit = useCallback(
     (next: Project) => {
+      const current = projectRef.current;
+      if (current) setHistory(record(historyRef.current, current, next, { now: Date.now(), gesture: gestureRef.current }));
       applyProject(next);
       scheduleSave();
     },
-    [applyProject, scheduleSave],
+    [applyProject, scheduleSave, setHistory],
+  );
+
+  /**
+   * Take a project the server made — after a generate, a sync, an upload. What
+   * it changed in any flow's data (a sync writes into it) is a step of its own
+   * that can be undone; the files and runs it made are not.
+   */
+  const adopt = useCallback(
+    (next: Project, label: string) => {
+      const current = projectRef.current;
+      if (current && current.id === next.id) {
+        setHistory(record(historyRef.current, current, next, { now: Date.now(), gesture: null, label, apart: true }));
+      }
+      applyProject(next);
+    },
+    [applyProject, setHistory],
   );
 
   const update = useCallback(
     (mutate: (draft: Project) => void) => {
       const current = projectRef.current;
       if (!current) return;
-      const draft = structuredClone(current);
+      // Shallow: copying every node's data to change the project's name would
+      // make every flow look changed, to the undo history and to anything
+      // else that compares by reference.
+      const draft: Project = { ...current, settings: { ...current.settings }, view: { ...current.view } };
       mutate(draft);
       commit(draft);
     },
@@ -344,6 +415,97 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
     [commit],
   );
 
+  /* ---------------- undo ---------------- */
+
+  const step = useCallback(
+    (direction: 'undo' | 'redo') => {
+      const current = projectRef.current;
+      if (!current) return;
+      const scope = focusedRef.current;
+      const result = (direction === 'undo' ? undoStep : redoStep)(historyRef.current, current, scope);
+      if (!result) return;
+      setHistory(result.history);
+      applyProject(result.project);
+      scheduleSave();
+      // A step undone on the graph may be inside a flow, where it cannot be
+      // seen from here; say what it was.
+      if (scope === null && result.entry.scope !== 'graph') {
+        notify('info', `${direction === 'undo' ? 'Undid' : 'Redid'} ${result.entry.label}`);
+      }
+    },
+    [applyProject, notify, scheduleSave, setHistory],
+  );
+
+  const undo = useCallback(() => step('undo'), [step]);
+  const redo = useCallback(() => step('redo'), [step]);
+
+  const undoState = useMemo<UndoState>(() => {
+    if (!project) return { canUndo: false, canRedo: false, undoLabel: '', redoLabel: '' };
+    const back = nextUndo(historyRef.current, project, focusedFlowId);
+    const forward = nextRedo(historyRef.current, project, focusedFlowId);
+    return {
+      canUndo: Boolean(back),
+      canRedo: Boolean(forward),
+      undoLabel: back?.label ?? '',
+      redoLabel: forward?.label ?? '',
+    };
+    // historyTick stands for historyRef.current.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, focusedFlowId, historyTick]);
+
+  /*
+   * What counts as one step. A pointer held down is one gesture — a drag, a
+   * slider, a brush stroke — however many changes it makes. Pressing it again,
+   * pressing Enter or Tab, or moving to another field starts the next step.
+   */
+  useEffect(() => {
+    const closeStep = () => setHistory(seal(historyRef.current));
+    const onDown = () => {
+      gestureSeq.current += 1;
+      gestureRef.current = gestureSeq.current;
+      closeStep();
+    };
+    const onUp = () => {
+      // Handlers for mouseup and click run after pointerup, and some commit
+      // there — the end of a drag, a button's click. They are still part of
+      // the gesture, so it ends on the next task, not this one.
+      const ending = gestureRef.current;
+      window.setTimeout(() => {
+        if (gestureRef.current !== ending) return;
+        gestureRef.current = null;
+        closeStep();
+      }, 0);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Enter' || event.key === 'Tab') closeStep();
+      const mod = event.ctrlKey || event.metaKey;
+      if (!mod || event.altKey || event.defaultPrevented) return;
+      // A dialog's fields are not the project; leave their undo to the browser.
+      if (event.target instanceof Element && event.target.closest('.vt-modal')) return;
+      const key = event.key.toLowerCase();
+      if (key === 'z' || key === 'y') {
+        // Our own undo, even in a text field: the field's own history is
+        // cleared by every re-render, and the project's is the one that
+        // matters.
+        event.preventDefault();
+        if (key === 'y' || event.shiftKey) step('redo');
+        else step('undo');
+      }
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onUp, true);
+    window.addEventListener('focusin', closeStep);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', onUp, true);
+      window.removeEventListener('focusin', closeStep);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [setHistory, step]);
+
   /* ---------------- project lifecycle ---------------- */
 
   const refreshProjects = useCallback(async () => {
@@ -361,6 +523,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         await flushSave();
         const next = await api.getProject(id);
         applyProject(next);
+        resetHistory();
         setRuns({});
         setSelection({ type: 'none' });
         setFocusedFlowId(null);
@@ -373,7 +536,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         setLoading(false);
       }
     },
-    [applyProject, flushSave, notify],
+    [applyProject, flushSave, notify, resetHistory],
   );
 
   const newProject = useCallback(
@@ -383,6 +546,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         await flushSave();
         const created = await api.createProject(name, template);
         applyProject(created);
+        resetHistory();
         setRuns({});
         setSelection({ type: 'none' });
         setFocusedFlowId(null);
@@ -396,7 +560,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         setLoading(false);
       }
     },
-    [applyProject, flushSave, notify, refreshProjects],
+    [applyProject, flushSave, notify, refreshProjects, resetHistory],
   );
 
   const removeProject = useCallback(
@@ -405,6 +569,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         await api.deleteProject(id);
         if (projectRef.current?.id === id) {
           applyProject(null);
+          resetHistory();
           window.localStorage.removeItem(LAST_PROJECT_KEY);
         }
         await refreshProjects();
@@ -413,15 +578,16 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         notify('error', `Could not delete project: ${(error as Error).message}`);
       }
     },
-    [applyProject, notify, refreshProjects],
+    [applyProject, notify, refreshProjects, resetHistory],
   );
 
   const closeProject = useCallback(() => {
     void flushSave().then(() => {
       applyProject(null);
+      resetHistory();
       window.localStorage.removeItem(LAST_PROJECT_KEY);
     });
-  }, [applyProject, flushSave]);
+  }, [applyProject, flushSave, resetHistory]);
 
   /* ---------------- generation ---------------- */
 
@@ -450,7 +616,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         try {
           await flushSave();
           const result = await api.generateFlow(current.id, nodeId, attachments);
-          applyProject(result.project);
+          adopt(result.project, `Generate ${flowName(current, nodeId)}`);
           setSaveState('clean');
           recordRuns(result.runs);
           const run = result.runs[0];
@@ -471,7 +637,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         }
       });
     },
-    [applyProject, flushSave, notify, recordRuns, withBusy],
+    [adopt, flushSave, notify, recordRuns, withBusy],
   );
 
   const generateAll = useCallback(async () => {
@@ -483,7 +649,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         try {
           await flushSave();
           const result = await api.generateProject(current.id);
-          applyProject(result.project);
+          adopt(result.project, 'Generate stale flows');
           setSaveState('clean');
           recordRuns(result.runs);
           const failed = result.runs.filter((run) => !run.ok);
@@ -495,7 +661,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         }
       },
     );
-  }, [applyProject, flushSave, notify, recordRuns, withBusy]);
+  }, [adopt, flushSave, notify, recordRuns, withBusy]);
 
   const acceptSync = useCallback(
     async (nodeId: string, connectionId?: string) => {
@@ -505,7 +671,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         try {
           await flushSave();
           const result = await api.syncAccept(current.id, nodeId, connectionId);
-          applyProject(result.project);
+          adopt(result.project, `Sync ${flowName(current, nodeId)} from ${result.sourceFlowName}`);
           setSaveState('clean');
           const counts = result.plan.counts;
           notify(
@@ -517,7 +683,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         }
       });
     },
-    [applyProject, flushSave, notify, withBusy],
+    [adopt, flushSave, notify, withBusy],
   );
 
   const uploadOutput = useCallback(
@@ -528,7 +694,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         try {
           await flushSave();
           const result = await api.uploadOutput(current.id, nodeId, portId, fileName, data);
-          applyProject(result.project);
+          adopt(result.project, `Upload to ${flowName(current, nodeId)}`);
           setSaveState('clean');
           notify('success', `Uploaded ${result.artifact.fileName}.`);
         } catch (error) {
@@ -536,7 +702,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         }
       });
     },
-    [applyProject, flushSave, notify, withBusy],
+    [adopt, flushSave, notify, withBusy],
   );
 
   /**
@@ -552,7 +718,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         try {
           await flushSave();
           const result = await api.fetchOutput(current.id, nodeId, portId, url);
-          applyProject(result.project);
+          adopt(result.project, `Fetch into ${flowName(current, nodeId)}`);
           setSaveState('clean');
           notify('success', `Fetched ${result.artifact.fileName}.`);
           return result;
@@ -562,7 +728,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         }
       });
     },
-    [applyProject, flushSave, notify, withBusy],
+    [adopt, flushSave, notify, withBusy],
   );
 
   const clearArtifacts = useCallback(
@@ -573,7 +739,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         try {
           await flushSave();
           const next = await api.clearArtifacts(current.id, nodeId);
-          applyProject(next);
+          adopt(next, `Clear ${flowName(current, nodeId)}`);
           setSaveState('clean');
           setRuns((runsByFlow) => {
             const copy = { ...runsByFlow };
@@ -586,7 +752,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         }
       });
     },
-    [applyProject, flushSave, notify, withBusy],
+    [adopt, flushSave, notify, withBusy],
   );
 
   /* ---------------- boot ---------------- */
@@ -635,6 +801,9 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
       removeConnection,
       select: setSelection,
       focusFlow: setFocusedFlowId,
+      undo,
+      redo,
+      undoState,
       generateFlow,
       generateAll,
       acceptSync,
@@ -669,6 +838,9 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
       connect,
       patchConnection,
       removeConnection,
+      undo,
+      redo,
+      undoState,
       generateFlow,
       generateAll,
       acceptSync,

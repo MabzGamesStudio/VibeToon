@@ -48,13 +48,13 @@ const FEATURE_LABEL: Record<keyof FeatureToggles, string> = {
   villages: 'Villages',
 };
 
-const TERRAIN_SLIDERS: Array<{ key: keyof TerrainSettings; label: string; min: number; max: number; step: number; format(value: number): string }> = [
-  { key: 'land', label: 'Land', min: 0, max: 1, step: 0.01, format: (value) => `${Math.round(value * 100)}% of the map` },
-  { key: 'continentSize', label: 'Landmass size', min: 200, max: 5000, step: 50, format: (value) => `about ${Math.round(value).toLocaleString('en')} km` },
-  { key: 'roughness', label: 'Roughness', min: 0, max: 1, step: 0.01, format: (value) => value.toFixed(2) },
-  { key: 'mountains', label: 'Mountains', min: 0, max: 1, step: 0.01, format: (value) => value.toFixed(2) },
-  { key: 'temperature', label: 'Temperature', min: -1, max: 1, step: 0.01, format: (value) => `${value >= 0 ? '+' : ''}${Math.round(value * 15)} °C` },
-  { key: 'moisture', label: 'Moisture', min: -1, max: 1, step: 0.01, format: (value) => (value === 0 ? 'as the climate gives' : value > 0 ? `wetter ${value.toFixed(2)}` : `drier ${(-value).toFixed(2)}`) },
+const TERRAIN_SLIDERS: Array<{ key: keyof TerrainSettings; label: string; range: string; format(value: number): string }> = [
+  { key: 'land', label: 'Land', range: 'map.land', format: (value) => `${Math.round(value * 100)}% of the map` },
+  { key: 'continentSize', label: 'Landmass size', range: 'map.continentSize', format: (value) => `about ${Math.round(value).toLocaleString('en')} km` },
+  { key: 'roughness', label: 'Roughness', range: 'map.roughness', format: (value) => value.toFixed(2) },
+  { key: 'mountains', label: 'Mountains', range: 'map.mountains', format: (value) => value.toFixed(2) },
+  { key: 'temperature', label: 'Temperature', range: 'map.temperature', format: (value) => `${value >= 0 ? '+' : ''}${Math.round(value * 15)} °C` },
+  { key: 'moisture', label: 'Moisture', range: 'map.moisture', format: (value) => (value === 0 ? 'as the climate gives' : value > 0 ? `wetter ${value.toFixed(2)}` : `drier ${(-value).toFixed(2)}`) },
 ];
 
 const randomSeed = () => Math.random().toString(36).slice(2, 8);
@@ -125,9 +125,6 @@ export function MapFlowEditor({ project, node }: { project: Project; node: FlowN
     const slider = TERRAIN_SLIDERS.find((one) => one.key === key)!;
     return {
       label: slider.label,
-      min: slider.min,
-      max: slider.max,
-      step: slider.step,
       value: settings.terrain[key],
       format: slider.format,
       onChange: (value: number) => setTerrain({ [key]: value }),
@@ -183,13 +180,13 @@ export function MapFlowEditor({ project, node }: { project: Project; node: FlowN
               <input type="number" min={-90} max={90} value={settings.southLatitude} aria-label="Bottom latitude" onChange={(event) => setSettings({ southLatitude: Number(event.target.value) })} />
             </Field>
           </div>
-          <Slider {...terrainSlider('land')} tip="map.land" />
-          <Slider {...terrainSlider('continentSize')} tip="map.continentSize" />
-          <Slider {...terrainSlider('roughness')} tip="map.roughness" />
-          <Slider {...terrainSlider('mountains')} tip="map.mountains" />
-          <Slider {...terrainSlider('temperature')} tip="map.temperature" />
-          <Slider {...terrainSlider('moisture')} tip="map.moisture" />
-          <Slider label="Settlements" tip="map.density" value={settings.density} format={(value) => `${Math.round(value * 100)}%`} onChange={(density) => setSettings({ density })} />
+          <Slider range="map.land" {...terrainSlider('land')} tip="map.land" />
+          <Slider range="map.continentSize" {...terrainSlider('continentSize')} tip="map.continentSize" />
+          <Slider range="map.roughness" {...terrainSlider('roughness')} tip="map.roughness" />
+          <Slider range="map.mountains" {...terrainSlider('mountains')} tip="map.mountains" />
+          <Slider range="map.temperature" {...terrainSlider('temperature')} tip="map.temperature" />
+          <Slider range="map.moisture" {...terrainSlider('moisture')} tip="map.moisture" />
+          <Slider range="map.density" label="Settlements" tip="map.density" value={settings.density} format={(value) => `${Math.round(value * 100)}%`} onChange={(density) => setSettings({ density })} />
           <button type="button" className="vt-btn is-primary" style={{ width: '100%', marginTop: 6 }} onClick={regenerate}>
             Regenerate features
           </button>
@@ -286,7 +283,7 @@ export function MapFlowEditor({ project, node }: { project: Project; node: FlowN
                 <option value="erase">Erase paint (back to generated)</option>
               </select>
             </Field>
-            <Slider label="Brush" min={3} max={80} step={1} value={tool.brush} format={(value) => `${formatSize(value * view.pixel * 1000)} across ${value}px`} onChange={(brush) => setTool({ ...tool, brush })} />
+            <Slider range="map.brush" label="Brush" value={tool.brush} format={(value) => `${formatSize(value * view.pixel * 1000)} across ${value}px`} onChange={(brush) => setTool({ ...tool, brush })} />
           </div>
         ) : null}
 
@@ -298,10 +295,10 @@ export function MapFlowEditor({ project, node }: { project: Project; node: FlowN
             {(['land', 'mountains', 'roughness', 'temperature', 'moisture'] as const).map((key) => {
               const slider = TERRAIN_SLIDERS.find((one) => one.key === key)!;
               return (
-                <Slider key={key} label={slider.label} min={slider.min} max={slider.max} step={slider.step} value={nextRegion[key]} format={slider.format} onChange={(value) => setNextRegion({ ...nextRegion, [key]: value })} />
+                <Slider key={key} label={slider.label} range={slider.range} value={nextRegion[key]} format={slider.format} onChange={(value) => setNextRegion({ ...nextRegion, [key]: value })} />
               );
             })}
-            <Slider label="Blend at its edges" tip="map.feather" min={0} max={400} step={5} value={nextRegion.feather} format={(value) => `${value} km`} onChange={(feather) => setNextRegion({ ...nextRegion, feather })} />
+            <Slider range="map.feather" label="Blend at its edges" tip="map.feather" value={nextRegion.feather} format={(value) => `${value} km`} onChange={(feather) => setNextRegion({ ...nextRegion, feather })} />
           </div>
         ) : null}
 
@@ -509,7 +506,7 @@ function ElementPanel({
               <input type="number" min={0.1} step={0.5} value={element.width ?? 1} aria-label="Width in metres" onChange={(event) => onChange({ width: Math.max(0.1, Number(event.target.value) || 1) })} />
             </Field>
           ) : (
-            <Slider label="Turned" min={-180} max={180} step={1} value={element.rotation} format={(value) => `${value}°`} onChange={(rotation) => onChange({ rotation })} />
+            <Slider range="map.rotation" label="Turned" value={element.rotation} format={(value) => `${value}°`} onChange={(rotation) => onChange({ rotation })} />
           )}
         </div>
         <div>

@@ -60,6 +60,15 @@
   }
 }
 
+.vt-undo {
+  display: flex;
+  gap: 2px;
+
+  .vt-btn:disabled {
+    opacity: 0.4;
+  }
+}
+
 .vt-save-state {
   font-size: 11px;
   color: $text-faint;
@@ -420,4 +429,105 @@
     animation: none !important;
     box-shadow: none !important;
   }
+}
+
+/* ---------------- settings ---------------- */
+
+.vt-settings {
+  h3 {
+    margin: 0 0 4px;
+  }
+
+  h4 {
+    margin: 18px 0 6px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: $text-faint;
+  }
+}
+
+.vt-settings-flow {
+  border: 1px solid $line;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+
+  > header {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 8px 10px;
+    background: $bg-2;
+    font-size: 13px;
+
+    .vt-faint {
+      font-size: 11px;
+    }
+  }
+}
+
+.vt-slider-ranges {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+
+  // The same columns in every flow's table, so they line up down the page.
+  thead th:nth-child(1) {
+    width: 34%;
+  }
+  thead th:nth-child(2) {
+    width: 18%;
+  }
+  thead th:nth-child(3),
+  thead th:nth-child(4),
+  thead th:nth-child(5) {
+    width: 13%;
+  }
+
+  th,
+  td {
+    padding: 4px 8px;
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  thead th {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: $text-faint;
+  }
+
+  tbody th {
+    font-weight: 500;
+  }
+
+  input[type='number'] {
+    width: 100%;
+    max-width: 96px;
+
+    &.is-changed {
+      border-color: $accent;
+    }
+  }
+
+  tr.is-changed th {
+    color: $accent;
+  }
+
+  .vt-slider-range-section td {
+    padding-top: 8px;
+    font-size: 11px;
+    color: $text-faint;
+    border-top: 1px solid $line;
+  }
+}
+
+.vt-slider-range-error {
+  color: $err;
+  font-size: 11px;
+  font-weight: 400;
 }

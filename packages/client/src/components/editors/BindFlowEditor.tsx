@@ -455,11 +455,9 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
           </p>
           {tool === 'add' || tool === 'remove' ? (
             <Slider
+              range="bind.brush"
               label="Brush"
               value={brush}
-              min={4}
-              max={60}
-              step={1}
               format={(value) => `${value.toFixed(0)} px on screen`}
               hint="Sized on screen, so zooming in lets it pick out single nodes in a crowded joint."
               onChange={(value) => patch({ brush: Math.round(value) })}

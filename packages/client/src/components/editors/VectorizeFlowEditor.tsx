@@ -143,11 +143,9 @@ export function VectorizeFlowEditor({
         <div className="vt-section">
           <h3>What counts as a line</h3>
           <Slider
+            range="vectorize.lineWidth"
             label="Widest a stroke may be"
             value={data.options.lineWidth}
-            min={1}
-            max={24}
-            step={0.5}
             tip="vectorize.lineWidth"
             format={(value) => `${value}px`}
             hint="Below this a thin shape is a drawn mark; above it, a long thin area."
@@ -162,31 +160,25 @@ export function VectorizeFlowEditor({
         <div className="vt-section">
           <h3>Where the edges are</h3>
           <Slider
+            range="vectorize.edgeThreshold"
             label="Contrast that counts"
             value={data.options.edgeThreshold}
-            min={2}
-            max={40}
-            step={0.5}
             tip="vectorize.edgeThreshold"
             hint="Turn it down to find fainter boundaries, up to ignore shading."
             onChange={(edgeThreshold) => patch({ options: { ...data.options, edgeThreshold } })}
           />
           <Slider
+            range="vectorize.edgeFloor"
             label="…and to keep one going"
             value={data.options.edgeFloor}
-            min={0}
-            max={20}
-            step={0.5}
             tip="vectorize.edgeFloor"
             hint="A weaker boundary is kept only where it joins a stronger one."
             onChange={(edgeFloor) => patch({ options: { ...data.options, edgeFloor } })}
           />
           <Slider
+            range="vectorize.minArea"
             label="Drop regions under"
             value={data.options.minArea}
-            min={0}
-            max={200}
-            step={4}
             tip="vectorize.minArea"
             format={(value) => (value === 0 ? 'keep all' : `${value}px`)}
             onChange={(minArea) => patch({ options: { ...data.options, minArea } })}
@@ -196,11 +188,9 @@ export function VectorizeFlowEditor({
         <div className="vt-section">
           <h3>Where to spend the effort</h3>
           <Slider
+            range="vectorize.refineRounds"
             label="Rounds of refinement"
             value={data.options.refineRounds}
-            min={0}
-            max={4}
-            step={1}
             tip="vectorize.refineRounds"
             format={(value) => (value === 0 ? 'none — one pass' : `${value} round${value === 1 ? '' : 's'}`)}
             hint="Each round draws the result, measures it against the picture, and tightens only the boundaries running through the worst parts."
@@ -209,22 +199,18 @@ export function VectorizeFlowEditor({
           {data.options.refineRounds > 0 ? (
             <>
               <Slider
+                range="vectorize.hotspotBlock"
                 label="Measured over blocks of"
                 value={data.options.hotspotBlock}
-                min={4}
-                max={64}
-                step={4}
                 tip="vectorize.hotspotBlock"
                 format={(value) => `${value} × ${value} px`}
                 hint="How big a mistake has to be to count as one."
                 onChange={(hotspotBlock) => patch({ options: { ...data.options, hotspotBlock } })}
               />
               <Slider
+                range="vectorize.hotspotShare"
                 label="Worst blocks to work on"
                 value={data.options.hotspotShare}
-                min={0.05}
-                max={1}
-                step={0.05}
                 tip="vectorize.hotspotShare"
                 format={(value) => `${(value * 100).toFixed(0)}% of them`}
                 onChange={(hotspotShare) => patch({ options: { ...data.options, hotspotShare } })}
@@ -236,33 +222,27 @@ export function VectorizeFlowEditor({
         <div className="vt-section">
           <h3>How many points</h3>
           <Slider
+            range="vectorize.detail"
             label="Simplify to within"
             value={data.options.detail}
-            min={0}
-            max={6}
-            step={0.1}
             tip="vectorize.detail"
             format={(value) => (value === 0 ? 'every point' : `${value.toFixed(1)}px`)}
             hint="The main control over how heavy the result is. Turn it up for fewer points."
             onChange={(detail) => patch({ options: { ...data.options, detail } })}
           />
           <Slider
+            range="vectorize.maxPoints"
             label="At most, per shape"
             value={data.options.maxPoints}
-            min={0}
-            max={80}
-            step={1}
             tip="vectorize.maxPoints"
             format={(value) => (value === 0 ? 'no limit' : `${value} points`)}
             hint="A shape over budget is simplified harder until it fits."
             onChange={(maxPoints) => patch({ options: { ...data.options, maxPoints } })}
           />
           <Slider
+            range="vectorize.curveThreshold"
             label="Curved if bent by"
             value={data.options.curveThreshold}
-            min={0}
-            max={0.3}
-            step={0.01}
             tip="vectorize.curveThreshold"
             format={(value) => `${(value * 100).toFixed(0)}% of its length`}
             onChange={(curveThreshold) => patch({ options: { ...data.options, curveThreshold } })}
@@ -272,33 +252,27 @@ export function VectorizeFlowEditor({
         <div className="vt-section">
           <h3>The smallest things</h3>
           <Slider
+            range="vectorize.minNodeGap"
             label="Nodes at least"
             value={data.options.minNodeGap}
-            min={0}
-            max={6}
-            step={0.5}
             tip="vectorize.minNodeGap"
             format={(value) => (value === 0 ? 'as traced' : `${value.toFixed(1)}px apart`)}
             hint="Closer nodes are merged — in every shape that shares them, so neighbours still meet."
             onChange={(minNodeGap) => patch({ options: { ...data.options, minNodeGap } })}
           />
           <Slider
+            range="vectorize.minPolygonArea"
             label="Smallest polygon"
             value={data.options.minPolygonArea}
-            min={0}
-            max={100}
-            step={1}
             tip="vectorize.minPolygonArea"
             format={(value) => (value === 0 ? 'any size' : `${value.toFixed(0)} px²`)}
             hint="A smaller one is folded into the neighbour it shares most outline with, so it leaves no hole."
             onChange={(minPolygonArea) => patch({ options: { ...data.options, minPolygonArea } })}
           />
           <Slider
+            range="vectorize.minLineLength"
             label="Shortest line"
             value={data.options.minLineLength}
-            min={0}
-            max={40}
-            step={1}
             tip="vectorize.minLineLength"
             format={(value) => (value === 0 ? 'any length' : `${value.toFixed(0)}px end to end`)}
             hint="A stroke shorter than this is drawn as the area it is; a stub off a longer line is dropped."
@@ -325,11 +299,9 @@ export function VectorizeFlowEditor({
           </p>
           {data.options.joinShapes ? (
             <Slider
+              range="vectorize.joinGap"
               label="Join line ends within"
               value={data.options.joinGap}
-              min={0}
-              max={12}
-              step={0.5}
               tip="vectorize.joinGap"
               format={(value) => (value === 0 ? 'only where they touch' : `${value.toFixed(1)}px`)}
               onChange={(joinGap) => patch({ options: { ...data.options, joinGap } })}

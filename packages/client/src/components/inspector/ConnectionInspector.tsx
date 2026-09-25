@@ -9,6 +9,7 @@ import {
   type ConnectionMode,
   type Project,
 } from '@vibetoon/shared';
+import { useSliderRange } from '../../state/sliderRanges';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
 import { InfoTip } from '../common/InfoTip';
@@ -24,6 +25,7 @@ export function ConnectionInspector({
 }): JSX.Element {
   const { patchConnection, removeConnection, focusFlow, registry } = useStudio();
   const rulesRef = useRef<HTMLTextAreaElement | null>(null);
+  const weightRange = useSliderRange('connection.weight');
 
   const sourceNode = project.nodes.find((node) => node.id === connection.from.nodeId);
   const targetNode = project.nodes.find((node) => node.id === connection.to.nodeId);
@@ -172,9 +174,9 @@ export function ConnectionInspector({
         >
           <input
             type="range"
-            min={0}
-            max={1}
-            step={0.05}
+            min={weightRange.min}
+            max={weightRange.max}
+            step={weightRange.step}
             value={settings.weight}
             onChange={(event) =>
               patchConnection(connection.id, {

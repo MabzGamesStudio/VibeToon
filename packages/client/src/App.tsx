@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getFlowKind } from '@vibetoon/shared';
 import { LogViewer } from './components/common/LogViewer';
+import { SettingsDialog } from './components/common/SettingsDialog';
 import { ViewMenu } from './components/common/ViewMenu';
 import { Toasts } from './components/common/Toasts';
 import { FlowEditor } from './components/editors/FlowEditor';
@@ -15,10 +16,14 @@ const SAVE_LABEL: Record<string, string> = {
   error: 'Save failed',
 };
 
+/** The modifier undo is under, as this machine writes it. */
+const MOD = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
+
 export function App(): JSX.Element {
-  const { project, focusedFlowId, focusFlow, saveState, generateAll, closeProject, busyFlows, loading } =
+  const { project, focusedFlowId, focusFlow, saveState, generateAll, closeProject, busyFlows, loading, undo, redo, undoState } =
     useStudio();
   const [logsOpen, setLogsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   if (!project) {
     return (
@@ -55,6 +60,34 @@ export function App(): JSX.Element {
           )}
         </nav>
         <div className="vt-spacer" />
+        <div className="vt-undo" role="group" aria-label="Undo and redo">
+          <button
+            type="button"
+            className="vt-btn is-ghost is-small"
+            onClick={undo}
+            disabled={!undoState.canUndo}
+            aria-label="Undo"
+            title={
+              undoState.canUndo
+                ? `Undo ${undoState.undoLabel} (${MOD}Z)`
+                : focused
+                  ? `Nothing to undo in ${focused.name}`
+                  : 'Nothing to undo'
+            }
+          >
+            ↶ Undo
+          </button>
+          <button
+            type="button"
+            className="vt-btn is-ghost is-small"
+            onClick={redo}
+            disabled={!undoState.canRedo}
+            aria-label="Redo"
+            title={undoState.canRedo ? `Redo ${undoState.redoLabel} (${MOD}⇧Z)` : 'Nothing to redo'}
+          >
+            ↷ Redo
+          </button>
+        </div>
         <div className={`vt-save-state is-${saveState}`}>{SAVE_LABEL[saveState] ?? saveState}</div>
         <button
           type="button"
@@ -65,6 +98,14 @@ export function App(): JSX.Element {
           Logs
         </button>
         <ViewMenu />
+        <button
+          type="button"
+          className="vt-btn is-ghost is-small"
+          onClick={() => setSettingsOpen(true)}
+          title="How far every slider reaches, flow by flow"
+        >
+          Settings
+        </button>
         <button
           type="button"
           className="vt-btn"
@@ -84,6 +125,7 @@ export function App(): JSX.Element {
       </div>
 
       {logsOpen ? <LogViewer onClose={() => setLogsOpen(false)} /> : null}
+      {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} /> : null}
       <Toasts />
     </div>
   );

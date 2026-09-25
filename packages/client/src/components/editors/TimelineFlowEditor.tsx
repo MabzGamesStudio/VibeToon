@@ -269,11 +269,9 @@ export function TimelineFlowEditor({ project, node }: { project: Project; node: 
           </Field>
           {data.color.by === 'place' ? (
             <Slider
+              range="timeline.placeLevel"
               label="Place level"
               tip="timeline.placeLevel"
-              min={1}
-              max={5}
-              step={1}
               value={data.color.placeLevel}
               format={(value) => (value === 1 ? 'broadest' : `${value} deep`)}
               onChange={(placeLevel) => patch({ color: { ...data.color, placeLevel } })}

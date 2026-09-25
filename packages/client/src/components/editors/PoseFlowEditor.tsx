@@ -206,11 +206,10 @@ export function PoseFlowEditor({ project, node }: { project: Project; node: Flow
           <div className="vt-section">
             <h3>{selected.name}</h3>
             <Slider
+              range="pose.turn"
+              within={limits}
               label="Turn"
               value={data.pose[selected.id] ?? 0}
-              min={limits.min}
-              max={limits.max}
-              step={1}
               format={(value) => `${value.toFixed(0)}°`}
               hint={`This joint may turn from ${limits.min}° to ${limits.max}°.`}
               onChange={(angle) => patch(turnBone(data, selected.id, angle))}
@@ -227,11 +226,9 @@ export function PoseFlowEditor({ project, node }: { project: Project; node: Flow
           <div className="vt-section">
             <h3>Solving</h3>
             <Slider
+              range="pose.chainLength"
               label="Joints that may move"
               value={data.ik.chainLength}
-              min={1}
-              max={8}
-              step={1}
               tip="pose.chainLength"
               hint="Counted back from the one you are dragging."
               onChange={(chainLength) => patch({ ik: { ...data.ik, chainLength } })}

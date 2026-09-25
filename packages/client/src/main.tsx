@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { SliderRangesProvider } from './state/sliderRanges';
 import { StudioProvider } from './state/store';
 import { ViewProvider } from './state/view';
 import './styles/main.scss';
@@ -10,7 +11,9 @@ if (!container) throw new Error('No #root element');
 createRoot(container).render(
   <ViewProvider>
     <StudioProvider>
-      <App />
+      <SliderRangesProvider>
+        <App />
+      </SliderRangesProvider>
     </StudioProvider>
   </ViewProvider>,
 );
