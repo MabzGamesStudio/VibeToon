@@ -162,6 +162,12 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   reach it cannot make falls short and says how far out it was, rather than
   stretching into a pose a body could not hold.
   See [docs/RIG-FLOWS.md](docs/RIG-FLOWS.md) for both.
+- **Rig Match.** A bound rig and a picture in: the body is found in the picture —
+  placed, sized and turned, then each part turned and sized — by matching small
+  features of each body part against features taken across the picture at a
+  range of sizes and angles, with a confidence for every part. Drag any joint,
+  or the whole body, to put it right; the fitted rig comes out ready to pose.
+  See [docs/RIG-MATCH.md](docs/RIG-MATCH.md).
 - **Color palette.** An image in, the colors it actually uses most out —
   *counted*, not averaged, which is how palettes avoid coming out as five
   shades of mud. A minimum distance measured in OKLab stops a gradient of near

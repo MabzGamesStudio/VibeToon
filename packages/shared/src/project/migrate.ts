@@ -1,4 +1,5 @@
 import { DEFAULT_FEATURES, DEFAULT_LAYERS, DEFAULT_TERRAIN, defaultMapSettings } from '../flows/worldMap';
+import { DEFAULT_RIG_MATCH_OPTIONS } from '../flows/rigMatch';
 import {
   DEFAULT_COLOR_SETTING,
   DEFAULT_SPAN,
@@ -162,6 +163,22 @@ export function normaliseFlowData(data: FlowData): FlowData {
         strokes: Array.isArray(data.strokes) ? data.strokes : [],
         elements: Array.isArray(data.elements) ? data.elements : [],
         seq: typeof data.seq === 'number' ? data.seq : 0,
+      };
+    }
+    case 'rigMatch': {
+      // A setting added later, filled in; a view switch never seen, on.
+      const options = fill(data.options, DEFAULT_RIG_MATCH_OPTIONS);
+      const shown = typeof data.showBody === 'boolean' && typeof data.showSkeleton === 'boolean' && typeof data.showFeatures === 'boolean' && typeof data.bodyOpacity === 'number';
+      if (!options.filled && shown && data.fit !== undefined && data.report !== undefined) return data;
+      return {
+        ...data,
+        options: options.value,
+        fit: data.fit ?? null,
+        report: data.report ?? null,
+        showBody: data.showBody ?? true,
+        showSkeleton: data.showSkeleton ?? true,
+        showFeatures: data.showFeatures ?? false,
+        bodyOpacity: typeof data.bodyOpacity === 'number' ? data.bodyOpacity : 0.7,
       };
     }
     case 'grammar': {

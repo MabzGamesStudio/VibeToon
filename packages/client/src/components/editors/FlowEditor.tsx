@@ -20,6 +20,7 @@ import { StoryboardEditor } from './StoryboardEditor';
 import { TextEditor } from './TextEditor';
 import { TimelineFlowEditor } from './TimelineFlowEditor';
 import { MapFlowEditor } from './MapFlowEditor';
+import { RigMatchFlowEditor } from './RigMatchFlowEditor';
 import { VectorEditFlowEditor } from './VectorEditFlowEditor';
 import { VectorizeFlowEditor } from './VectorizeFlowEditor';
 
@@ -73,6 +74,8 @@ export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
       return <TimelineFlowEditor project={project} node={node} />;
     case 'map':
       return <MapFlowEditor project={project} node={node} />;
+    case 'rigMatch':
+      return <RigMatchFlowEditor project={project} node={node} />;
     default:
       return <BriefEditor project={project} node={node} />;
   }

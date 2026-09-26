@@ -43,6 +43,8 @@ export * from './flows/timeline';
 export * from './flows/noise';
 export * from './flows/mapCatalogue';
 export * from './flows/worldMap';
+export * from './flows/rigMatch';
+export * from './flows/rigMatchSolve';
 
 export * from './text/tokenize';
 export * from './text/lexicon';

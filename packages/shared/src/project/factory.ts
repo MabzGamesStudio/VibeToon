@@ -18,6 +18,7 @@ import { emptyRigFlowData } from '../flows/rig';
 import { emptyTextData } from '../flows/text';
 import { emptyTimelineFlowData } from '../flows/timeline';
 import { emptyWorldMapFlowData } from '../flows/worldMap';
+import { emptyRigMatchFlowData } from '../flows/rigMatch';
 import { newId } from '../ids';
 import { getFlowKind, requireFlowKind } from '../registry/flowKinds';
 import { parseRules, RULE_DIRECTIVES } from '../rules/parseRules';
@@ -83,6 +84,8 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyTimelineFlowData();
     case 'map':
       return emptyWorldMapFlowData();
+    case 'rigMatch':
+      return emptyRigMatchFlowData();
     default:
       return emptyBriefData(def);
   }

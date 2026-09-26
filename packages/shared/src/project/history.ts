@@ -81,6 +81,7 @@ const PASSIVE: { keep: Record<string, string[]>; restore: Record<string, string[
     timeline: ['filter'],
     bind: ['brush', 'boneId', 'hideOthers'],
     pose: ['mode'],
+    rigMatch: ['showBody', 'showSkeleton', 'showFeatures', 'bodyOpacity'],
     // Facts about a file on the server, which undo does not reach: winding
     // them back would describe a picture that is not the one there, and the
     // editor would only measure it again.

@@ -105,6 +105,15 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('pose.turn', 'Turn (within the joint’s own limits)', ['animation.pose'], 'Joint', -180, 180, 1, '°'),
   def('pose.chainLength', 'Joints that may move', ['animation.pose'], 'Reaching', 1, 8, 1, 'joints'),
 
+  // Rig Match
+  def('rigMatch.features', 'Features per part', ['animation.match'], 'Finding the body', 2, 40, 1, 'features'),
+  def('rigMatch.scaleRange', 'Range in size', ['animation.match'], 'Finding the body', 1, 4, 0.1, '×'),
+  def('rigMatch.angleRange', 'Range in angle', ['animation.match'], 'Finding the body', 0, 180, 5, '°'),
+  def('rigMatch.bodyOpacity', 'Body over the picture', ['animation.match'], 'Showing', 0, 1, 0.05),
+  def('rigMatch.rotation', 'Whole body turned', ['animation.match'], 'Adjusting by hand', -180, 180, 1, '°'),
+  def('rigMatch.partAngle', 'Part turned (within the joint’s limits)', ['animation.match'], 'Adjusting by hand', -180, 180, 1, '°'),
+  def('rigMatch.partSize', 'Part size', ['animation.match'], 'Adjusting by hand', 0.5, 2, 0.01, '×'),
+
   // Image Extraction
   def('cutout.tolerance', 'Tolerance', CUTOUT, 'Fill', 0, 60, 0.5),
   def('cutout.grow', 'Grow', CUTOUT, 'Fill', -8, 8, 1, 'px'),
