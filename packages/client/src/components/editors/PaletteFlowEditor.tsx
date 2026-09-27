@@ -289,32 +289,26 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
         <div className="vt-section">
           <h3>The palette</h3>
           <Slider
+            range="palette.count"
             label="Colors"
             tip="palette.count"
-            min={1}
-            max={24}
-            step={1}
             value={options.count}
             format={(value) => String(Math.round(value))}
             onChange={(value) => setOption('count', Math.round(value))}
           />
           <Slider
+            range="palette.minDistance"
             label="Minimum distance"
             tip="palette.minDistance"
-            min={0}
-            max={60}
-            step={1}
             value={options.minDistance}
             format={(value) => value.toFixed(0)}
             onChange={(value) => setOption('minDistance', value)}
             hint="How far apart two entries must look. Under 2 is a difference you cannot see; 20 is navy against royal blue."
           />
           <Slider
+            range="palette.temperature"
             label="Temperature"
             tip="palette.temperature"
-            min={0}
-            max={1}
-            step={0.05}
             value={options.temperature}
             onChange={(value) => setOption('temperature', value)}
             hint="How far each entry may wander from its group's commonest color — towards another color in the same group, never out of it."
@@ -344,11 +338,9 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
         <div className="vt-section">
           <h3>Counting</h3>
           <Slider
+            range="palette.precision"
             label="Color precision"
             tip="palette.precision"
-            min={2}
-            max={8}
-            step={1}
             value={options.precision}
             format={(value) => `${Math.round(value)} bits · ${2 ** Math.round(value)} levels`}
             onChange={(value) => setOption('precision', Math.round(value))}
@@ -360,11 +352,9 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
             </div>
           ) : null}
           <Slider
+            range="palette.alphaFloor"
             label="Ignore pixels more transparent than"
             tip="palette.alphaFloor"
-            min={0}
-            max={255}
-            step={1}
             value={options.alphaFloor}
             format={(value) => value.toFixed(0)}
             onChange={(value) => setOption('alphaFloor', value)}
@@ -385,11 +375,9 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
             them. It is what a filter snaps transparent pixels to.
           </p>
           <Slider
+            range="palette.minShare"
             label="Drop groups under"
             tip="palette.minShare"
-            min={0}
-            max={0.2}
-            step={0.005}
             value={options.minShare}
             format={(value) => `${(value * 100).toFixed(1)}% of the image`}
             onChange={(value) => setOption('minShare', value)}
@@ -634,13 +622,11 @@ export function PaletteFlowEditor({ project, node }: { project: Project; node: F
                   </div>
                 </Field>
                 <Slider
+                  range="palette.opacity"
                   label="Opacity"
                   tip="palette.opacity"
                   hint="How much of what is behind this color shows through it. A filter that snaps to the palette fades a pixel by this much, so naming a see-through color is how you fade the part of a picture that is it."
                   value={chosen.a}
-                  min={0}
-                  max={255}
-                  step={1}
                   format={opacityLabel}
                   onChange={(value) => setOpacity(chosen, Math.round(value))}
                 />

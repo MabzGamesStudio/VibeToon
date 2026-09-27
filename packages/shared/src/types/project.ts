@@ -14,6 +14,7 @@ import type { PaletteFlowData } from '../flows/palette';
 import type { PaletteFilterFlowData } from '../flows/paletteFilter';
 import type { TimelineFlowData } from '../flows/timeline';
 import type { WorldMapFlowData } from '../flows/worldMap';
+import type { RigMatchFlowData } from '../flows/rigMatch';
 import type { RigFlowData } from '../flows/rig';
 import type { TextFlowData } from './text';
 
@@ -200,7 +201,8 @@ export type FlowData =
   | BindFlowData
   | PoseFlowData
   | TimelineFlowData
-  | WorldMapFlowData;
+  | WorldMapFlowData
+  | RigMatchFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph

@@ -205,11 +205,9 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               ) : null}
               {options.length.mode === 'wordPercent' ? (
                 <Slider
+                  range="text.length.wordPercent"
                   label="Change in words"
                   tip="text.length.wordPercent"
-                  min={-90}
-                  max={200}
-                  step={5}
                   value={data.options.length.wordPercent}
                   format={(value) => `${value > 0 ? '+' : ''}${value}%`}
                   hint="Against the length of the text coming in."
@@ -218,11 +216,9 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               ) : null}
               {options.length.mode === 'charPercent' ? (
                 <Slider
+                  range="text.length.charPercent"
                   label="Change in characters"
                   tip="text.length.charPercent"
-                  min={-90}
-                  max={200}
-                  step={5}
                   value={data.options.length.charPercent}
                   format={(value) => `${value > 0 ? '+' : ''}${value}%`}
                   hint="Against the length of the text coming in."
@@ -231,6 +227,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               ) : null}
 
               <Slider
+                range="text.length.temperature"
                 label="Length temperature"
                 tip="text.length.temperature"
                 value={data.options.length.temperature}
@@ -246,6 +243,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
             <div className="vt-section">
               <h3>How words are picked</h3>
               <Slider
+                range="text.alterTemperature"
                 label="Alter temperature"
                 tip="text.alterTemperature"
                 value={data.options.alterTemperature}
@@ -253,25 +251,24 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                 onChange={(value) => setOption('alterTemperature', value)}
               />
               <Slider
+                range="text.pickTemperature"
                 label="Pick temperature"
                 tip="text.pickTemperature"
-                min={0.02}
                 value={data.options.pickTemperature}
                 hint="0 always takes the strongest candidate; 1 draws straight from the scores."
                 onChange={(value) => setOption('pickTemperature', value)}
               />
               <Slider
+                range="text.contextWindow"
                 label="Context window"
                 tip="text.contextWindow"
-                min={0}
-                max={8}
-                step={1}
                 value={data.options.contextWindow}
                 format={(value) => `${value} token${value === 1 ? '' : 's'}`}
                 hint="How many previous words are allowed to pull on the next one."
                 onChange={(value) => setOption('contextWindow', value)}
               />
               <Slider
+                range="text.contextDecay"
                 label="Context decay"
                 tip="text.contextDecay"
                 value={data.options.contextDecay}
@@ -279,6 +276,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                 onChange={(value) => setOption('contextDecay', value)}
               />
               <Slider
+                range="text.frequencyBias"
                 label="Frequency bias"
                 tip="text.frequencyBias"
                 value={data.options.frequencyBias}
@@ -286,6 +284,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                 onChange={(value) => setOption('frequencyBias', value)}
               />
               <Slider
+                range="text.contextSymmetry"
                 label="Context symmetry"
                 tip="text.contextSymmetry"
                 value={data.options.contextSymmetry}
@@ -293,6 +292,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                 onChange={(value) => setOption('contextSymmetry', value)}
               />
               <Slider
+                range="text.grammarBias"
                 label="Grammar bias"
                 tip="text.grammarBias"
                 value={data.options.grammarBias}
@@ -300,6 +300,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                 onChange={(value) => setOption('grammarBias', value)}
               />
               <Slider
+                range="text.grammarWeight"
                 label="Grammar database"
                 tip="text.grammarWeight"
                 value={data.options.grammarWeight}
@@ -311,11 +312,9 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                 onChange={(value) => setOption('grammarWeight', value)}
               />
               <Slider
+                range="text.sentenceLength"
                 label="Sentence length"
                 tip="text.sentenceLength"
-                min={3}
-                max={40}
-                step={1}
                 value={data.options.sentenceLength}
                 format={(value) => `${value} words`}
                 hint="Where punctuation starts wanting to end the sentence."

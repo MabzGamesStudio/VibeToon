@@ -12,6 +12,7 @@ import {
   type Lexicon,
   type WordType,
 } from '@vibetoon/shared';
+import { useSliderRange } from '../../state/sliderRanges';
 
 /** Word types worth suggesting a link to; function words carry no meaning. */
 const CONTENT_TYPES = new Set<WordType>(['noun', 'verb', 'adjective', 'adverb']);
@@ -29,6 +30,8 @@ export interface LexiconEditorProps {
 export function LexiconEditor({ lexicon, onChange }: LexiconEditorProps): JSX.Element {
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<WordType | 'all'>('all');
+  const frequencyRange = useSliderRange('lexicon.frequency');
+  const weightRange = useSliderRange('lexicon.contextWeight');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [contextQuery, setContextQuery] = useState('');
 
@@ -224,9 +227,9 @@ export function LexiconEditor({ lexicon, onChange }: LexiconEditorProps): JSX.El
               </div>
               <input
                 type="range"
-                min={0}
-                max={1}
-                step={0.01}
+                min={frequencyRange.min}
+                max={frequencyRange.max}
+                step={frequencyRange.step}
                 value={selected.frequency}
                 onChange={(event) => update(selected.id, { frequency: Number(event.target.value) })}
               />
@@ -272,9 +275,9 @@ export function LexiconEditor({ lexicon, onChange }: LexiconEditorProps): JSX.El
                       </button>
                       <input
                         type="range"
-                        min={0}
-                        max={1}
-                        step={0.05}
+                        min={weightRange.min}
+                        max={weightRange.max}
+                        step={weightRange.step}
                         value={context.weight}
                         aria-label={`Weight for ${target?.spelling ?? context.id}`}
                         onChange={(event) =>

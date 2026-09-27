@@ -9,6 +9,7 @@ import type {
   Project,
   ProjectSummary,
   RegistryResponse,
+  SliderRangeOverrides,
   SyncResponse,
 } from '@vibetoon/shared';
 
@@ -113,6 +114,9 @@ export const api = {
       ...(morphology ? { morphology } : {}),
     }),
 
+  sliderRanges: () => request<{ overrides: SliderRangeOverrides }>('GET', '/api/settings/slider-ranges'),
+  saveSliderRanges: (overrides: SliderRangeOverrides) =>
+    request<{ overrides: SliderRangeOverrides }>('PUT', '/api/settings/slider-ranges', { overrides }),
   dictionaryProviders: () => request<DictionaryProviders>('GET', '/api/text/dictionary/providers'),
   setDictionaryKey: (id: string, key: string) =>
     request<DictionaryProviders>('POST', '/api/text/dictionary/key', { id, key }),

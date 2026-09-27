@@ -546,6 +546,25 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     defaultOutgoingRules: { pose: 'keep: joint angles' },
   },
   {
+    kind: 'animation.match',
+    category: 'animation',
+    label: 'Rig Match',
+    summary: 'Finds a bound rig’s body in a picture: places, sizes and turns it, then each part, by matching small features — with a confidence for every part.',
+    inputs: [
+      input('bound', 'Bound rig', ['json'], 'The body to find: a rig with a drawing bound to it.', { required: true }),
+      input('image', 'Picture', ['image'], 'The picture to find it in.', { required: true }),
+    ],
+    outputs: [
+      output('match', 'Match', ['json'], 'match.json', 'Where the body is and how it stands: its placement, each joint’s angle and size, and a confidence for each part.'),
+      output('fitted', 'Fitted rig', ['json'], 'fitted.json', 'The bound rig moved into the picture in the matched pose — wire it into a Pose flow to carry on from the match.'),
+      output('drawing', 'Drawing', ['image'], 'fitted.svg', 'The drawing in the matched pose, in the picture’s own frame.'),
+      output('overlay', 'Overlay', ['image'], 'overlay.png', 'The picture with the fitted body and skeleton over it.'),
+    ],
+    editor: 'rigMatch',
+    maturity: 'editor',
+    defaultOutgoingRules: { match: 'keep: placement, joint angles, part sizes, confidence' },
+  },
+  {
     kind: 'animation.animatic',
     category: 'animation',
     label: 'Animatic',

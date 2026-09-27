@@ -243,22 +243,18 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
             see in a still pose.
           </div>
           <Slider
+            range="rig.squashAndStretch"
             label="Squash and stretch"
             tip="rig.squashAndStretch"
-            min={0}
-            max={4}
-            step={0.1}
             value={options.squashAndStretch}
             format={(value) => `×${value.toFixed(1)}`}
             onChange={(value) => patch({ ...data, options: { ...options, squashAndStretch: value } })}
             hint="Scales every bone's length range at once. 0 makes the whole rig rigid."
           />
           <Slider
+            range="rig.looseness"
             label="Looseness"
             tip="rig.looseness"
-            min={0}
-            max={2}
-            step={0.05}
             value={options.looseness}
             format={(value) => `×${value.toFixed(2)}`}
             onChange={(value) => patch({ ...data, options: { ...options, looseness: value } })}
@@ -461,6 +457,7 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
                   its own below.
                 </div>
                 <Slider
+                  range="rig.floppiness"
                   label="Floppiness"
                   tip="rig.floppiness"
                   value={selectedChain.floppiness}
@@ -468,6 +465,7 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
                   hint="One number for the whole chain. 0 welds it solid; 1 is as loose as the span allows."
                 />
                 <Slider
+                  range="rig.taper"
                   label="Taper"
                   tip="rig.taper"
                   value={selectedChain.taper}
@@ -475,11 +473,9 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
                   hint="How much of that floppiness the base gives up. The tip always keeps all of it, which is what makes a tentacle read as a tentacle."
                 />
                 <Slider
+                  range="rig.span"
                   label="Span at full floppiness"
                   tip="rig.span"
-                  min={5}
-                  max={120}
-                  step={1}
                   value={selectedChain.span}
                   format={(value) => `±${value.toFixed(0)}°`}
                   onChange={(value) => patch(setChain(data, selectedChain.id, { span: value }))}
@@ -520,27 +516,24 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
             {selected.angles ? (
               <>
                 <Slider
+                  range="rig.angleMin"
                   label="Turns anticlockwise to"
                   tip="rig.angleRange"
-                  min={-180}
-                  max={0}
-                  step={1}
                   value={selected.angles.min}
                   format={(value) => `${value.toFixed(0)}°`}
                   onChange={(value) => patch(setBoneLimits(data, selected.id, { angles: { min: value } }))}
                   hint="A hard stop, measured from the rest pose. Both ends at 0 welds the joint."
                 />
                 <Slider
+                  range="rig.angleMax"
                   label="Turns clockwise to"
                   tip="rig.angleRange"
-                  min={0}
-                  max={180}
-                  step={1}
                   value={selected.angles.max}
                   format={(value) => `${value.toFixed(0)}°`}
                   onChange={(value) => patch(setBoneLimits(data, selected.id, { angles: { max: value } }))}
                 />
                 <Slider
+                  range="rig.angleStiffness"
                   label="Angle stiffness"
                   tip="rig.angleStiffness"
                   value={selected.angles.stiffness}
@@ -553,27 +546,24 @@ export function RigFlowEditor({ project, node }: { project: Project; node: FlowN
             ) : null}
 
             <Slider
+              range="rig.stretchMin"
               label="Squashes to"
               tip="rig.stretchRange"
-              min={0.3}
-              max={1}
-              step={0.01}
               value={selected.stretch.min}
               format={(value) => `×${value.toFixed(2)}`}
               onChange={(value) => patch(setBoneLimits(data, selected.id, { stretch: { min: value } }))}
               hint="A multiple of the bone's rest length. 1 cannot shorten at all."
             />
             <Slider
+              range="rig.stretchMax"
               label="Stretches to"
               tip="rig.stretchRange"
-              min={1}
-              max={3}
-              step={0.01}
               value={selected.stretch.max}
               format={(value) => `×${value.toFixed(2)}`}
               onChange={(value) => patch(setBoneLimits(data, selected.id, { stretch: { max: value } }))}
             />
             <Slider
+              range="rig.stretchStiffness"
               label="Stretch stiffness"
               tip="rig.stretchStiffness"
               value={selected.stretch.stiffness}

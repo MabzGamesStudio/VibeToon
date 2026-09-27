@@ -308,6 +308,20 @@ Moves a bound rig: turn a joint, or drag a limb and let the joints work it out.
   keep: joint angles
   ```
 
+### Rig Match
+
+`animation.match` · **bespoke editor**
+
+Finds a bound rig’s body in a picture: places, sizes and turns it, then each part, by matching small features — with a confidence for every part.
+
+- **In:** Bound rig *(required)*, Picture *(required)*
+- **Out:** Match `match.json`, Fitted rig `fitted.json`, Drawing `fitted.svg`, Overlay `overlay.png`
+- **Rules a new wire leaving `match` starts with:**
+
+  ```
+  keep: placement, joint angles, part sizes, confidence
+  ```
+
 ### Animatic
 
 `animation.animatic` · **bespoke editor**
@@ -587,4 +601,4 @@ One registry of every asset, so nothing gets re-made or lost.
 
 ---
 
-48 flow kinds.
+49 flow kinds.

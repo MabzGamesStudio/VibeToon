@@ -58,6 +58,7 @@ export type EditorId =
   | 'pose'
   | 'timeline'
   | 'map'
+  | 'rigMatch'
   | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */

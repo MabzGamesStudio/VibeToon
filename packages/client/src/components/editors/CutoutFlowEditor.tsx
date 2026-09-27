@@ -480,11 +480,9 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
         <div className="vt-section">
           <h3>How far a fill spreads</h3>
           <Slider
+            range="cutout.tolerance"
             label="Tolerance"
             value={data.options.tolerance}
-            min={0}
-            max={60}
-            step={0.5}
             tip="cutout.tolerance"
             hint="Used by the next fill. Each one keeps its own afterwards."
             onChange={(tolerance) => patch({ options: { ...data.options, tolerance } })}
@@ -504,32 +502,26 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
         <div className="vt-section">
           <h3>The edge</h3>
           <Slider
+            range="cutout.grow"
             label="Grow"
             value={data.options.grow}
-            min={-8}
-            max={8}
-            step={1}
             tip="cutout.grow"
             format={(value) => `${value > 0 ? '+' : ''}${value}px`}
             hint="A fill stops just short of a photographed edge. Growing takes the halo back."
             onChange={(grow) => patch({ options: { ...data.options, grow } })}
           />
           <Slider
+            range="cutout.feather"
             label="Feather"
             value={data.options.feather}
-            min={0}
-            max={12}
-            step={1}
             tip="cutout.feather"
             format={(value) => (value === 0 ? 'hard' : `${value}px`)}
             onChange={(feather) => patch({ options: { ...data.options, feather } })}
           />
           <Slider
+            range="cutout.minIsland"
             label="Drop islands under"
             value={data.options.minIsland}
-            min={0}
-            max={400}
-            step={10}
             tip="cutout.minIsland"
             format={(value) => (value === 0 ? 'keep all' : `${value}px`)}
             onChange={(minIsland) => patch({ options: { ...data.options, minIsland } })}
@@ -542,11 +534,9 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
             {one.type === 'seed' ? (
               <>
                 <Slider
+                  range="cutout.seedTolerance"
                   label="Its own tolerance"
                   value={one.tolerance}
-                  min={0}
-                  max={60}
-                  step={0.5}
                   hint="The edge of a face and the edge of a sky need different answers."
                   onChange={(tolerance) => patch(setSeed(data, one.id, { tolerance }))}
                 />
@@ -596,11 +586,9 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
             ) : (
               <>
                 <Slider
+                  range="cutout.lineWidth"
                   label="Width"
                   value={one.width}
-                  min={1}
-                  max={24}
-                  step={1}
                   format={(value) => `${value}px`}
                   hint="A cut is a barrier a fill cannot cross. Too thin and a fill slips through a diagonal gap."
                   onChange={(width) => patch(setLine(data, one.id, { width }))}

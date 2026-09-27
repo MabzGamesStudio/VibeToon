@@ -12,6 +12,7 @@ export * from './types/api';
 export * from './registry/flowKinds';
 export * from './registry/flowSearch';
 export * from './registry/settingTips';
+export * from './registry/sliderRanges';
 export * from './rules/parseRules';
 export * from './graph/graph';
 
@@ -42,6 +43,8 @@ export * from './flows/timeline';
 export * from './flows/noise';
 export * from './flows/mapCatalogue';
 export * from './flows/worldMap';
+export * from './flows/rigMatch';
+export * from './flows/rigMatchSolve';
 
 export * from './text/tokenize';
 export * from './text/lexicon';
@@ -58,4 +61,6 @@ export * from './text/tokenGloss';
 
 export * from './project/factory';
 export * from './project/migrate';
+export * from './project/history';
 export * from './project/seed';
+

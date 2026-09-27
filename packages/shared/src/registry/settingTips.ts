@@ -794,6 +794,45 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'A gap of one pixel in a boundary is enough for two regions to bleed into one, so lower this before raising the other if shapes are merging.',
     ],
   },
+  'rigMatch.features': {
+    what: 'How many small patches each body part gives to be looked for, before a bigger part is given more and a smaller one fewer.',
+    examples: [
+      '12 — enough to place a whole character and turn each limb; the default.',
+      '4 to 6 — quicker, and enough when the picture is clean and the character large in it.',
+      '25 and up — steadier when parts are small or half hidden, at a few more seconds a match.',
+    ],
+  },
+  'rigMatch.scaleRange': {
+    what: 'How far the picture’s patches range in size around the first guess — and so how much bigger or smaller the body may be found than it was guessed. Its square root is how far one part may grow or shrink against the rest.',
+    examples: [
+      '×1.6 — the character fills the picture more or less as guessed; the default.',
+      '×3 — the character is much smaller or larger than the picture suggests, such as a figure standing in a wide scene.',
+      '×1 — the size is known: nothing is resized, only placed and turned.',
+    ],
+  },
+  'rigMatch.angleRange': {
+    what: 'How far the picture’s patches are turned, degrees either way — and so how far the body may lean, and each part turn against its parent, from how it was drawn.',
+    examples: [
+      '±90° — arms raised or reaching; the default.',
+      '±30° — a gentle pose, found faster and with fewer false matches.',
+      '±180° — anything goes, such as a tumbling or upside-down character.',
+    ],
+  },
+  'rigMatch.keepLimits': {
+    what: 'Whether each joint stays inside the range of motion the rig gives it while being fitted.',
+    examples: [
+      'On — an elbow still only bends one way, so a limb that is hard to see cannot be fitted into a pose a body could not hold.',
+      'Off — any angle inside the range above, for a character drawn in ways its rig did not expect.',
+    ],
+  },
+  'rigMatch.confidence': {
+    what: 'How sure the match is: each feature’s likeness where it ended up, counted only as far as it beats that feature’s likeness to the picture at large. A plain patch that looks like half the picture is weak evidence; one that looks like nothing else is strong.',
+    examples: [
+      '70% and up — strong: the part is where it looks to be.',
+      '45 to 70% — fair: roughly right, worth a glance.',
+      'Under 20% — not found: hidden, cropped, or drawn too differently. Place it by hand.',
+    ],
+  },
   'pose.chainLength': {
     what: 'How many joints back from the one you are dragging are allowed to move.',
     examples: [

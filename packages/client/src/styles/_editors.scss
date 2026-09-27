@@ -2444,3 +2444,140 @@ input.is-invalid {
     cursor: grab;
   }
 }
+
+/* ---------------- rig match ---------------- */
+
+.vt-match-frame {
+  touch-action: none;
+
+  &.is-joints {
+    cursor: crosshair;
+  }
+
+  &.is-body {
+    cursor: move;
+  }
+
+  .vt-bone,
+  .vt-joint {
+    pointer-events: none;
+  }
+}
+
+.vt-match-feature {
+  fill: none;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.vt-match-feature-dot {
+  stroke: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.vt-match-handles {
+  pointer-events: none;
+
+  polygon,
+  line {
+    fill: none;
+    stroke: #ffffff;
+    opacity: 0.8;
+  }
+
+  rect,
+  circle {
+    fill: #1c7cf4;
+    stroke: #ffffff;
+  }
+}
+
+.vt-match-progress {
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.vt-match-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: $bg-2;
+  overflow: hidden;
+  margin-bottom: 4px;
+
+  span {
+    display: block;
+    height: 100%;
+    background: $accent;
+    transition: width 0.2s ease;
+  }
+}
+
+.vt-match-overall {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-bottom: 6px;
+
+  .vt-faint {
+    font-size: 12px;
+    font-weight: 500;
+  }
+}
+
+.vt-match-parts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vt-match-part {
+  display: grid;
+  grid-template-columns: 1fr 70px 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: $bg-2;
+  }
+
+  &.is-selected {
+    border-color: $accent;
+    background: $accent-soft;
+  }
+
+  .vt-faint {
+    text-align: right;
+  }
+}
+
+.vt-match-part-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vt-match-part-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: $bg-2;
+  overflow: hidden;
+
+  span {
+    display: block;
+    height: 100%;
+  }
+}
+
+.vt-match-subhead {
+  margin: 12px 0 4px;
+  font-size: 12px;
+}

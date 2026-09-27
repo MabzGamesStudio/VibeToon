@@ -16,6 +16,7 @@ import {
   type RegistryResponse,
   type StoryboardFlowData,
   type SyncResponse,
+  validateSliderOverrides,
 } from '@vibetoon/shared';
 import { fetchImage } from './net/fetchImage';
 import { fetchCorpus } from './text/corpusFetch';
@@ -29,7 +30,7 @@ import {
 import { DICTIONARY_PROVIDERS, providerById } from './text/dictionaryProviders';
 import { buildMorphologyIndex, morphologyStatus } from './text/morphology';
 import { morphologySourceById } from './text/morphologySources';
-import { patchSettings, setDictionaryKey } from './settings';
+import { getSettings, patchSettings, setDictionaryKey } from './settings';
 import { clearLogs, readLogFile, readLogs } from './logs';
 import { hasFfmpeg } from './render/video';
 import { assertSafeId, REPO_ROOT, resolveInProject } from './paths';
@@ -250,6 +251,29 @@ export function createApp(): express.Express {
       if (!provider.needsKey) throw new HttpError(400, `${provider.label} does not take a key.`);
       await setDictionaryKey(provider.id, typeof body.key === 'string' ? body.key : '');
       res.json(describeProviders());
+    }),
+  );
+
+  /**
+   * How far each slider reaches, where that has been changed. Only the ranges
+   * are sent: the rest of the settings file holds dictionary keys.
+   */
+  app.get(
+    '/api/settings/slider-ranges',
+    asyncRoute(async (_req, res) => {
+      res.json({ overrides: getSettings().sliderRanges ?? {} });
+    }),
+  );
+
+  /** Replace the changed ranges. Checked slider by slider; a bad one refuses the lot. */
+  app.put(
+    '/api/settings/slider-ranges',
+    asyncRoute(async (req, res) => {
+      const body = (req.body ?? {}) as { overrides?: unknown };
+      const checked = validateSliderOverrides(body.overrides ?? {});
+      if (!checked.ok) throw new HttpError(400, checked.error);
+      const saved = await patchSettings({ sliderRanges: checked.value });
+      res.json({ overrides: saved.sliderRanges ?? {} });
     }),
   );
 

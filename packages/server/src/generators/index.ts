@@ -12,6 +12,7 @@ import { generateLexicon } from './lexicon';
 import { generateMap } from './map';
 import { generatePalette } from './palette';
 import { generatePose } from './pose';
+import { generateRigMatch } from './rigMatch';
 import { generatePaletteFilter } from './paletteFilter';
 import { generateRig } from './rig';
 import { generateDialog } from './dialog';
@@ -44,6 +45,7 @@ const GENERATORS: Record<string, Generator> = {
   'animation.rig': generateRig,
   'animation.bind': generateBind,
   'animation.pose': generatePose,
+  'animation.match': generateRigMatch,
   'art.palette': generatePalette,
   'art.palette.filter': generatePaletteFilter,
   'art.image': generateImage,

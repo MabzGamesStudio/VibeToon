@@ -49,11 +49,14 @@ Server tests run a real app against a temporary `VIBETOON_DATA`, so they write
 real artifacts and read them back. Anything reaching the network is stubbed with
 a local Express server or an injected `fetch`, so the suite passes offline.
 
-## Two things the suite guards that are easy to break
+## Things the suite guards that are easy to break
 
 - **Settings a stored project predates.** A flow gaining a setting leaves a gap
   in every project already on disk, and reading that gap is how a slider gets
   handed `undefined`. `migrate.test.ts` covers the filling-in.
+- **Every slider in Settings.** `sliderRanges.test.ts` reads the client source
+  and fails if a slider does not name its range, names one not in the registry,
+  or the registry holds a range no slider uses.
 - **The (i) on every setting.** `settingTips.test.ts` reads the client source and
   fails if a control asks for a tip nobody wrote, or a tip is written that
   nothing shows.

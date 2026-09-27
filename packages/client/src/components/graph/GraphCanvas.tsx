@@ -425,24 +425,22 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
       setDragNode(drag);
       select({ type: 'node', id: nodeId });
 
+      let last: Vec2 | null = null;
       const move = (moveEvent: PointerEvent) => {
         const next = pointerWorld(moveEvent);
         drag.moved = true;
-        setLocalPositions((current) => ({
-          ...current,
-          [nodeId]: {
-            x: Math.round(next.x - drag.grab.x),
-            y: Math.round(next.y - drag.grab.y),
-          },
-        }));
+        last = { x: Math.round(next.x - drag.grab.x), y: Math.round(next.y - drag.grab.y) };
+        const at = last;
+        setLocalPositions((current) => ({ ...current, [nodeId]: at }));
       };
       const up = () => {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
         setDragNode(null);
+        // Committed here, not inside the state update below: an updater runs
+        // during a render, and a project change is another component's state.
+        if (last && drag.moved) patchNode(nodeId, { position: last });
         setLocalPositions((current) => {
-          const moved = current[nodeId];
-          if (moved && drag.moved) patchNode(nodeId, { position: moved });
           const rest = { ...current };
           delete rest[nodeId];
           return rest;
