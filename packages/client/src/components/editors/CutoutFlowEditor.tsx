@@ -3,6 +3,11 @@ import {
   applyMask,
   buildMask,
   deleteSelected,
+  edgeNear,
+  insertNodeAt,
+  moveNodeAt,
+  moveObject,
+  removeNodeAt,
   emptyCutoutFlowData,
   inputsForPort,
   labelOf,
@@ -31,13 +36,17 @@ import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { useView } from '../../state/view';
 import { Field } from '../common/Field';
+import { onScreen } from '../common/handles';
 import { pngDataUrl, readBitmap } from '../common/pixels';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
 
 /** What a click does. */
-type Tool = 'fill' | 'cut' | 'region';
+type Tool = 'fill' | 'cut' | 'region' | 'move';
+
+/** What a drag is holding. */
+type Held = { kind: 'node'; id: string; index: number } | { kind: 'object'; id: string };
 
 /**
  * Hand pixels to a canvas.
@@ -131,6 +140,11 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
     (over: Partial<CutoutFlowData>) => setFlowData(node.id, { ...data, ...over }),
     [data, node.id, setFlowData],
   );
+  /** The flow as it is now, for a drag whose handlers outlive the render that started them. */
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const patchNow = useCallback((next: CutoutFlowData) => setFlowData(node.id, next), [node.id, setFlowData]);
+  const [held, setHeld] = useState<Held | null>(null);
 
   /* ---------------- reading the image ---------------- */
 
@@ -220,7 +234,7 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
   /* ---------------- clicking ---------------- */
 
   /** Where in the image a pointer event landed, in image pixels. */
-  const pointAt = (event: React.MouseEvent): { x: number; y: number } | null => {
+  const pointAt = (event: { clientX: number; clientY: number }): { x: number; y: number } | null => {
     const surface = canvas.current;
     if (!surface || !bitmap) return null;
     const box = surface.getBoundingClientRect();
@@ -277,9 +291,79 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
     });
   };
 
+  /* ---------------- dragging nodes and objects ---------------- */
+
+  /**
+   * Hold a node, or a whole object, and follow the pointer until it lets go.
+   * One drag is one undo step, however far it goes.
+   */
+  const startDrag = (event: React.PointerEvent, what: Held) => {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    event.preventDefault();
+    let last = pointAt(event);
+    if (!last) return;
+    setHeld(what);
+    const move = (moveEvent: PointerEvent) => {
+      const point = pointAt(moveEvent);
+      if (!point || !last) return;
+      const now = dataRef.current;
+      if (what.kind === 'object') {
+        patchNow(moveObject(now, what.id, { x: point.x - last.x, y: point.y - last.y }));
+      } else {
+        const region = (now.regions ?? []).find((one) => one.id === what.id);
+        const line = now.lines.find((one) => one.id === what.id);
+        if (region) patchNow(setRegion(now, what.id, { points: moveNodeAt(region.points, what.index, point) }));
+        else if (line) patchNow(setLine(now, what.id, { points: moveNodeAt(line.points, what.index, point) }));
+      }
+      last = point;
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setHeld(null);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  /** Press on an edge of a selected region or cut: a new node there, held. */
+  const grabEdge = (event: React.PointerEvent, id: string, reach: number) => {
+    if (event.button !== 0) return;
+    const point = pointAt(event);
+    if (!point) return;
+    const region = (data.regions ?? []).find((one) => one.id === id);
+    const line = data.lines.find((one) => one.id === id);
+    const object = region ?? line;
+    if (!object) return;
+    const edge = edgeNear(object, Boolean(region), point, reach);
+    if (edge < 0) return;
+    const points = insertNodeAt(object.points, edge, point);
+    patchNow(region ? setRegion(data, id, { points }) : setLine(data, id, { points }));
+    startDrag(event, { kind: 'node', id, index: edge + 1 });
+  };
+
+  /** Right-click a node of a selected region or cut to delete it. */
+  const deleteNode = (event: React.MouseEvent, id: string, index: number) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const region = (data.regions ?? []).find((one) => one.id === id);
+    const line = data.lines.find((one) => one.id === id);
+    const points = removeNodeAt((region ?? line)?.points ?? [], index, region ? 3 : 2);
+    if (!points) {
+      notify('info', region ? 'A region needs at least three nodes.' : 'A cut needs at least two nodes.');
+      return;
+    }
+    patch(region ? setRegion(data, id, { points }) : setLine(data, id, { points }));
+  };
+
   const onCanvasClick = (event: React.MouseEvent) => {
     const point = pointAt(event);
     if (!point) return;
+    if (tool === 'move') {
+      patch({ selected: [] });
+      return;
+    }
 
     if (tool === 'fill') {
       addSeed(point, 'include');
@@ -428,6 +512,7 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                   'Region',
                   'Draw round something. Finish with a double-click or Enter to keep the inside, or right-click to drop it.',
                 ],
+                ['move', 'Move', 'Drag a fill point, a region or a cut to move it. Select one to drag its nodes.'],
               ] as const
             ).map(([value, label, hint]) => (
               <button
@@ -445,7 +530,9 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
             ))}
           </div>
           <p className="vt-faint" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.4 }}>
-            {tool === 'fill'
+            {tool === 'move'
+              ? 'Drag a fill point, a region or a cut to move it whole. On a selected region or cut, drag a node to move it, drag an edge to add a node there, and right-click a node to delete it.'
+              : tool === 'fill'
               ? 'Left click to include a region, right click to exclude one.'
               : drawing.length === 0
                 ? tool === 'cut'
@@ -455,6 +542,11 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                   ? `${drawing.length / 2} point(s) — double-click or Enter to finish, Esc to abandon.`
                   : `${drawing.length / 2} point(s) — finish to keep the inside, right-click to drop it, Esc to abandon.`}
           </p>
+          {tool !== 'move' && drawing.length === 0 && selected.some((object) => object.type !== 'seed') ? (
+            <p className="vt-faint" style={{ fontSize: 11, marginTop: 4, lineHeight: 1.4 }}>
+              On the selected {one?.type === 'line' ? 'cut' : 'region'}: drag a node to move it, drag an edge to add a node, right-click a node to delete it.
+            </p>
+          ) : null}
         </div>
 
         {tool === 'region' ? (
@@ -658,6 +750,10 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
             </>
           }
         >
+          {({ scale: stageScale }) => {
+          /** A size on screen, in image pixels: the same at fit and at any zoom. */
+          const mark = (size: number) => onScreen(size, stageScale) / zoom;
+          return (
           <div className="vt-cutout-stage" ref={overlay} tabIndex={-1}>
             {bitmap ? (
               <div className="vt-cutout-frame">
@@ -667,13 +763,13 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                   onClick={onCanvasClick}
                   onContextMenu={onCanvasContextMenu}
                   onDoubleClick={onCanvasDoubleClick}
-                  style={{ cursor: tool === 'fill' ? 'crosshair' : 'copy' }}
+                  style={{ cursor: tool === 'fill' ? 'crosshair' : tool === 'move' ? 'default' : 'copy' }}
                 />
 
                 {/* The objects, drawn over the canvas so they stay clickable and
                     crisp at any zoom rather than being baked into the pixels. */}
                 <svg
-                  className={`vt-cutout-objects${drawing.length > 0 ? ' is-drawing' : ''}`}
+                  className={`vt-cutout-objects${drawing.length > 0 ? ' is-drawing' : ''}${tool === 'move' ? ' is-moving' : ''}${held ? ' is-holding' : ''}`}
                   viewBox={`0 0 ${scale.width} ${scale.height}`}
                   preserveAspectRatio="xMidYMid meet"
                 >
@@ -687,9 +783,14 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                         region.muted ? ' is-muted' : ''
                       } is-${region.mode}`}
                       strokeWidth={1.5}
+                      onPointerDown={(event) => {
+                        if (tool !== 'move') return;
+                        if (!data.selected.includes(region.id)) patch(selectObject(data, region.id, event.shiftKey));
+                        startDrag(event, { kind: 'object', id: region.id });
+                      }}
                       onClick={(event) => {
                         event.stopPropagation();
-                        patch(selectObject(data, region.id, event.shiftKey));
+                        if (tool !== 'move') patch(selectObject(data, region.id, event.shiftKey));
                       }}
                     />
                   ))}
@@ -706,9 +807,14 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                           line.muted ? ' is-muted' : ''
                         }${line.mode === 'erase' ? ' is-erase' : ''}`}
                         strokeWidth={Math.max(line.width, 1 / zoom)}
+                        onPointerDown={(event) => {
+                          if (tool !== 'move') return;
+                          if (!data.selected.includes(line.id)) patch(selectObject(data, line.id, event.shiftKey));
+                          startDrag(event, { kind: 'object', id: line.id });
+                        }}
                         onClick={(event) => {
                           event.stopPropagation();
-                          patch(selectObject(data, line.id, event.shiftKey));
+                          if (tool !== 'move') patch(selectObject(data, line.id, event.shiftKey));
                         }}
                       />
                     );
@@ -738,19 +844,55 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                       })()
                     : null}
 
-                  {/* The nodes of what is selected, so where a finished region or
-                      cut actually runs through can be seen — and zoomed in on. */}
+                  {/* The edges of what is selected, as a wide invisible target:
+                      pressing one puts a node there, held, to drag into place. */}
+                  {(data.regions ?? [])
+                    .filter((region) => data.selected.includes(region.id))
+                    .map((region) => (
+                      <polygon
+                        key={`${region.id}:edge`}
+                        className="vt-edge-hit"
+                        points={regionOutline(region).map((point) => `${point.x},${point.y}`).join(' ')}
+                        strokeWidth={mark(10)}
+                        onPointerDown={(event) => grabEdge(event, region.id, mark(10))}
+                      />
+                    ))}
+                  {data.lines
+                    .filter((line) => data.selected.includes(line.id))
+                    .map((line) => (
+                      <polyline
+                        key={`${line.id}:edge`}
+                        className="vt-edge-hit"
+                        points={linePoints(line).map((point) => `${point.x},${point.y}`).join(' ')}
+                        strokeWidth={mark(10)}
+                        onPointerDown={(event) => grabEdge(event, line.id, mark(10))}
+                      />
+                    ))}
+
+                  {/* The nodes of what is selected: where a finished region or cut
+                      runs through, each one draggable, right-click to delete.
+                      Sized on screen, so zooming in does not blow them up. */}
                   {[...(data.regions ?? []), ...data.lines]
                     .filter((object) => data.selected.includes(object.id))
                     .flatMap((object) =>
                       unflatten(object.points).map((point, index) => (
-                        <circle
-                          key={`${object.id}:${index}`}
-                          className="vt-draft-point is-placed"
-                          cx={point.x}
-                          cy={point.y}
-                          r={3 / zoom}
-                        />
+                        <g key={`${object.id}:${index}`} className="vt-cut-node">
+                          <circle
+                            className={`vt-draft-point is-placed${held?.kind === 'node' && held.id === object.id && held.index === index ? ' is-held' : ''}`}
+                            cx={point.x}
+                            cy={point.y}
+                            r={mark(3.5)}
+                          />
+                          <circle
+                            className="vt-seed-hit"
+                            cx={point.x}
+                            cy={point.y}
+                            r={mark(8)}
+                            onPointerDown={(event) => startDrag(event, { kind: 'node', id: object.id, index })}
+                            onContextMenu={(event) => deleteNode(event, object.id, index)}
+                            onClick={(event) => event.stopPropagation()}
+                          />
+                        </g>
                       )),
                     )}
 
@@ -761,7 +903,7 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                       className="vt-draft-point"
                       cx={drawing[index * 2]}
                       cy={drawing[index * 2 + 1]}
-                      r={3 / zoom}
+                      r={mark(3)}
                     />
                   ))}
 
@@ -771,14 +913,19 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
                       className={`vt-seed${data.selected.includes(seed.id) ? ' is-selected' : ''}${
                         seed.muted ? ' is-muted' : ''
                       }${seed.mode === 'exclude' ? ' is-exclude' : ' is-include'}`}
+                      onPointerDown={(event) => {
+                        if (tool !== 'move') return;
+                        if (!data.selected.includes(seed.id)) patch(selectObject(data, seed.id, event.shiftKey));
+                        startDrag(event, { kind: 'object', id: seed.id });
+                      }}
                       onClick={(event) => {
                         event.stopPropagation();
-                        patch(selectObject(data, seed.id, event.shiftKey));
+                        if (tool !== 'move') patch(selectObject(data, seed.id, event.shiftKey));
                       }}
                     >
-                      {/* 5px and 11px on screen, whatever the picture is. */}
-                      <circle cx={seed.x} cy={seed.y} r={5 / zoom} />
-                      <circle cx={seed.x} cy={seed.y} r={11 / zoom} className="vt-seed-hit" />
+                      {/* 5px and 11px on screen, whatever the picture and the zoom. */}
+                      <circle cx={seed.x} cy={seed.y} r={mark(5)} />
+                      <circle cx={seed.x} cy={seed.y} r={mark(11)} className="vt-seed-hit" />
                     </g>
                   ))}
                 </svg>
@@ -787,6 +934,8 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
               <div className="vt-empty">{loading ? 'Reading the image…' : (blocked ?? 'No image.')}</div>
             )}
           </div>
+          );
+          }}
         </Stage>
 
         <p className="vt-faint" style={{ marginTop: 8, fontSize: 11 }}>

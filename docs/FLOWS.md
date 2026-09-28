@@ -308,6 +308,34 @@ Moves a bound rig: turn a joint, or drag a limb and let the joints work it out.
   keep: joint angles
   ```
 
+### Rig Parts
+
+`animation.parts` · **bespoke editor**
+
+Takes a bound drawing apart into its body parts — each shape to the bone that carries most of it — to look at and edit one part at a time.
+
+- **In:** Bound rig *(required)*
+- **Out:** Parts `parts.json`, Drawing `parts.svg`, Part drawings `parts`
+- **Rules a new wire leaving `parts` starts with:**
+
+  ```
+  keep: parts, shapes
+  ```
+
+### Face Parts
+
+`animation.face` · **bespoke editor**
+
+Finds the hair, eyebrows, eyes, ears, nose and mouth of one or more heads, to adjust, hide, look at alone or swap between heads.
+
+- **In:** Heads *(required)*
+- **Out:** Features `face.json`, Faces `faces`, Feature drawings `features`
+- **Rules a new wire leaving `features` starts with:**
+
+  ```
+  keep: features, shapes
+  ```
+
 ### Rig Match
 
 `animation.match` · **bespoke editor**
@@ -412,6 +440,20 @@ Filters an image against a palette: keep those colors, drop them, or snap every 
 
   ```
   keep: transparency, palette colors
+  ```
+
+### Image Resize
+
+`art.resize` · **bespoke editor**
+
+Makes a picture bigger or smaller, by a factor or to a size, with the resampling that suits it: nearest for pixel art, bicubic or Lanczos for drawings and photos.
+
+- **In:** Image *(required)*
+- **Out:** Resized image `resized.png`
+- **Rules a new wire leaving `image` starts with:**
+
+  ```
+  keep: transparency
   ```
 
 ### Polygon Decomposition
@@ -624,4 +666,4 @@ An arrangement of flows saved under a name and used again as one, each use with 
 
 ---
 
-51 flow kinds.
+54 flow kinds.

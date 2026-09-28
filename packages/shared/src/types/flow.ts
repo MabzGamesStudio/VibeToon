@@ -61,6 +61,9 @@ export type EditorId =
   | 'rigMatch'
   | 'custom'
   | 'videoMatch'
+  | 'resize'
+  | 'parts'
+  | 'face'
   | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */

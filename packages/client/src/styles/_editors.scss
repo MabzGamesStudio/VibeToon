@@ -1763,9 +1763,38 @@
   .vt-region,
   .vt-cut-line,
   .vt-seed,
-  .vt-seed-hit {
+  .vt-seed-hit,
+  .vt-edge-hit {
     pointer-events: none;
   }
+}
+
+/* The wide, invisible edge of a selected region or cut: press to add a node. */
+.vt-edge-hit {
+  fill: none;
+  stroke: transparent;
+  pointer-events: stroke;
+  cursor: copy;
+}
+
+.vt-cut-node .vt-seed-hit {
+  cursor: move;
+}
+
+.vt-draft-point.is-held {
+  fill: #fff;
+}
+
+.vt-cutout-objects.is-moving {
+  .vt-region,
+  .vt-cut-line,
+  .vt-seed {
+    cursor: move;
+  }
+}
+
+.vt-cutout-objects.is-holding {
+  cursor: grabbing;
 }
 
 .vt-object-dot {
@@ -1791,7 +1820,9 @@
 .vt-vector-frame {
   position: relative;
   max-width: 100%;
-  max-height: 100%;
+  /* A tall drawing is letterboxed inside the window rather than growing the
+     stage past it, where half of it could not be reached. */
+  max-height: calc(100vh - 190px);
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -2775,4 +2806,164 @@ input.is-invalid {
   margin-left: -1px;
   background: #fff;
   pointer-events: none;
+}
+
+/* ---------------- image resize ---------------- */
+
+.vt-resize-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+  height: 100%;
+  padding: 12px;
+  background: repeating-conic-gradient($bg-2 0% 25%, $bg-1 0% 50%) 50% / 16px 16px;
+}
+
+.vt-resize-canvas {
+  display: block;
+  max-height: 70vh;
+  object-fit: contain;
+  box-shadow: 0 0 0 1px $line-strong;
+}
+
+/* ---------------- shapes shown for context, and tagged ---------------- */
+
+.vt-vector-backdrop,
+.vt-shape-tag,
+.vt-draw-draft {
+  pointer-events: none;
+}
+
+/* ---------------- rig parts ---------------- */
+
+.vt-part-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 6px;
+}
+
+.vt-part-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid $line;
+  border-radius: 6px;
+  background: $bg-2;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+
+  &.is-selected {
+    border-color: $accent;
+    background: $accent-soft;
+  }
+}
+
+.vt-part-thumb {
+  width: 100%;
+  height: 48px;
+
+  &.is-empty {
+    display: block;
+  }
+}
+
+.vt-part-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------- face parts ---------------- */
+
+.vt-face-shape {
+  cursor: pointer;
+
+  &:hover {
+    filter: brightness(1.15);
+  }
+
+  &.is-selected {
+    filter: drop-shadow(0 0 2px #fff);
+  }
+}
+
+.vt-face-chip {
+  border-width: 2px;
+}
+
+.vt-face-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vt-face-row {
+  padding: 4px 6px;
+  border: 1px solid $line;
+  border-radius: 6px;
+
+  &.is-open {
+    border-color: $accent;
+  }
+
+  &.is-hidden .vt-face-name {
+    opacity: 0.5;
+    text-decoration: line-through;
+  }
+}
+
+.vt-face-row-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vt-face-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vt-face-swap {
+  margin-top: 4px;
+  font-size: 11px;
+
+  select {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.vt-face-nudge {
+  margin-top: 6px;
+}
+
+.vt-face-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.vt-face-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }

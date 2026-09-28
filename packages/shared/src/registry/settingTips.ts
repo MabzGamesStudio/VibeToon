@@ -794,6 +794,30 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'A gap of one pixel in a boundary is enough for two regions to bleed into one, so lower this before raising the other if shapes are merging.',
     ],
   },
+  'face.identify': {
+    what: 'The features are found from where each shape sits on the face, how big it is, its shape and its color: the face is the big shape the others sit on, hair reaches over the top, the eyes are the best-matched pair across the upper face, eyebrows sit above them, the mouth is the widest thing below, and the nose sits between. Anything can be given to another feature by hand.',
+    examples: [
+      'A shape inside an eye (a pupil, a highlight) goes with that eye.',
+      'Left and right are as seen: the left eye is on the left of the picture.',
+      'Finding them again forgets what was given by hand.',
+    ],
+  },
+  'face.swap': {
+    what: 'Draw this feature with another head’s instead. It is fitted to where this head’s own was — the same middle, sized to match — or, where this head had none, put where it sat on its own face.',
+    examples: ['Another head’s eyes, on this face.', 'A left eyebrow from the right one, mirrored in place by nudging.', 'Back to “its own” undoes the swap.'],
+  },
+  'resize.scale': {
+    what: 'How many times bigger the picture comes out: below 1 shrinks it, above 1 enlarges it. Shrinking takes every source pixel into account, so fine lines thin out rather than flicker away.',
+    examples: ['0.5 — half the width and half the height, a quarter of the pixels.', '2 — twice the width and height.', '4 — a small sprite made big enough to work on.'],
+  },
+  'resize.method': {
+    what: 'How the new pixels are worked out from the old. Nearest copies the pixel underneath, so edges stay hard; the others blend neighbours, each a little sharper than the last.',
+    examples: [
+      'Nearest — pixel art, where each pixel is part of the drawing and blending would blur it.',
+      'Bicubic — drawings and cartoons: crisp edges, little ringing.',
+      'Lanczos — photographs, the sharpest; can leave a faint halo beside a hard edge.',
+    ],
+  },
   'videoMatch.sampling': {
     what: 'Which frames of the video are matched: so many a second, or so many spread evenly over the whole video. Each is a full Rig Match, so more frames is a smoother animation and a longer wait. At most 600 frames.',
     examples: [

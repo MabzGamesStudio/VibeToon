@@ -656,6 +656,47 @@ export function deleteShapes(image: VectorImage, ids: readonly string[]): Vector
   return { ...image, shapes: image.shapes.filter((shape) => !gone.has(shape.id)) };
 }
 
+/**
+ * Move whole shapes, every point of them. A node they shared with a shape left
+ * behind is no longer shared: moving a shape away is taking it away.
+ */
+export function translateShapes(image: VectorImage, ids: readonly string[], by: VectorPoint): VectorImage {
+  const moving = new Set(ids);
+  if (moving.size === 0 || (by.x === 0 && by.y === 0)) return image;
+  const round = (value: number) => Math.round(value * 100) / 100;
+  return {
+    ...image,
+    shapes: image.shapes.map((shape) =>
+      moving.has(shape.id) ? mapPoints(shape, (point) => ({ ...point, x: round(point.x + by.x), y: round(point.y + by.y) })) : shape,
+    ),
+  };
+}
+
+/**
+ * Add a shape. A polygon goes after the last polygon and a line after
+ * everything, the order a decomposition draws them in, so a new area never
+ * covers the strokes drawn over it.
+ */
+export function addShape(image: VectorImage, shape: VectorShape): VectorImage {
+  if (shape.kind === 'line') return { ...image, shapes: [...image.shapes, shape] };
+  const lastPolygon = image.shapes.map((one) => one.kind).lastIndexOf('polygon');
+  const shapes = [...image.shapes];
+  shapes.splice(lastPolygon + 1, 0, shape);
+  return { ...image, shapes };
+}
+
+/** Recolor shapes. */
+export function setShapeColor(image: VectorImage, ids: readonly string[], color: string): VectorImage {
+  const chosen = new Set(ids);
+  return { ...image, shapes: image.shapes.map((shape) => (chosen.has(shape.id) ? { ...shape, color } : shape)) };
+}
+
+/** Change a line's width. */
+export function setLineWidth(image: VectorImage, ids: readonly string[], width: number): VectorImage {
+  const chosen = new Set(ids);
+  return { ...image, shapes: image.shapes.map((shape) => (chosen.has(shape.id) && shape.kind === 'line' ? { ...shape, width: Math.max(0.25, width) } : shape)) };
+}
+
 export function movePoint(
   image: VectorImage,
   id: string,

@@ -1,6 +1,7 @@
 import { DEFAULT_FEATURES, DEFAULT_LAYERS, DEFAULT_TERRAIN, defaultMapSettings } from '../flows/worldMap';
 import { DEFAULT_RIG_MATCH_OPTIONS } from '../flows/rigMatch';
 import { DEFAULT_VIDEO_SAMPLING, DEFAULT_VIDEO_THRESHOLD } from '../flows/videoMatch';
+import { DEFAULT_RESIZE_OPTIONS } from '../flows/resize';
 import {
   DEFAULT_COLOR_SETTING,
   DEFAULT_SPAN,
@@ -181,6 +182,36 @@ export function normaliseFlowData(data: FlowData): FlowData {
         showFeatures: data.showFeatures ?? false,
         bodyOpacity: typeof data.bodyOpacity === 'number' ? data.bodyOpacity : 0.7,
       };
+    }
+    case 'parts': {
+      const whole = Array.isArray(data.parts) && Array.isArray(data.selected) && typeof data.showOthers === 'boolean' && typeof data.edits === 'number' && data.current !== undefined && data.bound !== undefined;
+      if (whole) return data;
+      return {
+        ...data,
+        bound: data.bound ?? null,
+        parts: Array.isArray(data.parts) ? data.parts : [],
+        current: data.current ?? null,
+        selected: Array.isArray(data.selected) ? data.selected : [],
+        showOthers: data.showOthers ?? true,
+        edits: typeof data.edits === 'number' ? data.edits : 0,
+      };
+    }
+    case 'face': {
+      const whole = Array.isArray(data.heads) && Array.isArray(data.selected) && typeof data.edits === 'number' && data.current !== undefined && data.isolate !== undefined && data.paint !== undefined;
+      if (whole) return data;
+      return {
+        ...data,
+        heads: Array.isArray(data.heads) ? data.heads : [],
+        current: data.current ?? null,
+        isolate: data.isolate ?? null,
+        paint: data.paint ?? null,
+        selected: Array.isArray(data.selected) ? data.selected : [],
+        edits: typeof data.edits === 'number' ? data.edits : 0,
+      };
+    }
+    case 'resize': {
+      const options = fill(data.options, DEFAULT_RESIZE_OPTIONS);
+      return options.filled ? { ...data, options: options.value } : data;
     }
     case 'videoMatch': {
       const options = fill(data.options, DEFAULT_RIG_MATCH_OPTIONS);

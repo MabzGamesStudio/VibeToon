@@ -131,13 +131,19 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   with it. Tolerance
   is measured against the pixel you clicked rather than against each neighbour,
   which is the difference between a tool you can aim and one that selects the
-  whole picture. Writes a transparent PNG and the mask beside it.
+  whole picture. Fill points, regions and cuts can be moved with the **Move**
+  tool. On a selected region or cut, drag a node, press an edge to add one, or
+  right-click a node to delete it. Every marker stays the same size on screen
+  however far you zoom in. Writes a transparent PNG and the mask beside it.
+- **Image resize.** Bigger or smaller, by a factor or to a size: nearest for
+  pixel art, bilinear, bicubic or Lanczos for drawings and photos. Shrinking
+  counts every source pixel, and transparency never bleeds into edges.
 - **Palette filter.** A palette and an image in, a filtered image out: keep only
   those colors, drop them, or snap every pixel to the nearest one. Keep and
   remove are exact mirrors; snap has no threshold, because every pixel has a
   nearest. A pixel that was already transparent is left alone in every mode, so
   cutting a subject out first and filtering it second does not undo the cutting.
-  See [docs/IMAGE-FLOWS.md](docs/IMAGE-FLOWS.md) for all three.
+  See [docs/IMAGE-FLOWS.md](docs/IMAGE-FLOWS.md) for all four.
 - **Polygon decomposition.** A picture back into shapes: strokes become lines and
   areas become convex polygons. A line is a region that is *thin* **and** has
   different things either side of it — two blocks meeting is not a line, a stroke
@@ -148,7 +154,8 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   set. A stroke widens until it fills the contrast gap it was traced from, and
   grows at each end while growing keeps helping.
 - **Vector editor.** Where the decomposition gets fixed: drag anchors, add and
-  delete them, cut a shape in two, or delete a run out of a line.
+  delete them, cut a shape in two, delete a run out of a line, or draw and move
+  whole shapes.
   - **Nodes and curves.** Delete a single node from every shape that shares it,
     or turn any node into a Bézier curve by dragging its handles.
   - **Smoothing brush.** Averages a run of nodes a few at a time into one, or
@@ -178,6 +185,16 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   range of sizes and angles, with a confidence for every part. Drag any joint,
   or the whole body, to put it right; the fitted rig comes out ready to pose.
   See [docs/RIG-MATCH.md](docs/RIG-MATCH.md).
+- **Rig Parts.** A bound drawing taken apart into its body parts, each shape
+  going to the bone that carries most of it. Look at each part alone or over
+  the rest, edit it with every Vector Editor tool (move, add and delete nodes,
+  draw and delete shapes and lines), and send shapes to another part.
+  See [docs/RIG-PARTS.md](docs/RIG-PARTS.md).
+- **Face Parts.** One or more heads, with hair, eyebrows, eyes, ears, nose and
+  mouth found from where each shape sits on the face, its size, shape and color,
+  and which shapes mirror each other. Put a mistake right with a click, then
+  hide, isolate, nudge or swap any feature for another head's, fitted into place.
+  Writes every feature's shapes. See [docs/FACE-PARTS.md](docs/FACE-PARTS.md).
 - **Video Rig Match.** A bound rig and a video in: the video is sampled into
   frames (so many a second, or so many in all). The Rig Match runs on each,
   with each frame following on from the last. Frames below a confidence

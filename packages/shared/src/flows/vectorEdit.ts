@@ -38,13 +38,15 @@ export function vectorizeState(
 /* ------------------------------------------------------------------ */
 
 /** What the editor is doing with a click. */
-export type VectorTool = 'select' | 'add' | 'cut' | 'erase' | 'node' | 'curve' | 'smooth';
+export type VectorTool = 'select' | 'shift' | 'add' | 'draw' | 'cut' | 'erase' | 'node' | 'curve' | 'smooth';
 
-export const VECTOR_TOOLS: VectorTool[] = ['select', 'add', 'cut', 'erase', 'node', 'curve', 'smooth'];
+export const VECTOR_TOOLS: VectorTool[] = ['select', 'shift', 'add', 'draw', 'cut', 'erase', 'node', 'curve', 'smooth'];
 
 export const VECTOR_TOOL_LABEL: Record<VectorTool, string> = {
   select: 'Move',
+  shift: 'Move shape',
   add: 'Add point',
+  draw: 'Draw shape',
   cut: 'Cut',
   erase: 'Delete part',
   node: 'Delete node',
@@ -55,7 +57,9 @@ export const VECTOR_TOOL_LABEL: Record<VectorTool, string> = {
 export const VECTOR_TOOL_HINT: Record<VectorTool, string> = {
   select:
     'Drag a point to move it. Click a shape to select it, Delete removes the selection, and right-click deletes a single point.',
+  shift: 'Drag a shape to move all of it. Shift-click first to move several together.',
   add: 'Click a shape’s edge to put a new point there.',
+  draw: 'Click to place each point of a new shape, in the color chosen. Double-click or Enter to finish it, Esc to abandon it.',
   cut: 'Click twice across a shape to cut it in two. A line is cut where you click once.',
   erase: 'Click two points on a line to delete the run between them.',
   node:

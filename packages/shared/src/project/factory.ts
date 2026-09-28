@@ -21,6 +21,9 @@ import { emptyWorldMapFlowData } from '../flows/worldMap';
 import { emptyRigMatchFlowData } from '../flows/rigMatch';
 import { emptyCustomFlowData } from '../flows/customFlow';
 import { emptyVideoMatchFlowData } from '../flows/videoMatch';
+import { emptyResizeFlowData } from '../flows/resize';
+import { emptyPartsFlowData } from '../flows/rigParts';
+import { emptyFaceFlowData } from '../flows/face';
 import { newId } from '../ids';
 import { getFlowKind, requireFlowKind } from '../registry/flowKinds';
 import { parseRules, RULE_DIRECTIVES } from '../rules/parseRules';
@@ -92,6 +95,12 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyCustomFlowData();
     case 'videoMatch':
       return emptyVideoMatchFlowData();
+    case 'resize':
+      return emptyResizeFlowData();
+    case 'parts':
+      return emptyPartsFlowData();
+    case 'face':
+      return emptyFaceFlowData();
     default:
       return emptyBriefData(def);
   }

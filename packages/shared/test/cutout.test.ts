@@ -589,3 +589,47 @@ test('a region\u2019s points are corners, and pixels are their centres', () => {
   );
   for (let x = 0; x < 4; x += 1) assert.equal(oneRow[x], 1);
 });
+
+/* ---------------- editing nodes ---------------- */
+
+test('a region’s nodes can be moved, added on an edge and deleted, never below three', async () => {
+  const { moveNodeAt, insertNodeAt, removeNodeAt, nearestNodeIndex } = await import('../src/flows/cutout');
+  const square = [0, 0, 10, 0, 10, 10, 0, 10];
+  assert.deepEqual(moveNodeAt(square, 1, { x: 12.34, y: -1 }), [0, 0, 12.3, -1, 10, 10, 0, 10]);
+  assert.deepEqual(insertNodeAt(square, 1, { x: 10, y: 5 }), [0, 0, 10, 0, 10, 5, 10, 10, 0, 10]);
+  assert.deepEqual(insertNodeAt(square, 3, { x: 0, y: 5 }), [0, 0, 10, 0, 10, 10, 0, 10, 0, 5], 'after the last node is on the closing edge');
+  assert.deepEqual(removeNodeAt(square, 0, 3), [10, 0, 10, 10, 0, 10]);
+  assert.equal(removeNodeAt([0, 0, 10, 0, 10, 10], 0, 3), null, 'a triangle keeps its three');
+  assert.equal(removeNodeAt([0, 0, 10, 0], 0, 2), null, 'a cut keeps its two');
+  assert.equal(nearestNodeIndex(square, { x: 9, y: 9.5 }, 2), 2);
+  assert.equal(nearestNodeIndex(square, { x: 5, y: 5 }, 2), -1);
+});
+
+test('the edge under the pointer is found on the outline as drawn, straight or smoothed, loop or cut', async () => {
+  const { edgeNear } = await import('../src/flows/cutout');
+  const square = [0, 0, 10, 0, 10, 10, 0, 10];
+  assert.equal(edgeNear({ points: square, curved: false }, true, { x: 5, y: 0.5 }, 1), 0);
+  assert.equal(edgeNear({ points: square, curved: false }, true, { x: 10.4, y: 6 }, 1), 1);
+  assert.equal(edgeNear({ points: square, curved: false }, true, { x: 0.3, y: 5 }, 1), 3, 'the closing edge');
+  assert.equal(edgeNear({ points: square, curved: false }, true, { x: 5, y: 5 }, 1), -1);
+  // Smoothed, the curve bulges past the straight edge; pointing at the bulge still finds it.
+  const smoothed = edgeNear({ points: square, curved: true }, true, { x: 5, y: -1.2 }, 1);
+  assert.equal(smoothed, 0);
+  assert.equal(edgeNear({ points: [0, 0, 10, 0, 20, 0] }, false, { x: 15, y: 0.2 }, 1), 1);
+  assert.equal(edgeNear({ points: [0, 0, 10, 0, 20, 0] }, false, { x: 4, y: 0.2 }, 1), 0);
+  assert.equal(edgeNear({ points: [0, 0, 20, 0] }, false, { x: 12, y: 0.2 }, 1), 0);
+});
+
+test('a seed, a cut or a region moves as a whole', async () => {
+  const { moveObject, emptyCutoutFlowData } = await import('../src/flows/cutout');
+  const data: import('../src/flows/cutout').CutoutFlowData = {
+    ...emptyCutoutFlowData(),
+    seeds: [{ id: 's', mode: 'include' as const, x: 1, y: 1, tolerance: 10 }],
+    lines: [{ id: 'l', points: [0, 0, 5, 5], width: 1, mode: 'block' as const }],
+    regions: [{ id: 'r', points: [0, 0, 4, 0, 4, 4], curved: false, mode: 'include' as const }],
+  };
+  const moved = ['s', 'l', 'r'].reduce((acc, id) => moveObject(acc, id, { x: 2, y: -1 }), data);
+  assert.deepEqual([moved.seeds[0]!.x, moved.seeds[0]!.y], [3, 0]);
+  assert.deepEqual(moved.lines[0]!.points, [2, -1, 7, 4]);
+  assert.deepEqual(moved.regions[0]!.points, [2, -1, 6, -1, 6, 3]);
+});

@@ -43,6 +43,8 @@ const def = (
 const VECTORIZE = ['art.vectorize'];
 const VECTOR_EDIT = ['art.vector.edit'];
 const VIDEO_MATCH = ['animation.video.match'];
+const RESIZE = ['art.resize'];
+const FACE = ['animation.face'];
 const RIG = ['animation.rig'];
 const PALETTE = ['art.palette'];
 const MAP = ['world.map'];
@@ -115,6 +117,10 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('rigMatch.rotation', 'Whole body turned', ['animation.match'], 'Adjusting by hand', -180, 180, 1, '°'),
   def('rigMatch.partAngle', 'Part turned (within the joint’s limits)', ['animation.match'], 'Adjusting by hand', -180, 180, 1, '°'),
   def('rigMatch.partSize', 'Part size', ['animation.match'], 'Adjusting by hand', 0.5, 2, 0.01, '×'),
+  def('face.offsetX', 'Across', FACE, 'Nudging a feature', -100, 100, 0.5, 'px'),
+  def('face.offsetY', 'Down', FACE, 'Nudging a feature', -100, 100, 0.5, 'px'),
+  def('face.scale', 'Size', FACE, 'Nudging a feature', 0.25, 3, 0.01, '×'),
+  def('resize.scale', 'Scale', RESIZE, 'Size', 0.05, 8, 0.05, '×'),
   def('videoMatch.fps', 'Frames a second', VIDEO_MATCH, 'Frames', 0.5, 30, 0.5, 'fps'),
   def('videoMatch.total', 'Frames in all', VIDEO_MATCH, 'Frames', 2, 300, 1, 'frames'),
   def('videoMatch.features', 'Features per part', VIDEO_MATCH, 'Finding the body', 2, 40, 1, 'features'),
