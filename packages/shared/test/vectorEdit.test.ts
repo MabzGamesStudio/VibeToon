@@ -117,3 +117,26 @@ test('the smoothing brush has settings from the start, and keeps what was change
   assert.equal(changed.window, DEFAULT_VECTOR_BRUSH.window);
   assert.ok(VECTOR_TOOLS.includes('node') && VECTOR_TOOLS.includes('curve') && VECTOR_TOOLS.includes('smooth'));
 });
+
+test('whole shapes move, new ones go in drawing order, and color and width change', async () => {
+  const { translateShapes, addShape, setShapeColor, setLineWidth } = await import('../src/flows/vector');
+  const line = { id: 'l1', kind: 'line' as const, color: '#000000', width: 2, points: [{ x: 0, y: 0 }, { x: 4, y: 0 }], curved: false, closed: false };
+  const start: VectorImage = { ...image(), shapes: [...image().shapes, line] };
+  const moved = translateShapes(start, ['p1'], { x: 2.5, y: -1 });
+  assert.deepEqual(moved.shapes[0]!.points[0], { x: 2.5, y: -1 });
+  assert.deepEqual(moved.shapes[1], line, 'the others stay put');
+  assert.equal(translateShapes(start, [], { x: 1, y: 1 }), start);
+  const square = { id: 'p2', kind: 'polygon' as const, color: '#00ff00', points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }] };
+  assert.deepEqual(addShape(start, square).shapes.map((shape) => shape.id), ['p1', 'p2', 'l1'], 'an area goes under the strokes');
+  assert.deepEqual(addShape(start, { ...line, id: 'l2' }).shapes.map((shape) => shape.id), ['p1', 'l1', 'l2']);
+  assert.equal(setShapeColor(start, ['p1'], '#123456').shapes[0]!.color, '#123456');
+  const wider = setLineWidth(start, ['l1', 'p1'], 5);
+  assert.equal((wider.shapes[1] as typeof line).width, 5);
+  assert.equal('width' in wider.shapes[0]!, false, 'a polygon has no width to set');
+});
+
+test('the draw and move-shape tools are named and explained', () => {
+  assert.equal(VECTOR_TOOL_LABEL.draw, 'Draw shape');
+  assert.equal(VECTOR_TOOL_LABEL.shift, 'Move shape');
+  assert.match(VECTOR_TOOL_HINT.draw, /Enter/);
+});

@@ -17,6 +17,9 @@ import type { WorldMapFlowData } from '../flows/worldMap';
 import type { RigMatchFlowData } from '../flows/rigMatch';
 import type { CustomFlowData, CustomFlowTemplate } from '../flows/customFlow';
 import type { VideoMatchFlowData } from '../flows/videoMatch';
+import type { ResizeFlowData } from '../flows/resize';
+import type { PartsFlowData } from '../flows/rigParts';
+import type { FaceFlowData } from '../flows/face';
 import type { RigFlowData } from '../flows/rig';
 import type { TextFlowData } from './text';
 
@@ -206,7 +209,10 @@ export type FlowData =
   | WorldMapFlowData
   | RigMatchFlowData
   | CustomFlowData
-  | VideoMatchFlowData;
+  | VideoMatchFlowData
+  | ResizeFlowData
+  | PartsFlowData
+  | FaceFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph

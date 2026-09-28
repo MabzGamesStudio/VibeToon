@@ -14,6 +14,9 @@ import { generatePalette } from './palette';
 import { generatePose } from './pose';
 import { generateRigMatch } from './rigMatch';
 import { generateVideoMatch } from './videoMatch';
+import { generateResize } from './resize';
+import { generateParts } from './parts';
+import { generateFace } from './face';
 import { generatePaletteFilter } from './paletteFilter';
 import { generateRig } from './rig';
 import { generateDialog } from './dialog';
@@ -47,11 +50,14 @@ const GENERATORS: Record<string, Generator> = {
   'animation.bind': generateBind,
   'animation.pose': generatePose,
   'animation.match': generateRigMatch,
+  'animation.parts': generateParts,
+  'animation.face': generateFace,
   'animation.video.match': generateVideoMatch,
   'art.palette': generatePalette,
   'art.palette.filter': generatePaletteFilter,
   'art.image': generateImage,
   'art.cutout': generateCutout,
+  'art.resize': generateResize,
   'art.vectorize': generateVectorize,
   'art.vector.edit': generateVectorEdit,
   'production.edit': generateAssembly,

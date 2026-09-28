@@ -183,6 +183,27 @@ A region's points are **corners**, and pixels are their centres: a box drawn fro
 Filling is even-odd by scanline, so a shape drawn back over itself has a hole in
 the middle without that being a special case.
 
+## Moving and reshaping what is drawn
+
+Everything drawn can be moved and reshaped after the fact:
+
+- **Move** tool: drag a fill point, a cut or a region to move it whole.
+- **On a selected region or cut, with any tool:**
+  - drag one of its nodes to move it;
+  - press on an edge to put a new node there and drag it into place;
+  - right-click a node to delete it. A region keeps at least three nodes and a
+    cut at least two.
+
+  The edge is measured on the outline as it is drawn, so on a smoothed region
+  you point at the curve, not at the straight lines between the nodes.
+
+Fill points, nodes and the lines between them are sized on **screen**, not in
+the picture's pixels. Zooming in to place a node precisely does not blow the node
+up over the place you are aiming at. A node stays 7 screen pixels across whether
+the stage is at fit or zoomed in 655%.
+
+Every drag is one undo step.
+
 ## The edge
 
 | Setting | What it is for |
@@ -205,6 +226,43 @@ selection alone, white on black, for anything that wants to use it differently.
 
 Cutting out of an already-transparent image cannot make a pixel *more* opaque:
 the mask multiplies the alpha that was there rather than replacing it.
+
+---
+
+# Image Resize
+
+`art.resize` · takes an **Image** · gives **`resized.png`**
+
+Makes a picture bigger or smaller.
+
+**Size.** Set it **by a factor** (×0.25 to ×8, with quick picks for the common
+ones) or **to a size** in pixels. To a size, **keep its shape** makes the height
+follow the width. The largest it will make is 16,384 pixels a side and 64
+million pixels in all; beyond that it is shrunk as a whole, keeping its shape.
+
+**Resampling**, how the new pixels are worked out:
+
+| Method | What it does | For |
+| --- | --- | --- |
+| Nearest | Copies the pixel underneath; edges stay hard. | Pixel art, where each pixel is part of the drawing. |
+| Bilinear | Blends the nearest two each way. Soft. | A quick, gentle resize. |
+| Bicubic | Catmull-Rom, four each way: crisp with little ringing. | Drawings and cartoons (the default). |
+| Lanczos | Six each way, the sharpest; can leave a faint halo beside hard edges. | Photographs. |
+
+It is done in two passes, across and then down.
+
+- **Shrinking** widens the kernel by as much as the picture shrinks, so every
+  source pixel counts. A fine stripe shrunk to an eighth comes out a mid grey,
+  not flickering black and white.
+- **Premultiplied alpha.** Colors are blended with alpha premultiplied, so a
+  transparent pixel's color never bleeds into the edge of the shape beside it.
+  The edge fades rather than stepping.
+
+The editor works the result out as the settings change and shows it at the size
+it comes out beside the original (**Resized** / **Original**), zoomable to the
+pixel. A PNG is also resized on the server, so the flow regenerates with
+everything else. Any other format is decoded by the browser, so for those the
+editor sends its result with the run.
 
 ---
 

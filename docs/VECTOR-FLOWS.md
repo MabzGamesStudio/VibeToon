@@ -540,14 +540,22 @@ where that gets fixed.
 | Tool | What it does |
 | --- | --- |
 | **Move** | Drag an anchor. Click a shape to select it; right-click an anchor to delete just that one. |
+| **Move shape** | Drag a whole shape. Shift-click first to move several together. |
 | **Add point** | Click an edge to put a new anchor there — where you pointed, not at the midpoint. |
+| **Draw shape** | Click to place each point of a new filled shape or line, in the color chosen (or the selected shape's). Double-click, right-click or Enter finishes it; Backspace takes the last point back; Esc abandons it. A new area goes under the lines, as a decomposition draws them. |
 | **Cut** | Click across a shape to cut it in two. A line is cut where you click once. |
 | **Delete part** | Click two anchors on a shape to delete the run between them. |
 | **Delete node** | Click a node to delete just it, from every shape that shares it, so neighbours still meet. A shape left with too few nodes goes. |
 | **Curves** | Click a node, then drag either of its handles, or use **How curved** and **Turn**. **Sharp corner** and **Smooth** set it in one click. |
 | **Smooth brush** | Select a shape, then brush along its outline. See below. |
 
-`Delete` removes whatever is selected. `Esc` abandons a half-finished cut.
+`Delete` removes whatever is selected. `Esc` abandons a half-finished cut. A
+selected shape's color, and a line's width, can be changed in the side panel.
+
+These tools are the **vector workbench** (`vector/useVectorWorkbench.tsx`), and
+the same workbench edits a body part in [Rig Parts](RIG-PARTS.md) and a head's
+shapes in [Face Parts](FACE-PARTS.md). A drawing taller than it is wide is
+letterboxed inside the window rather than growing the stage past it.
 
 Clicking the middle of a filled shape selects it, not just its outline —
 otherwise a big polygon could only be picked up by a thin target around a large

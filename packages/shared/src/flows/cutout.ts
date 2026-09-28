@@ -249,6 +249,110 @@ export function setRegion(data: CutoutFlowData, id: string, over: Partial<Region
   };
 }
 
+/* ---------------- editing a shape's nodes ---------------- */
+
+/** The points of a region or a cut, with one moved. Rounded to a tenth of a pixel. */
+export function moveNodeAt(points: readonly number[], index: number, to: { x: number; y: number }): number[] {
+  if (index < 0 || index * 2 + 1 >= points.length) return [...points];
+  const next = [...points];
+  next[index * 2] = Math.round(to.x * 10) / 10;
+  next[index * 2 + 1] = Math.round(to.y * 10) / 10;
+  return next;
+}
+
+/** A new node after `after`, at a point — on an edge, where you clicked it. */
+export function insertNodeAt(points: readonly number[], after: number, at: { x: number; y: number }): number[] {
+  const next = [...points];
+  next.splice((after + 1) * 2, 0, Math.round(at.x * 10) / 10, Math.round(at.y * 10) / 10);
+  return next;
+}
+
+/**
+ * The points with one node taken out, or null if that would leave too few: a
+ * region needs three to enclose anything and a cut two to be a line.
+ */
+export function removeNodeAt(points: readonly number[], index: number, fewest: number): number[] | null {
+  if (points.length / 2 - 1 < fewest || index < 0 || index * 2 >= points.length) return null;
+  const next = [...points];
+  next.splice(index * 2, 2);
+  return next;
+}
+
+/** The node nearest a point, if one is within `reach`; -1 otherwise. */
+export function nearestNodeIndex(points: readonly number[], at: { x: number; y: number }, reach: number): number {
+  let best = -1;
+  let nearest = reach;
+  for (let index = 0; index * 2 + 1 < points.length; index += 1) {
+    const distance = Math.hypot(points[index * 2]! - at.x, points[index * 2 + 1]! - at.y);
+    if (distance <= nearest) {
+      nearest = distance;
+      best = index;
+    }
+  }
+  return best;
+}
+
+function distanceToSegment(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = dx * dx + dy * dy;
+  const t = length === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length));
+  return Math.hypot(p.x - (a.x + dx * t), p.y - (a.y + dy * t));
+}
+
+/**
+ * Which edge of a region or cut a point is on, as the node it runs from, if
+ * the drawn outline passes within `reach`. A smoothed shape is measured along
+ * the curve it draws, not the straight lines between its nodes, since the curve
+ * is what you are pointing at.
+ */
+export function edgeNear(
+  object: { points: number[]; curved?: boolean },
+  closed: boolean,
+  at: { x: number; y: number },
+  reach: number,
+): number {
+  const raw = unflatten(object.points);
+  const n = raw.length;
+  if (n < 2) return -1;
+  const samples = 12;
+  // The drawn outline, with the node each sample belongs to.
+  const drawn: Array<{ x: number; y: number; from: number }> = [];
+  if (closed) {
+    const outline = regionOutline({ id: '', points: object.points, curved: Boolean(object.curved), mode: 'include' }, samples);
+    const curved = Boolean(object.curved) && n >= 3;
+    outline.forEach((point, k) => drawn.push({ ...point, from: curved ? Math.floor(k / samples) : k }));
+    drawn.push({ ...drawn[0]!, from: n - 1 });
+  } else {
+    const line = linePoints({ id: '', points: object.points, width: 1, mode: 'block' }, samples);
+    const curved = n >= 3;
+    line.forEach((point, k) => drawn.push({ ...point, from: Math.max(0, curved ? Math.floor((k - 1) / samples) : k - 1) }));
+  }
+  let best = -1;
+  let nearest = reach;
+  for (let k = 0; k + 1 < drawn.length; k += 1) {
+    const distance = distanceToSegment(at, drawn[k]!, drawn[k + 1]!);
+    if (distance <= nearest) {
+      nearest = distance;
+      // A loop's outline starts each edge at its node; a cut's starts with the
+      // first node alone, so each piece belongs to the sample it runs to.
+      best = Math.min(n - (closed ? 1 : 2), closed ? drawn[k]!.from : drawn[k + 1]!.from);
+    }
+  }
+  return best;
+}
+
+/** Move a seed, a cut or a region as a whole. */
+export function moveObject(data: CutoutFlowData, id: string, by: { x: number; y: number }): CutoutFlowData {
+  const shift = (points: number[]) => points.map((value, index) => Math.round((value + (index % 2 === 0 ? by.x : by.y)) * 10) / 10);
+  return {
+    ...data,
+    seeds: data.seeds.map((seed) => (seed.id === id ? { ...seed, x: Math.round(seed.x + by.x), y: Math.round(seed.y + by.y) } : seed)),
+    lines: data.lines.map((line) => (line.id === id ? { ...line, points: shift(line.points) } : line)),
+    regions: regionsOf(data).map((region) => (region.id === id ? { ...region, points: shift(region.points) } : region)),
+  };
+}
+
 /** Ordinal names, so the object list reads as "Include 2" rather than an id. */
 export function labelOf(data: CutoutFlowData, object: CutObject): string {
   if (object.type === 'seed') {
