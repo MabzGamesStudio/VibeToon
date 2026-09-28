@@ -3,6 +3,7 @@ import { staleNodes, type Vec2 } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
 import { useView } from '../../state/view';
 import { Inspector } from '../inspector/Inspector';
+import { CustomFlowDialog } from './CustomFlowDialog';
 import { FlowPalette } from './FlowPalette';
 import { GraphCanvas } from './GraphCanvas';
 
@@ -12,6 +13,7 @@ export function GraphView(): JSX.Element {
   const paletteOpen = view.palette;
   const [dropPoint, setDropPoint] = useState<Vec2>({ x: 160, y: 120 });
   const onViewportCentre = useCallback((point: Vec2) => setDropPoint(point), []);
+  const [making, setMaking] = useState(false);
   if (!project) return <></>;
 
   const stale = staleNodes(project);
@@ -31,6 +33,14 @@ export function GraphView(): JSX.Element {
           {project.connections.length} connection{project.connections.length === 1 ? '' : 's'}
         </span>
         <span className="vt-spacer" />
+        <button
+          type="button"
+          className="vt-btn is-small"
+          title="Save some flows, wired as they are, as one flow you can use again"
+          onClick={() => setMaking(true)}
+        >
+          Make a custom flow
+        </button>
         {stale.length > 0 ? (
           <button
             type="button"
@@ -50,6 +60,7 @@ export function GraphView(): JSX.Element {
         <GraphCanvas onViewportCentre={onViewportCentre} />
         {view.inspector ? <Inspector /> : null}
       </div>
+      {making ? <CustomFlowDialog onClose={() => setMaking(false)} /> : null}
     </div>
   );
 }

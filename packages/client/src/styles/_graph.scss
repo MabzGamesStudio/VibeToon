@@ -442,3 +442,43 @@
   z-index: 5;
   pointer-events: none;
 }
+
+/* ---------------- custom flows ---------------- */
+
+/* A custom flow's card: a stack of cards, since there are flows behind it. */
+.vt-node.is-custom {
+  box-shadow:
+    4px 4px 0 -1px $bg-1,
+    4px 4px 0 0 $line-strong,
+    8px 8px 0 -1px $bg-1,
+    8px 8px 0 0 $line;
+}
+
+.vt-palette-custom {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+
+  .vt-palette-item {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.vt-custom-dialog {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 16px;
+
+  @media (max-width: 720px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.vt-custom-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow: auto;
+}

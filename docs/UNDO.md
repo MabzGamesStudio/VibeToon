@@ -48,7 +48,8 @@ What only moves the eye is carried along, not recorded:
 - **The selection** comes back with the step it went with, so an undone delete
   returns selected.
 - **The tool in hand** (the binding brush and bone, the pose mode, the timeline's
-  filters) stays as it is.
+  filters, the vector editor's smoothing brush) stays as it is, and so does
+  what the Rig Match and Video Rig Match are showing.
 - **Files** a generate wrote, the last run's log, and the project's revision are
   never rolled back: they are the server's, and a file cannot be un-written. For
   the same reason what the image source knows about its picture (its size and

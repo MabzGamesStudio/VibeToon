@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef } from 'react';
-import { getFlowKind, type FlowNode } from '@vibetoon/shared';
+import { customDataOf, flowPorts, getFlowKind, isCustomNode, type FlowNode } from '@vibetoon/shared';
 
 export type PortSide = 'in' | 'out';
 
@@ -30,6 +30,8 @@ export interface NodeChrome {
   missing: readonly string[];
   /** Input ports with something wired in. */
   connected: readonly string[];
+  /** A custom flow's output ports whose member has made its file. */
+  produced?: readonly string[];
 }
 
 export interface NodeCardProps {
@@ -81,6 +83,8 @@ export const NodeCard = memo(function NodeCard({
   onPortPointerLeave,
 }: NodeCardProps): JSX.Element {
   const def = getFlowKind(node.kind);
+  const custom = isCustomNode(node);
+  const ports = flowPorts(node);
   const warnings = node.lastRun?.warnings?.length ?? 0;
 
   return (
@@ -88,6 +92,7 @@ export const NodeCard = memo(function NodeCard({
       className={[
         'vt-node',
         `cat-${def?.category ?? 'story'}`,
+        custom ? 'is-custom' : '',
         selected ? 'is-selected' : '',
         busy ? 'is-busy' : '',
       ]
@@ -103,7 +108,9 @@ export const NodeCard = memo(function NodeCard({
     >
       <div className="vt-node-bar" />
       <div className="vt-node-head" onPointerDown={(event) => onHeaderPointerDown(event, node.id)}>
-        <div className="vt-node-kind">{def?.label ?? node.kind}</div>
+        <div className="vt-node-kind">
+          {custom ? `Custom · ${customDataOf(node).templateName || 'flow'}` : (def?.label ?? node.kind)}
+        </div>
         <div className="vt-node-name">
           <span>{node.name}</span>
           <span className={`vt-pill is-${chrome.status}`} title={STATUS_LABEL[chrome.status]}>
@@ -119,12 +126,14 @@ export const NodeCard = memo(function NodeCard({
       </div>
 
       {compact ? null : (
-        <div className="vt-node-summary">{node.notes.trim() ? node.notes : def?.summary}</div>
+        <div className="vt-node-summary">
+          {node.notes.trim() ? node.notes : custom ? 'Double-click to see and edit the flows inside.' : def?.summary}
+        </div>
       )}
 
       <div className="vt-node-ports">
         <div className="vt-port-col">
-          {(def?.inputs ?? []).map((port) => (
+          {ports.inputs.map((port) => (
             <button
               key={port.id}
               type="button"
@@ -152,8 +161,8 @@ export const NodeCard = memo(function NodeCard({
         </div>
 
         <div className="vt-port-col is-out">
-          {(def?.outputs ?? []).map((port) => {
-            const artifact = node.outputs.find((ref) => ref.port === port.id);
+          {ports.outputs.map((port) => {
+            const artifact = custom ? chrome.produced?.includes(port.id) : node.outputs.find((ref) => ref.port === port.id);
             return (
               <button
                 key={port.id}

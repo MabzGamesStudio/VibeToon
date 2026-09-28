@@ -309,6 +309,28 @@ export function VectorizeFlowEditor({
           ) : null}
         </div>
 
+        <div className="vt-section">
+          <h3>Finishing</h3>
+          <Slider
+            range="vectorize.flatTolerance"
+            label="Flat shapes become lines"
+            value={data.options.flatTolerance ?? 0}
+            tip="vectorize.flatTolerance"
+            format={(value) => (value === 0 ? 'never' : `normals within ${value.toFixed(0)}°`)}
+            hint="A sliver of area whose sides all face straight across it is a line: it is replaced by one of its color."
+            onChange={(flatTolerance) => patch({ options: { ...data.options, flatTolerance } })}
+          />
+          <Slider
+            range="vectorize.smoothAngle"
+            label="Smooth shallow corners"
+            value={data.options.smoothAngle ?? 0}
+            tip="vectorize.smoothAngle"
+            format={(value) => (value === 0 ? 'off — every node a corner' : `turns under ${value.toFixed(0)}° curve`)}
+            hint="Nodes that turn less than this become Bézier curves; sharper ones stay sharp."
+            onChange={(smoothAngle) => patch({ options: { ...data.options, smoothAngle } })}
+          />
+        </div>
+
         {summary ? (
           <div className="vt-section">
             <h3>What was found</h3>
@@ -335,7 +357,7 @@ export function VectorizeFlowEditor({
                       </dd>
                     </>
                   ) : null}
-                  {(report.nodesMerged ?? 0) + (report.smallFolded ?? 0) + (report.smallDropped ?? 0) + (report.shortLines ?? 0) + (report.shortStrokes ?? 0) > 0 ? (
+                  {(report.nodesMerged ?? 0) + (report.smallFolded ?? 0) + (report.smallDropped ?? 0) + (report.shortLines ?? 0) + (report.shortStrokes ?? 0) + (report.flattened ?? 0) + (report.smoothed ?? 0) > 0 ? (
                     <>
                       <dt>Tidied</dt>
                       <dd>
@@ -345,6 +367,8 @@ export function VectorizeFlowEditor({
                           report.smallDropped ? `${report.smallDropped} speck(s) dropped` : '',
                           report.shortLines ? `${report.shortLines} stub(s) dropped` : '',
                           report.shortStrokes ? `${report.shortStrokes} skinny polygon(s) too short to be lines` : '',
+                          report.flattened ? `${report.flattened} flat shape(s) made lines` : '',
+                          report.smoothed ? `${report.smoothed} node(s) curved` : '',
                         ]
                           .filter(Boolean)
                           .join(', ')}

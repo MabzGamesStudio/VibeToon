@@ -49,6 +49,14 @@ export function App(): JSX.Element {
           </button>
           {focused ? (
             <>
+              {focused.group ? (
+                <>
+                  <span className="vt-faint">/</span>
+                  <button type="button" onClick={() => focusFlow(focused.group!)}>
+                    {project.nodes.find((node) => node.id === focused.group)?.name ?? 'Custom flow'}
+                  </button>
+                </>
+              ) : null}
               <span className="vt-faint">/</span>
               <span className="vt-crumb-current">
                 {focused.name}

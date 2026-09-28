@@ -1,6 +1,9 @@
 import path from 'node:path';
 import {
   computeSignature,
+  isCustomNode,
+  membersOf,
+  topoOrder,
   missingRequiredInputs,
   nodeById,
   resolveInputs,
@@ -161,9 +164,31 @@ export async function generateFlow(
   attachments: Attachment[] = [],
 ): Promise<{ project: Project; runs: GenerationRun[] }> {
   const project = await loadProject(projectId);
+  const node = nodeById(project, flowId);
+  if (node && isCustomNode(node)) return generateInstance(project, flowId);
   const { project: updated, run } = await runOne(project, flowId, attachments);
   const saved = await saveProjectUnchecked(updated);
   return { project: saved, runs: [run] };
+}
+
+/**
+ * Generate a custom flow instance: every flow behind it, upstream first, so
+ * each reads what the one before it made in the same pass. The instance has no
+ * files of its own; its ports are its members'.
+ */
+async function generateInstance(project: Project, groupId: string): Promise<{ project: Project; runs: GenerationRun[] }> {
+  const members = new Set(membersOf(project, groupId).map((member) => member.id));
+  if (members.size === 0) throw new HttpError(400, 'That custom flow has nothing behind it to generate.');
+  const order = topoOrder(project).order.filter((id) => members.has(id));
+  const runs: GenerationRun[] = [];
+  let current = project;
+  for (const id of order) {
+    const result = await runOne(current, id, []);
+    current = result.project;
+    runs.push(result.run);
+  }
+  const saved = await saveProjectUnchecked(current);
+  return { project: saved, runs };
 }
 
 /**

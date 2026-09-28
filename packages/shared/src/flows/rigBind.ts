@@ -137,6 +137,11 @@ export interface BindFlowData {
   rigHash?: string;
   vectorHash?: string;
   edits: number;
+  /**
+   * Nodes separated on purpose (see `separateNodes`): each part's copy of a
+   * boundary, a hair's breadth apart, which are meant to come apart.
+   */
+  apart?: string[];
 }
 
 export function emptyBindFlowData(): BindFlowData {

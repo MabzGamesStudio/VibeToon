@@ -565,6 +565,24 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     defaultOutgoingRules: { match: 'keep: placement, joint angles, part sizes, confidence' },
   },
   {
+    kind: 'animation.video.match',
+    category: 'animation',
+    label: 'Video Rig Match',
+    summary: 'Finds a bound rig’s body in every sampled frame of a video and turns it into a rig animation, split wherever the character is not found.',
+    inputs: [
+      input('bound', 'Bound rig', ['json'], 'The body to find: a rig with a drawing bound to it.', { required: true }),
+      input('video', 'Video', ['video'], 'The video to find it in. Or upload one in the editor.'),
+    ],
+    outputs: [
+      output('animation', 'Rig animation', ['json'], 'animation.json', 'Each segment the body was found in: for every sampled frame, where the body is, each joint’s angle, each part’s size and how sure the match was.'),
+      output('report', 'Report', ['markdown'], 'animation.md', 'The segments, how long each is, and which frames were dropped.'),
+      output('source', 'Video', ['video'], 'video.mp4', 'The video, when it was uploaded here rather than wired in.'),
+    ],
+    editor: 'videoMatch',
+    maturity: 'editor',
+    defaultOutgoingRules: { animation: 'keep: placement, joint angles, part sizes, timing' },
+  },
+  {
     kind: 'animation.animatic',
     category: 'animation',
     label: 'Animatic',
@@ -1056,6 +1074,19 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       field('naming', 'Naming', 'text', 'The naming convention for files.'),
       field('tracked', 'Tracked', 'list', 'Assets that must stay in sync.'),
     ],
+  },
+  {
+    // Never added from the palette as it is: the palette lists the custom
+    // flows saved in the project instead, and each instance carries its own
+    // ports (see `customFlow.ts`).
+    kind: 'custom.flow',
+    category: 'production',
+    label: 'Custom flow',
+    summary: 'An arrangement of flows saved under a name and used again as one, each use with its own settings.',
+    inputs: [],
+    outputs: [],
+    editor: 'custom',
+    maturity: 'editor',
   },
 ];
 

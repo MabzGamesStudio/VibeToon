@@ -41,6 +41,8 @@ const def = (
 ): SliderRangeDef => ({ key, label, flows, section, min, max, step, ...(unit ? { unit } : {}) });
 
 const VECTORIZE = ['art.vectorize'];
+const VECTOR_EDIT = ['art.vector.edit'];
+const VIDEO_MATCH = ['animation.video.match'];
 const RIG = ['animation.rig'];
 const PALETTE = ['art.palette'];
 const MAP = ['world.map'];
@@ -113,6 +115,13 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('rigMatch.rotation', 'Whole body turned', ['animation.match'], 'Adjusting by hand', -180, 180, 1, '°'),
   def('rigMatch.partAngle', 'Part turned (within the joint’s limits)', ['animation.match'], 'Adjusting by hand', -180, 180, 1, '°'),
   def('rigMatch.partSize', 'Part size', ['animation.match'], 'Adjusting by hand', 0.5, 2, 0.01, '×'),
+  def('videoMatch.fps', 'Frames a second', VIDEO_MATCH, 'Frames', 0.5, 30, 0.5, 'fps'),
+  def('videoMatch.total', 'Frames in all', VIDEO_MATCH, 'Frames', 2, 300, 1, 'frames'),
+  def('videoMatch.features', 'Features per part', VIDEO_MATCH, 'Finding the body', 2, 40, 1, 'features'),
+  def('videoMatch.scaleRange', 'Range in size', VIDEO_MATCH, 'Finding the body', 1, 4, 0.1, '×'),
+  def('videoMatch.angleRange', 'Range in angle', VIDEO_MATCH, 'Finding the body', 0, 180, 5, '°'),
+  def('videoMatch.threshold', 'Found at confidence', VIDEO_MATCH, 'Splitting', 0, 0.9, 0.01),
+  def('videoMatch.bodyOpacity', 'Body over the video', VIDEO_MATCH, 'Showing', 0, 1, 0.05),
 
   // Image Extraction
   def('cutout.tolerance', 'Tolerance', CUTOUT, 'Fill', 0, 60, 0.5),
@@ -150,6 +159,13 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('vectorize.minPolygonArea', 'Smallest polygon', VECTORIZE, 'Cleanup', 0, 100, 1, 'px²'),
   def('vectorize.minLineLength', 'Shortest line', VECTORIZE, 'Cleanup', 0, 40, 1, 'px'),
   def('vectorize.joinGap', 'Join line ends within', VECTORIZE, 'Cleanup', 0, 12, 0.5, 'px'),
+  def('vectorize.flatTolerance', 'Flat shapes become lines', VECTORIZE, 'Finishing', 0, 30, 1, '°'),
+  def('vectorize.smoothAngle', 'Smooth shallow corners', VECTORIZE, 'Finishing', 0, 90, 1, '°'),
+  def('vectorEdit.nodeCurve', 'How curved', VECTOR_EDIT, 'Curves', 0, 2, 0.05),
+  def('vectorEdit.nodeTurn', 'Turn', VECTOR_EDIT, 'Curves', -90, 90, 1, '°'),
+  def('vectorEdit.brushSize', 'Brush size', VECTOR_EDIT, 'Smooth brush', 4, 120, 2, 'px'),
+  def('vectorEdit.brushWindow', 'Nodes averaged into one', VECTOR_EDIT, 'Smooth brush', 2, 10, 1, 'nodes'),
+  def('vectorEdit.brushAmount', 'How curved', VECTOR_EDIT, 'Smooth brush', 0, 2, 0.05),
 
   // Outside any flow
   def('connection.weight', 'Connection weight', [], 'Connections', 0, 1, 0.05),

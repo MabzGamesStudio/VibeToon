@@ -39,6 +39,12 @@ text and settings (enabled, mode, weight, notes). Modes:
 
 **Project** — nodes, connections, settings (fps, frame size, default shot length,
 style note) and the canvas view, with a revision counter for optimistic saves.
+It also holds the project's **custom flows**: saved arrangements of flows.
+
+**Custom flow** — one card standing for several flows. The flows behind it are
+ordinary flows marked with the card's id (`group`) and not drawn. Its ports are
+theirs, and wires to it are stored as wires to them. See
+[CUSTOM-FLOWS.md](CUSTOM-FLOWS.md).
 
 ## Staleness
 

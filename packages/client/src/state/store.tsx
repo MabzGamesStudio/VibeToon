@@ -13,7 +13,10 @@ import {
   createNode,
   defaultRulesForConnection,
   emptyHistory,
+  isCustomNode,
   nextRedo,
+  realEndpoint,
+  removeInstance,
   nextUndo,
   record,
   redo as redoStep,
@@ -92,6 +95,11 @@ interface StudioValue {
   connect(from: PortRef, to: PortRef): boolean;
   patchConnection(connectionId: string, patch: Partial<Connection>): void;
   removeConnection(connectionId: string): void;
+  /**
+   * Any other change to the project, made whole: the custom flow operations,
+   * which add, hide and wire several flows at once. One undo step.
+   */
+  transform(change: (project: Project) => Project): void;
 
   select(selection: Selection): void;
   focusFlow(nodeId: string | null): void;
@@ -348,23 +356,42 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
     (nodeId: string) => {
       const current = projectRef.current;
       if (!current) return;
-      commit({
-        ...current,
-        nodes: current.nodes.filter((node) => node.id !== nodeId),
-        connections: current.connections.filter(
-          (connection) => connection.from.nodeId !== nodeId && connection.to.nodeId !== nodeId,
-        ),
-      });
+      const node = current.nodes.find((candidate) => candidate.id === nodeId);
+      // A custom flow goes with everything behind it.
+      commit(
+        isCustomNode(node)
+          ? removeInstance(current, nodeId)
+          : {
+              ...current,
+              nodes: current.nodes.filter((candidate) => candidate.id !== nodeId),
+              connections: current.connections.filter(
+                (connection) => connection.from.nodeId !== nodeId && connection.to.nodeId !== nodeId,
+              ),
+            },
+      );
       setSelection({ type: 'none' });
       setFocusedFlowId((focused) => (focused === nodeId ? null : focused));
     },
     [commit],
   );
 
+  const transform = useCallback(
+    (change: (project: Project) => Project) => {
+      const current = projectRef.current;
+      if (!current) return;
+      const next = change(current);
+      if (next !== current) commit(next);
+    },
+    [commit],
+  );
+
   const connect = useCallback(
-    (from: PortRef, to: PortRef): boolean => {
+    (shownFrom: PortRef, shownTo: PortRef): boolean => {
       const current = projectRef.current;
       if (!current) return false;
+      // A custom flow's port is the member port behind it.
+      const from = realEndpoint(current, shownFrom, 'out');
+      const to = realEndpoint(current, shownTo, 'in');
       const check = validateConnection(current, from, to);
       if (!check.ok) {
         notify('warn', check.reason ?? 'That connection is not allowed.');
@@ -620,6 +647,17 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
           setSaveState('clean');
           recordRuns(result.runs);
           const run = result.runs[0];
+          if (result.runs.length > 1) {
+            // A custom flow: every flow behind it ran.
+            const failed = result.runs.filter((one) => !one.ok);
+            notify(
+              failed.length > 0 ? 'error' : 'success',
+              failed.length > 0
+                ? `${failed.length} of ${result.runs.length} flow(s) failed: ${failed.map((one) => one.flowName).join(', ')}.`
+                : `${flowName(current, nodeId)}: generated ${result.runs.length} flow(s).`,
+            );
+            return run ?? null;
+          }
           if (run?.ok) {
             notify(
               run.warnings.length > 0 ? 'warn' : 'success',
@@ -799,6 +837,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
       connect,
       patchConnection,
       removeConnection,
+      transform,
       select: setSelection,
       focusFlow: setFocusedFlowId,
       undo,
@@ -838,6 +877,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
       connect,
       patchConnection,
       removeConnection,
+      transform,
       undo,
       redo,
       undoState,

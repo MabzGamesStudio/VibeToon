@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { FLOW_KINDS } from '../src/registry/flowKinds';
+import { CUSTOM_FLOW_KIND } from '../src/flows/customFlow';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SHARED_TEST = here;
@@ -98,6 +99,9 @@ test('the flows that write files are tested against a running server too', async
     'vectorEdit',
     'bind',
     'pose',
+    'rigMatch',
+    'videoMatch',
+    'custom',
   ];
   const missing = withGenerators.filter(
     (editor) => !candidates(editor).some((name) => present.includes(name)),
@@ -116,6 +120,9 @@ test('every flow kind is coherent: a name, a summary, and somewhere to put its w
   for (const kind of FLOW_KINDS) {
     if (!kind.label.trim()) problems.push(`${kind.kind}: no label`);
     if (kind.summary.trim().length < 20) problems.push(`${kind.kind}: summary says too little`);
+    // A custom flow's ports and work are its members': each instance carries
+    // its own (custom.test.ts holds those to account).
+    if (kind.kind === CUSTOM_FLOW_KIND) continue;
     if (kind.outputs.length === 0) problems.push(`${kind.kind}: writes nothing`);
     for (const port of [...kind.inputs, ...kind.outputs]) {
       if (port.kinds.length === 0) problems.push(`${kind.kind}.${port.id}: carries nothing`);

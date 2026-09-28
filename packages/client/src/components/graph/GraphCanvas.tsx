@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  findPort,
+  customDataOf,
+  flowPorts,
   flowStatus,
-  getFlowKind,
   inputsForPort,
+  isCustomNode,
   missingRequiredInputs,
+  portOf,
   portsCompatible,
+  shownEnd,
+  shownEndpoints,
   type Connection,
+  type FlowNode,
   type PortRef,
   type Project,
   type Vec2,
@@ -68,16 +73,39 @@ export interface GraphCanvasProps {
 function chromeFor(project: Project): Map<string, NodeChrome> {
   const result = new Map<string, NodeChrome>();
   for (const node of project.nodes) {
-    const def = getFlowKind(node.kind);
+    if (node.group) continue;
+    if (isCustomNode(node)) {
+      // A custom flow's ports are its members': wired and made as theirs are.
+      const data = customDataOf(node);
+      result.set(node.id, {
+        status: flowStatus(project, node),
+        missing: missingRequiredInputs(project, node).map((port) => port.id),
+        connected: data.inputs.filter((port) => inputsForPort(project, port.node, port.port).length > 0).map((port) => port.id),
+        produced: data.outputs
+          .filter((port) => project.nodes.find((member) => member.id === port.node)?.outputs.some((ref) => ref.port === port.port))
+          .map((port) => port.id),
+      });
+      continue;
+    }
     result.set(node.id, {
       status: flowStatus(project, node),
       missing: missingRequiredInputs(project, node).map((port) => port.id),
-      connected: (def?.inputs ?? [])
-        .filter((port) => inputsForPort(project, node.id, port.id).length > 0)
+      connected: flowPorts(node)
+        .inputs.filter((port) => inputsForPort(project, node.id, port.id).length > 0)
         .map((port) => port.id),
     });
   }
   return result;
+}
+
+/**
+ * What a card's layout depends on. Every card of a kind lays its ports out the
+ * same way — except a custom flow, whose ports are its own.
+ */
+function layoutKind(node: FlowNode): string {
+  if (!isCustomNode(node)) return node.kind;
+  const data = customDataOf(node);
+  return `${node.kind}#${[...data.inputs, ...data.outputs].map((port) => `${port.id}:${port.label}`).join(',')}`;
 }
 
 const EMPTY_CHROME: NodeChrome = { status: 'empty', missing: [], connected: [] };
@@ -125,14 +153,18 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
    */
   const viewRef = useRef(view);
 
+  // The flows behind a custom flow are not drawn; its card stands for them.
   const nodes = useMemo(
     () =>
-      project.nodes.map((node) => ({
-        ...node,
-        position: localPositions[node.id] ?? node.position,
-      })),
+      project.nodes
+        .filter((node) => !node.group)
+        .map((node) => ({
+          ...node,
+          position: localPositions[node.id] ?? node.position,
+        })),
     [project.nodes, localPositions],
   );
+  const shown = useMemo(() => shownEndpoints(project), [project]);
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
 
@@ -189,8 +221,9 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
     (key: string, element: HTMLElement | null) => {
       if (element) {
         const nodeId = key.slice(0, key.indexOf('|'));
-        const kind = nodesRef.current.find((node) => node.id === nodeId)?.kind;
-        if (!kind) return;
+        const found = nodesRef.current.find((node) => node.id === nodeId);
+        if (!found) return;
+        const kind = layoutKind(found);
         anchorElements.current.set(key, { element, kind });
         const [, portId, side] = key.split('|') as [string, string, PortSide];
         if (!portOffsets.current.has(offsetKey(kind, compact, portId, side))) queueMeasure();
@@ -211,14 +244,14 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
     void offsetVersion;
     const result = new Map<string, Vec2>();
     for (const node of nodes) {
-      const def = getFlowKind(node.kind);
-      if (!def) continue;
-      for (const [side, ports] of [
-        ['in', def.inputs],
-        ['out', def.outputs],
+      const ports = flowPorts(node);
+      const kind = layoutKind(node);
+      for (const [side, list] of [
+        ['in', ports.inputs],
+        ['out', ports.outputs],
       ] as const) {
-        for (const port of ports) {
-          const offset = portOffsets.current.get(offsetKey(node.kind, compact, port.id, side));
+        for (const port of list) {
+          const offset = portOffsets.current.get(offsetKey(kind, compact, port.id, side));
           if (!offset) continue;
           result.set(anchorKey(node.id, port.id, side), {
             x: node.position.x + offset.x,
@@ -561,8 +594,8 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
     const sourceNode = project.nodes.find((node) => node.id === source.nodeId);
     const targetNode = project.nodes.find((node) => node.id === target.nodeId);
     if (!sourceNode || !targetNode) return false;
-    const fromPort = findPort(sourceNode.kind, source.portId, 'outputs');
-    const toPort = findPort(targetNode.kind, target.portId, 'inputs');
+    const fromPort = portOf(sourceNode, source.portId, 'outputs');
+    const toPort = portOf(targetNode, target.portId, 'inputs');
     return Boolean(fromPort && toPort && portsCompatible(fromPort, toPort));
   }, [dragWire, hoverPort, project.nodes]);
 
@@ -572,8 +605,13 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
   );
 
   const renderEdge = (connection: Connection): JSX.Element | null => {
-    const from = anchors.get(anchorKey(connection.from.nodeId, connection.from.portId, 'out'));
-    const to = anchors.get(anchorKey(connection.to.nodeId, connection.to.portId, 'in'));
+    // A wire to a flow behind a custom flow is drawn at the custom flow's port,
+    // and one between two flows inside it is not drawn at all.
+    const fromEnd = shownEnd(shown, connection.from, 'out');
+    const toEnd = shownEnd(shown, connection.to, 'in');
+    if (!fromEnd || !toEnd) return null;
+    const from = anchors.get(anchorKey(fromEnd.nodeId, fromEnd.portId, 'out'));
+    const to = anchors.get(anchorKey(toEnd.nodeId, toEnd.portId, 'in'));
     if (!from || !to) return null;
     if (
       visibleWorld &&
@@ -613,9 +651,9 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
           }}
         >
           <title>
-            {`${nodeNames.get(connection.from.nodeId) ?? '?'}.${connection.from.portId} → ${
-              nodeNames.get(connection.to.nodeId) ?? '?'
-            }.${connection.to.portId}`}
+            {`${nodeNames.get(fromEnd.nodeId) ?? '?'}.${fromEnd.portId} → ${
+              nodeNames.get(toEnd.nodeId) ?? '?'
+            }.${toEnd.portId}`}
           </title>
         </path>
         {ruleCount > 0 ? (

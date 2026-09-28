@@ -80,8 +80,10 @@ const PASSIVE: { keep: Record<string, string[]>; restore: Record<string, string[
     '*': ['view'],
     timeline: ['filter'],
     bind: ['brush', 'boneId', 'hideOthers'],
+    vectorEdit: ['brush'],
     pose: ['mode'],
     rigMatch: ['showBody', 'showSkeleton', 'showFeatures', 'bodyOpacity'],
+    videoMatch: ['showVideo', 'showBody', 'showSkeleton', 'bodyOpacity'],
     // Facts about a file on the server, which undo does not reach: winding
     // them back would describe a picture that is not the one there, and the
     // editor would only measure it again.
@@ -154,6 +156,7 @@ export function diffProject(before: Project, after: Project): ProjectChange {
   const graph: string[] = [];
   const nodes = new Map<string, string[]>();
   if (before.name !== after.name) graph.push('name');
+  if (before.customFlows !== after.customFlows && !sameValue(before.customFlows ?? [], after.customFlows ?? [])) graph.push('customFlows');
   if (before.settings !== after.settings) {
     for (const key of changedKeys(before.settings as unknown as Record<string, unknown>, after.settings as unknown as Record<string, unknown>, () => false)) {
       graph.push(`settings.${key}`);
@@ -182,6 +185,7 @@ export function diffProject(before: Project, after: Project): ProjectChange {
       }
       if (old === node) continue;
       if (old.kind !== node.kind) graph.push(`kind:${node.id}`);
+      if (old.group !== node.group) graph.push(`group:${node.id}`);
       if (old.position !== node.position && !sameValue(old.position, node.position)) graph.push(`move:${node.id}`);
       const own: string[] = [];
       if (old.name !== node.name) own.push('name');
@@ -217,7 +221,7 @@ function describe(before: Project, after: Project, change: ProjectChange, scope:
   }
   // The biggest thing that happened names the step: removing a flow also
   // removes its wires, and "Remove Timeline" is the step, not "Disconnect".
-  const priority = ['add', 'remove', 'connect', 'disconnect', 'connection', 'move', 'kind', 'order', 'name', 'settings'];
+  const priority = ['add', 'remove', 'group', 'customFlows', 'connect', 'disconnect', 'connection', 'move', 'kind', 'order', 'name', 'settings'];
   const rank = (item: string) => {
     const at = priority.indexOf(item.split(/[:.]/)[0]!);
     return at < 0 ? priority.length : at;
@@ -246,6 +250,10 @@ function describe(before: Project, after: Project, change: ProjectChange, scope:
       return 'Rename the project';
     case 'order':
       return 'Reorder flows';
+    case 'group':
+      return 'Group flows';
+    case 'customFlows':
+      return 'Custom flows';
     default:
       if (what.startsWith('settings.')) return `Project ${words(what.slice('settings.'.length))}`;
       if (change.nodes.size > 0) return `Edit ${[...change.nodes.keys()].map((node) => nodeName(after, node)).join(', ')}`;
@@ -368,8 +376,10 @@ function restoreNode(current: Project, snapshot: Project, nodeId: string): Proje
  */
 function restoreGraph(current: Project, snapshot: Project, touched: string[]): Project {
   const live = new Map(current.nodes.map((node) => [node.id, node]));
+  const { customFlows: _now, ...rest } = current;
   return {
-    ...current,
+    ...rest,
+    ...(snapshot.customFlows ? { customFlows: snapshot.customFlows } : {}),
     name: snapshot.name,
     settings: snapshot.settings,
     connections: snapshot.connections,
@@ -377,8 +387,10 @@ function restoreGraph(current: Project, snapshot: Project, touched: string[]): P
       const node = live.get(was.id);
       if (!node) return was;
       const own = touched.includes(was.id);
+      const { group: _group, ...base } = node;
       return {
-        ...node,
+        ...base,
+        ...(was.group ? { group: was.group } : {}),
         kind: was.kind,
         position: was.position,
         ...(own ? { name: was.name, notes: was.notes, data: mergeData(was.data, node.data) } : {}),
