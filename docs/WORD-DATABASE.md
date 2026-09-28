@@ -167,7 +167,7 @@ Four ways to add one:
 
 ## How the numbers are worked out
 
-Counting walks the text once, tallying each token and each **pair** of adjacent
+Counting walks the text, tallying each token and each **pair** of adjacent
 tokens. Punctuation counts as a token, so `yesterday → .` and `. → the` are
 learned like any other pair — that is what teaches the generator where sentences
 end. A blank line breaks the chain; a wrapped line does not.
@@ -181,18 +181,64 @@ frequency = log(1 + count) / log(1 + maxCount)
 The commonest word sits at 1 and the long tail stays usable, where a raw share of
 tokens would put almost everything at nearly zero.
 
-**Context weight** is *lift*: how much more often B follows A than B turns up at
-all.
+### The company a word keeps
+
+A word's contexts are the words it keeps company with, gathered in a second pass
+over the text. Every other word near an occurrence of it gets a chance of being
+taken as its context:
+
+| Where it is | Chance, by default |
+| --- | --- |
+| Right next to it, in the same sentence | 0.9 |
+| Elsewhere in the same sentence | 0.25 |
+| In the same paragraph, within forty words | 0.05 |
+
+A sentence runs from one full stop to the next; a blank line ends a paragraph.
+Punctuation is not company. The chance is cut for a very common word in
+proportion to how common it is, so `the`, beside everything, is rarely taken. A
+word near it twice gets two chances. In *The quick brown fox jumps over the lazy
+dog*, `lazy` is right beside `dog` and almost always taken; `quick`, `brown`,
+`fox`, `jumps` and `over` each might be; and `the` has two chances, each much
+smaller than any other word's.
+
+Each word has **slots** for its contexts, sixteen to begin with:
+
+- A context taken again weighs one more.
+- A new one takes a free slot at a weight of 1.
+- With every slot full, a new one may push out the weakest context there, with a
+  chance of `1 / (1 + its weight)`: a context taken once goes half the time, one
+  taken nine times almost never.
+- Once a word's contexts weigh eight per slot in all (**Slots double at**), its
+  slots double, up to 128. A word the corpus leans on earns room for more company.
+
+Every draw is seeded from the corpus's name and length, so counting the same text
+again gives the same contexts. Combining corpora adds their context weights
+together, and unticking one takes its weights back out, exactly as counts do.
+
+### From weights to links
+
+A context is kept only if it is **more** of the word's company than it is of the
+corpus as a whole: its *lift* is above 1.
 
 ```
-lift   = P(B | A) / P(B)          = [count(A→B) / count(A)] / [count(B) / tokens]
-weight = min(1, log(1 + lift) / log(1 + liftCeiling))
+lift   = (weight of B among A's contexts / all of A's context weight) / (count(B) / tokens)
+weight = min(1, log(lift) / log(liftCeiling))       only when lift > 1
 ```
 
 Dividing by the word's own frequency is what stops `the` from being the strongest
-context of every word in the language: `the` follows everything, so its lift is
-near 1 and its weight is low, while a word that *only* ever follows one other
-word scores near the ceiling.
+context of every word in the language. A word is held to the slots it grew to, and
+to **Contexts per word**.
+
+**Definitions count too.** When a word has been looked up, each of its senses
+also gets the words of its own definition as contexts, weighed the same way (a
+common word in a definition counts for as little as a common word nearby). So
+`bank`, the edge of a river, leans towards `river`, while `bank`, the place that
+keeps money, leans towards `money`.
+
+A mark (`.`, `,`) is not anyone's company and keeps no company of its own. Its
+contexts are still what follows it, which is what teaches the generator what
+starts a sentence. A dataset counted before contexts were gathered this way works
+the same way until the corpus is added again.
 
 ## Settings
 
@@ -202,8 +248,11 @@ pruned to, so changing these affects the next corpus, not the ones already in):
 | Setting | What it does |
 | --- | --- |
 | Words kept per corpus | Keep this many distinct tokens, commonest first. |
-| Links kept per word | Keep this many following-word links per entry. |
+| Links kept per word | Keep this many following-word links per entry (what a mark's contexts come from). |
 | A pair must occur | Pairs seen fewer times than this are noise, and dropped. |
+| Next to it / In the same sentence / In the same paragraph | The chances above. |
+| Context slots | How many contexts a word holds to begin with. |
+| Slots double at | Context weight per slot at which a word's slots double. |
 | Count punctuation | Whether `.` `,` and the rest are tokens of their own. |
 
 **Weighting** (applied every time the database is derived, so change these
@@ -213,7 +262,7 @@ freely):
 | --- | --- |
 | Lift ceiling | How much lift counts as a full-strength link. Lower makes more links strong. |
 | Weakest link kept | Links below this weight are dropped. |
-| Contexts per word | How many links each word keeps, strongest first. |
+| Contexts per word | The most links any word keeps, strongest first (128 by default). |
 
 ## The dictionary
 

@@ -140,9 +140,40 @@ export interface LengthTarget {
   temperature: number;
 }
 
+/**
+ * What a run does with the text coming in:
+ * - `within` keeps it and writes new words, phrases and fragments into it;
+ * - `after` keeps it and writes on from its end (with nothing coming in, it
+ *   writes from nothing);
+ * - `alter` replaces some of its words, each with a word, a phrase or a fragment.
+ */
+export type RandomTextMode = 'within' | 'after' | 'alter';
+
+export const RANDOM_TEXT_MODES: RandomTextMode[] = ['within', 'after', 'alter'];
+
+/** The fewest and most words of something. */
+export interface WordRange {
+  min: number;
+  max: number;
+}
+
+/** How often each size of new writing is chosen, where a run inserts or replaces. */
+export interface UnitWeights {
+  word: number;
+  phrase: number;
+  fragment: number;
+}
+
+/** A mode read off anything: a stored project, a connection rule. */
+export function readTextMode(value: unknown): RandomTextMode | undefined {
+  if (value === 'within' || value === 'insert' || value === 'inside') return 'within';
+  if (value === 'after' || value === 'generate' || value === 'continue') return 'after';
+  if (value === 'alter') return 'alter';
+  return undefined;
+}
+
 export interface RandomTextOptions {
-  /** `generate` writes new text; `alter` rewrites the text coming in. */
-  mode: 'generate' | 'alter';
+  mode: RandomTextMode;
   /** Same seed, same output — so a flow only goes stale when something real changes. */
   seed: string;
   length: LengthTarget;
@@ -168,6 +199,14 @@ export interface RandomTextOptions {
   grammarWeight: number;
   /** Average words per sentence the punctuation aims for. */
   sentenceLength: number;
+  /** The shortest and longest a written sentence may be, in words. */
+  sentenceWords: WordRange;
+  /** The size of a phrase written into the text or in place of a word. */
+  phraseWords: WordRange;
+  /** The size of a fragment: a clause set off by commas. */
+  fragmentWords: WordRange;
+  /** When writing into the text or replacing a word, how often each size is chosen. */
+  units: UnitWeights;
 }
 
 export const DEFAULT_LENGTH_TARGET: LengthTarget = {
@@ -180,7 +219,7 @@ export const DEFAULT_LENGTH_TARGET: LengthTarget = {
 };
 
 export const DEFAULT_RANDOM_TEXT_OPTIONS: RandomTextOptions = {
-  mode: 'generate',
+  mode: 'after',
   seed: 'vibetoon',
   length: { ...DEFAULT_LENGTH_TARGET },
   alterTemperature: 0.35,
@@ -192,6 +231,10 @@ export const DEFAULT_RANDOM_TEXT_OPTIONS: RandomTextOptions = {
   grammarBias: 0.85,
   grammarWeight: 0.7,
   sentenceLength: 12,
+  sentenceWords: { min: 4, max: 30 },
+  phraseWords: { min: 2, max: 4 },
+  fragmentWords: { min: 3, max: 7 },
+  units: { word: 1, phrase: 0.5, fragment: 0.25 },
 };
 
 export interface TextFlowData {

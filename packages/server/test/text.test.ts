@@ -85,7 +85,7 @@ test('generating writes the text, the database and a report', async () => {
   const report = await (
     await fetch(`${base}/api/projects/${project.id}/files/artifacts/${textId}/report.md`)
   ).text();
-  assert.match(report, /Mode: \*\*generate\*\*/);
+  assert.match(report, /Mode: \*\*after\*\*/);
   assert.match(report, /seed `test-seed`/);
   assert.match(report, /Target: 40 words ±4/);
 

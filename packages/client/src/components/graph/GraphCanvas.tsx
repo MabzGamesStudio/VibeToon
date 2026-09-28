@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   customDataOf,
+  exposePort,
   flowPorts,
   flowStatus,
   inputsForPort,
@@ -10,7 +11,9 @@ import {
   portsCompatible,
   shownEnd,
   shownEndpoints,
+  unexposePort,
   type Connection,
+  type ExposedPort,
   type FlowNode,
   type PortRef,
   type Project,
@@ -67,13 +70,39 @@ const PAN_COMMIT_MS = 100;
 export interface GraphCanvasProps {
   /** Reports the world point at the centre of the viewport, so new flows land in view. */
   onViewportCentre?(point: Vec2): void;
+  /**
+   * A custom flow to show the inside of, as a graph of its own: its flows and
+   * the wires between them, with what it takes on a card to the left and what
+   * it gives on a card to the right. Without it, the project's main graph.
+   */
+  scope?: string;
+}
+
+/** The two cards standing for a custom flow's ports, on its own graph. */
+const COLUMN_WIDTH = 210;
+const COLUMN_HEAD = 34;
+const COLUMN_ROW = 30;
+const COLUMN_GAP = 90;
+
+interface PortColumn {
+  side: 'takes' | 'gives';
+  at: Vec2;
+  ports: ExposedPort[];
+}
+
+/** Where a port card's row joins its wire. */
+function columnAnchor(column: PortColumn, index: number): Vec2 {
+  return {
+    x: column.at.x + (column.side === 'takes' ? COLUMN_WIDTH : 0),
+    y: column.at.y + 1 + COLUMN_HEAD + index * COLUMN_ROW + COLUMN_ROW / 2,
+  };
 }
 
 /** Everything a card needs to know that costs a walk of the whole project. */
-function chromeFor(project: Project): Map<string, NodeChrome> {
+function chromeFor(project: Project, scope: string | undefined): Map<string, NodeChrome> {
   const result = new Map<string, NodeChrome>();
   for (const node of project.nodes) {
-    if (node.group) continue;
+    if (node.group !== scope) continue;
     if (isCustomNode(node)) {
       // A custom flow's ports are its members': wired and made as theirs are.
       const data = customDataOf(node);
@@ -114,7 +143,7 @@ function offsetKey(kind: string, compact: boolean, portId: string, side: PortSid
   return `${kind}|${compact ? 'c' : 'f'}|${portId}|${side}`;
 }
 
-export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.Element {
+export function GraphCanvas({ onViewportCentre, scope }: GraphCanvasProps = {}): JSX.Element {
   const {
     project,
     selection,
@@ -125,6 +154,8 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
     connect,
     removeNode,
     removeConnection,
+    transform,
+    notify,
     busyFlows,
   } = useStudio();
   const { view: prefs } = useView();
@@ -134,7 +165,10 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
 
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const worldRef = useRef<HTMLDivElement | null>(null);
-  const [view, setView] = useState<ViewTransform>({ pan: project.view.pan, zoom: project.view.zoom });
+  // A custom flow's own graph starts fitted to what is in it, and is not saved.
+  const [view, setView] = useState<ViewTransform>(
+    scope ? { pan: { x: 0, y: 0 }, zoom: 1 } : { pan: project.view.pan, zoom: project.view.zoom },
+  );
   const [panning, setPanning] = useState(false);
   const [dragNode, setDragNode] = useState<DragNode | null>(null);
   const [dragWire, setDragWire] = useState<DragWire | null>(null);
@@ -154,21 +188,38 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
   const viewRef = useRef(view);
 
   // The flows behind a custom flow are not drawn; its card stands for them.
+  // On its own graph, they are all that is drawn.
   const nodes = useMemo(
     () =>
       project.nodes
-        .filter((node) => !node.group)
+        .filter((node) => node.group === scope)
         .map((node) => ({
           ...node,
           position: localPositions[node.id] ?? node.position,
         })),
-    [project.nodes, localPositions],
+    [project.nodes, localPositions, scope],
   );
   const shown = useMemo(() => shownEndpoints(project), [project]);
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
 
-  const chrome = useMemo(() => chromeFor(project), [project]);
+  const chrome = useMemo(() => chromeFor(project, scope), [project, scope]);
+
+  /** On a custom flow's own graph: what it takes, left of its flows, and what it gives, right of them. */
+  const instance = scope ? project.nodes.find((node) => node.id === scope) : undefined;
+  const columns = useMemo((): PortColumn[] => {
+    if (!instance) return [];
+    const data = customDataOf(instance);
+    const xs = nodes.map((node) => node.position.x);
+    const ys = nodes.map((node) => node.position.y);
+    const left = xs.length > 0 ? Math.min(...xs) : 0;
+    const right = xs.length > 0 ? Math.max(...xs) + CARD_WIDTH : 600;
+    const top = ys.length > 0 ? Math.min(...ys) : 0;
+    return [
+      { side: 'takes', at: { x: left - COLUMN_GAP - COLUMN_WIDTH, y: top }, ports: data.inputs },
+      { side: 'gives', at: { x: right + COLUMN_GAP, y: top }, ports: data.outputs },
+    ];
+  }, [instance, nodes]);
 
   /* ---------------- port anchors ---------------- */
 
@@ -268,6 +319,7 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
   const viewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const persistView = useCallback(
     (next: ViewTransform) => {
+      if (scope) return;
       if (viewTimer.current) clearTimeout(viewTimer.current);
       viewTimer.current = setTimeout(() => {
         viewTimer.current = null;
@@ -276,7 +328,7 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
         });
       }, VIEW_SAVE_DELAY_MS);
     },
-    [update],
+    [scope, update],
   );
 
   useEffect(() => () => {
@@ -315,18 +367,35 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
     paintView(viewRef.current);
   });
 
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
+
   const fitToContent = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    const points = nodesRef.current.flatMap((node) => [
-      node.position,
-      { x: node.position.x + CARD_WIDTH, y: node.position.y + CARD_HEIGHT },
-    ]);
+    const points = [
+      ...nodesRef.current.flatMap((node) => [
+        node.position,
+        { x: node.position.x + CARD_WIDTH, y: node.position.y + CARD_HEIGHT },
+      ]),
+      ...columnsRef.current.flatMap((column) => [
+        column.at,
+        { x: column.at.x + COLUMN_WIDTH, y: column.at.y + COLUMN_HEAD + Math.max(1, column.ports.length) * COLUMN_ROW },
+      ]),
+    ];
     const bounds = boundsOf(points);
     if (!bounds) return;
     applyView(fitView(bounds, { width: rect.width, height: rect.height }));
   }, [applyView]);
+
+  // A custom flow's graph opens fitted to what is in it.
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (!scope || fitted.current) return;
+    fitted.current = true;
+    requestAnimationFrame(() => fitToContent());
+  }, [fitToContent, scope]);
 
   // Keep the palette's drop point on the middle of what is actually on screen,
   // and the viewport size current for culling. Both read the live view out of
@@ -377,7 +446,7 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
     (event: React.PointerEvent) => {
       // Panning starts on empty canvas only; nodes and edges handle their own drags.
       const target = event.target as HTMLElement;
-      if (target.closest('.vt-node') || target.closest('.vt-edge')) return;
+      if (target.closest('.vt-node') || target.closest('.vt-edge') || target.closest('.vt-port-column')) return;
       if (event.button !== 0 && event.button !== 1) return;
       select({ type: 'none' });
       setPanning(true);
@@ -498,9 +567,18 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
       const up = (upEvent: PointerEvent) => {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
-        const dropped = document
-          .elementFromPoint(upEvent.clientX, upEvent.clientY)
-          ?.closest('.vt-port') as HTMLElement | null;
+        const under = document.elementFromPoint(upEvent.clientX, upEvent.clientY);
+        const column = (under?.closest('[data-column]') as HTMLElement | null)?.dataset.column;
+        if (column && scope) {
+          // Dropped on what the custom flow takes or gives: show that port on its card.
+          setDragWire(null);
+          setHoverPort(null);
+          if (column === 'takes' && side === 'in') transform((current) => exposePort(current, scope, 'inputs', nodeId, portId));
+          else if (column === 'gives' && side === 'out') transform((current) => exposePort(current, scope, 'outputs', nodeId, portId));
+          else notify('warn', column === 'takes' ? 'Drag an input here: it is what the custom flow takes.' : 'Drag an output here: it is what the custom flow gives.');
+          return;
+        }
+        const dropped = under?.closest('.vt-port') as HTMLElement | null;
         const targetNodeId = dropped?.getAttribute('data-node') ?? undefined;
         const targetPortId = dropped?.getAttribute('data-port') ?? undefined;
         const targetSide = dropped?.getAttribute('data-side') as PortSide | undefined;
@@ -513,7 +591,7 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
     },
-    [connect, pointerWorld],
+    [connect, notify, pointerWorld, scope, transform],
   );
 
   // Stable so that hovering a port does not re-render every card on the canvas.
@@ -604,11 +682,14 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
     [project.nodes],
   );
 
+  const memberIds = useMemo(() => new Set(nodes.map((node) => node.id)), [nodes]);
+
   const renderEdge = (connection: Connection): JSX.Element | null => {
     // A wire to a flow behind a custom flow is drawn at the custom flow's port,
-    // and one between two flows inside it is not drawn at all.
-    const fromEnd = shownEnd(shown, connection.from, 'out');
-    const toEnd = shownEnd(shown, connection.to, 'in');
+    // and one between two flows inside it is not drawn at all. On the custom
+    // flow's own graph it is the other way round: only the wires inside it.
+    const fromEnd = scope ? (memberIds.has(connection.from.nodeId) ? connection.from : null) : shownEnd(shown, connection.from, 'out');
+    const toEnd = scope ? (memberIds.has(connection.to.nodeId) ? connection.to : null) : shownEnd(shown, connection.to, 'in');
     if (!fromEnd || !toEnd) return null;
     const from = anchors.get(anchorKey(fromEnd.nodeId, fromEnd.portId, 'out'));
     const to = anchors.get(anchorKey(toEnd.nodeId, toEnd.portId, 'in'));
@@ -687,6 +768,20 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
       >
         <svg className="vt-edges">
           {project.connections.map(renderEdge)}
+          {columns.flatMap((column) =>
+            column.ports.map((port, index) => {
+              const member = anchors.get(anchorKey(port.node, port.port, column.side === 'takes' ? 'in' : 'out'));
+              if (!member) return null;
+              const edge = columnAnchor(column, index);
+              return (
+                <path
+                  key={`${column.side}:${port.id}`}
+                  className="vt-edge is-exposed"
+                  d={column.side === 'takes' ? edgePath(edge, member) : edgePath(member, edge)}
+                />
+              );
+            }),
+          )}
           {dragWire
             ? (() => {
                 const anchor = anchors.get(
@@ -706,6 +801,41 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
               })()
             : null}
         </svg>
+
+        {columns.map((column) => (
+          <div
+            key={column.side}
+            className={`vt-port-column is-${column.side}${dragWire ? ' is-target' : ''}`}
+            data-column={column.side}
+            style={{ transform: `translate3d(${column.at.x}px, ${column.at.y}px, 0)`, width: COLUMN_WIDTH }}
+          >
+            <header>
+              <strong>{column.side === 'takes' ? 'Takes' : 'Gives'}</strong>
+              <span className="vt-faint">{column.side === 'takes' ? 'inputs on the card' : 'outputs on the card'}</span>
+            </header>
+            {column.ports.map((port) => (
+              <div key={port.id} className="vt-port-row" title={`${nodeNames.get(port.node) ?? '?'} · ${port.port} · ${port.kinds.join('/')}`}>
+                {column.side === 'gives' ? <span className="vt-port-dot" /> : null}
+                <span className="vt-port-label">{port.label}</span>
+                <button
+                  type="button"
+                  className="vt-btn is-ghost is-small"
+                  aria-label={`Stop showing ${port.label}`}
+                  title="Stop showing this port on the card"
+                  onClick={() => scope && transform((current) => unexposePort(current, scope, column.side === 'takes' ? 'inputs' : 'outputs', port.id))}
+                >
+                  ×
+                </button>
+                {column.side === 'takes' ? <span className="vt-port-dot" /> : null}
+              </div>
+            ))}
+            {column.ports.length === 0 ? (
+              <div className="vt-port-row is-empty">
+                {column.side === 'takes' ? 'Drag an input here' : 'Drag an output here'}
+              </div>
+            ) : null}
+          </div>
+        ))}
 
         {visibleNodes.map((node) => (
           <NodeCard
@@ -732,7 +862,9 @@ export function GraphCanvas({ onViewportCentre }: GraphCanvasProps = {}): JSX.El
       </div>
 
       <div className="vt-canvas-hint">
-        drag a port to connect · double-click a flow to open its editor · wheel to zoom · F to fit
+        {scope
+          ? 'drag a port to connect · drag one onto Takes or Gives to show it on the card · double-click a flow to open it · F to fit'
+          : 'drag a port to connect · double-click a flow to open its editor · wheel to zoom · F to fit'}
         {hidden > 0 ? ` · ${hidden} off screen, not drawn` : ''}
       </div>
 

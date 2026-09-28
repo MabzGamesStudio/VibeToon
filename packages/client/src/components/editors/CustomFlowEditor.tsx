@@ -1,25 +1,31 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   customDataOf,
-  flowStatus,
-  getFlowKind,
+  exposeFromWiring,
   inputsForPort,
   instanceCounts,
   membersOf,
   openOutInstance,
+  renameTemplate,
   saveInstanceAsTemplate,
   templateById,
-  topoOrder,
+  unexposePort,
   type CustomFlowData,
   type ExposedPort,
   type FlowNode,
   type Project,
+  type Vec2,
 } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
+import { FlowPalette } from '../graph/FlowPalette';
+import { GraphCanvas } from '../graph/GraphCanvas';
+import { Inspector } from '../inspector/Inspector';
 import { EditorShell } from './EditorShell';
 
 /**
- * One custom flow: the flows behind its card, its ports, and its template.
+ * One custom flow, built on a graph of its own: the flows behind its card as
+ * cards, wired as on the main graph, with what it takes and gives on two cards
+ * of their own either side.
  *
  * The flows behind it are this instance's own. Opening one opens its ordinary
  * editor, and whatever is changed there is changed in this instance only —
@@ -27,15 +33,14 @@ import { EditorShell } from './EditorShell';
  * touched unless you save this one over the template.
  */
 export function CustomFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
-  const { focusFlow, patchNode, transform, notify, removeNode } = useStudio();
+  const { focusFlow, patchNode, transform, notify, removeNode, selection } = useStudio();
+  const [palette, setPalette] = useState(true);
+  const [dropPoint, setDropPoint] = useState<Vec2>({ x: 0, y: 0 });
+  const onViewportCentre = useCallback((point: Vec2) => setDropPoint(point), []);
   const data = customDataOf(node);
   const template = templateById(project, data.templateId);
-  const members = useMemo(() => {
-    const order = topoOrder(project).order;
-    return membersOf(project, node.id).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-  }, [node.id, project]);
+  const members = useMemo(() => membersOf(project, node.id), [node.id, project]);
   const memberIds = new Set(members.map((member) => member.id));
-  const wires = project.connections.filter((c) => memberIds.has(c.from.nodeId) && memberIds.has(c.to.nodeId));
   const count = instanceCounts(project).get(data.templateId) ?? 0;
   const nameOf = (id: string) => project.nodes.find((one) => one.id === id)?.name ?? '?';
 
@@ -67,6 +72,14 @@ export function CustomFlowEditor({ project, node }: { project: Project; node: Fl
         <span className="vt-faint">
           {wired.length > 0 ? `${side === 'inputs' ? 'from' : 'to'} ${wired.join(', ')}` : 'not wired'}
         </span>
+        <button
+          type="button"
+          className="vt-btn is-ghost is-small"
+          title="Stop showing this port on the card"
+          onClick={() => transform((current) => unexposePort(current, node.id, side, port.id))}
+        >
+          Hide
+        </button>
       </div>
     );
   };
@@ -76,17 +89,27 @@ export function CustomFlowEditor({ project, node }: { project: Project; node: Fl
       project={project}
       node={node}
       actions={
-        <button
-          type="button"
-          className="vt-btn is-small"
-          title="Put the flows behind this card back on the graph as ordinary flows"
-          onClick={() => {
-            transform((current) => openOutInstance(current, node.id));
-            focusFlow(null);
-          }}
-        >
-          Open out
-        </button>
+        <>
+          <button
+            type="button"
+            className={`vt-btn is-small${palette ? ' is-active' : ''}`}
+            onClick={() => setPalette((open) => !open)}
+          >
+            {palette ? '◀ Flows' : 'Flows ▶'}
+          </button>
+          <button
+            type="button"
+            className="vt-btn is-small"
+            title="Put the flows behind this card back on the graph as ordinary flows"
+            disabled={members.length === 0}
+            onClick={() => {
+              transform((current) => openOutInstance(current, node.id));
+              focusFlow(null);
+            }}
+          >
+            Open out
+          </button>
+        </>
       }
     >
       <aside className="vt-editor-side">
@@ -96,6 +119,15 @@ export function CustomFlowEditor({ project, node }: { project: Project; node: Fl
             <span className="vt-label">Name on the graph</span>
             <input value={node.name} onChange={(event) => patchNode(node.id, { name: event.target.value })} />
           </label>
+          {template ? (
+            <label className="vt-field">
+              <span className="vt-label">Name in the palette</span>
+              <input
+                value={template.name}
+                onChange={(event) => transform((current) => renameTemplate(current, template.id, event.target.value))}
+              />
+            </label>
+          ) : null}
           <dl className="vt-kv">
             <dt>Made from</dt>
             <dd>{template ? template.name : `${data.templateName} (no longer saved)`}</dd>
@@ -111,7 +143,7 @@ export function CustomFlowEditor({ project, node }: { project: Project; node: Fl
           ) : null}
           <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
             The flows inside are this one’s own: changing them changes this use only. Save it over the
-            template to make new uses start from here.
+            template to make new uses start from here. Double-click a flow on the graph to open it.
           </p>
           <div className="vt-row" style={{ gap: 4, flexWrap: 'wrap' }}>
             <button
@@ -136,52 +168,38 @@ export function CustomFlowEditor({ project, node }: { project: Project; node: Fl
             </button>
           </div>
         </div>
-      </aside>
-
-      <div className="vt-editor-main">
-        <div className="vt-section">
-          <h3>Flows inside ({members.length})</h3>
-          <div className="vt-custom-members">
-            {members.map((member, index) => {
-              const status = flowStatus(project, member);
-              return (
-                <button
-                  key={member.id}
-                  type="button"
-                  className="vt-custom-member"
-                  title="Open this flow’s editor"
-                  onClick={() => focusFlow(member.id)}
-                >
-                  <span className="vt-faint">{index + 1}</span>
-                  <strong>{member.name}</strong>
-                  <span className="vt-faint">{getFlowKind(member.kind)?.label ?? member.kind}</span>
-                  <span className={`vt-pill is-${status}`}>{status}</span>
-                  <span className="vt-spacer" />
-                  <span className="vt-btn is-small">Open ▸</span>
-                </button>
-              );
-            })}
-          </div>
-          {wires.length > 0 ? (
-            <ul className="vt-custom-wires">
-              {wires.map((wire) => (
-                <li key={wire.id}>
-                  {nameOf(wire.from.nodeId)}.{wire.from.portId} → {nameOf(wire.to.nodeId)}.{wire.to.portId}
-                  {wire.settings.enabled ? '' : ' (off)'}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
 
         <div className="vt-section">
           <h3>Takes ({data.inputs.length})</h3>
-          {data.inputs.length === 0 ? <div className="vt-empty">Nothing: it makes everything itself.</div> : data.inputs.map((port) => portRow(port, 'inputs'))}
+          {data.inputs.length === 0 ? <div className="vt-empty">Nothing yet.</div> : data.inputs.map((port) => portRow(port, 'inputs'))}
         </div>
         <div className="vt-section">
           <h3>Gives ({data.outputs.length})</h3>
-          {data.outputs.length === 0 ? <div className="vt-empty">Nothing is shown outside.</div> : data.outputs.map((port) => portRow(port, 'outputs'))}
+          {data.outputs.length === 0 ? <div className="vt-empty">Nothing yet.</div> : data.outputs.map((port) => portRow(port, 'outputs'))}
+          <button
+            type="button"
+            className="vt-btn is-small"
+            style={{ marginTop: 6 }}
+            title="Take every input nothing inside feeds, and give every output nothing inside reads"
+            disabled={members.length === 0}
+            onClick={() => transform((current) => exposeFromWiring(current, node.id))}
+          >
+            Show what the wiring leaves open
+          </button>
         </div>
+      </aside>
+
+      <div className="vt-editor-main vt-custom-graph">
+        {palette ? <FlowPalette dropPoint={dropPoint} group={node.id} /> : null}
+        <GraphCanvas key={node.id} scope={node.id} onViewportCentre={onViewportCentre} />
+        {/* A wire's rules are set in the inspector; a flow is opened instead. */}
+        {selection.type === 'connection' ? <Inspector /> : null}
+        {members.length === 0 ? (
+          <div className="vt-custom-empty vt-faint">
+            Nothing inside yet. Add flows from the palette, wire them, and drag a port onto Takes or Gives to show it
+            on the card.
+          </div>
+        ) : null}
       </div>
     </EditorShell>
   );

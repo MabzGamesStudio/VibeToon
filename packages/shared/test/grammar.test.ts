@@ -350,7 +350,7 @@ test('a wired grammar database writes into its sentence shapes', () => {
   const result = runRandomText({
     input: '',
     options: options({
-      mode: 'generate',
+      mode: 'after',
       seed: 'grammar-on',
       grammarWeight: 0.8,
       length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, mode: 'words', words: 40 },
@@ -367,14 +367,14 @@ test('a wired grammar database writes into its sentence shapes', () => {
 test('with no grammar wired in, or none wanted, nothing is taken from it', () => {
   const without = runRandomText({
     input: '',
-    options: options({ mode: 'generate', seed: 'grammar-off', grammarWeight: 0.8 }),
+    options: options({ mode: 'after', seed: 'grammar-off', grammarWeight: 0.8 }),
     lexicon: STARTER,
   });
   assert.equal(without.stats.patternsUsed, 0, 'there is no grammar to take a shape from');
 
   const ignored = runRandomText({
     input: '',
-    options: options({ mode: 'generate', seed: 'grammar-off', grammarWeight: 0 }),
+    options: options({ mode: 'after', seed: 'grammar-off', grammarWeight: 0 }),
     lexicon: STARTER,
     grammar: SAMPLE_GRAMMAR,
   });
@@ -388,7 +388,7 @@ test('with no grammar wired in, or none wanted, nothing is taken from it', () =>
 
 test('the grammar changes what gets written', () => {
   const settings = {
-    mode: 'generate' as const,
+    mode: 'after' as const,
     seed: 'same-seed',
     length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, mode: 'words' as const, words: 30 },
   };
@@ -419,7 +419,7 @@ test('a grammar database with no sentence shapes says so', () => {
   const empty: GrammarDataset = { ...SAMPLE_GRAMMAR, sentences: [], fragments: [], phrases: [] };
   const result = runRandomText({
     input: '',
-    options: options({ mode: 'generate', seed: 'empty-grammar', grammarWeight: 0.8 }),
+    options: options({ mode: 'after', seed: 'empty-grammar', grammarWeight: 0.8 }),
     lexicon: STARTER,
     grammar: empty,
   });

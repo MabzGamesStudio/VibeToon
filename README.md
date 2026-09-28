@@ -89,8 +89,10 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   outside every project.
 - **Word database.** Counted out of a corpus rather than written by hand: point
   it at a public-domain book or paste your own text, and it tallies every word
-  and every pair of adjacent words, asks a dictionary for types and definitions,
-  and derives frequencies and weighted contexts. Each corpus stays its own
+  and the company it keeps (the words beside it, in its sentence, in its
+  paragraph, each with a chance of being taken, cut for common words), asks a
+  dictionary for types and definitions, and derives frequencies and weighted
+  contexts, definitions included. Each corpus stays its own
   dataset of raw counts, so combining and *un*-combining them is exact — build a
   database from two books, untick one, and what is left is precisely the other.
   Five dictionary services are built in, three of them needing no key, so a
@@ -104,8 +106,10 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   every short phrase inside them, counted the same exact way corpora are, so
   they combine and un-combine without drifting.
   See [docs/GRAMMAR-DATABASE.md](docs/GRAMMAR-DATABASE.md).
-- **Random text.** Walks that database to write new text or rewrite text arriving
-  over a wire. Length is set by word count, character
+- **Random text.** Walks that database to write into text arriving over a wire,
+  to write on after it, or to replace some of its words with words, phrases or
+  fragments. Sentences, phrases and fragments each have a fewest and most words.
+  Length is set by word count, character
   count, or a percentage change, with a temperature that decides how exactly to
   land on it; another temperature decides how much of the incoming text is
   replaced. Wire a grammar database in and it stops writing word by word and
@@ -201,8 +205,8 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   threshold are dropped and split the animation into segments. It plays back as
   the body and skeleton alone, and writes a rig animation.
   See [docs/VIDEO-RIG-MATCH.md](docs/VIDEO-RIG-MATCH.md).
-- **Custom flows.** Save any arrangement of flows, wired as it is, as one named
-  flow in the palette. Each use has its own copies of the flows inside, so its
+- **Custom flows.** Build an arrangement of flows on a graph of its own, or save
+  one already on the graph, and use it again as one named flow in the palette. Each use has its own copies of the flows inside, so its
   settings are edited independently. See
   [docs/CUSTOM-FLOWS.md](docs/CUSTOM-FLOWS.md).
 - **Color palette.** An image in, the colors it actually uses most out —

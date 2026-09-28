@@ -3,7 +3,10 @@ import { test } from 'node:test';
 import {
   CUSTOM_FLOW_KIND,
   createCustomFlow,
+  createEmptyCustomFlow,
   customDataOf,
+  exposeFromWiring,
+  exposePort,
   deleteTemplate,
   flowPorts,
   instanceCounts,
@@ -14,10 +17,12 @@ import {
   proposePorts,
   realEndpoint,
   removeInstance,
+  removeMember,
   renameTemplate,
   saveInstanceAsTemplate,
   shownEnd,
   shownEndpoints,
+  unexposePort,
   visibleNodes,
 } from '../src/flows/customFlow';
 import { createConnection, createNode, createProject } from '../src/project/factory';
@@ -217,4 +222,93 @@ test('an arrangement needs at least one flow, and instances cannot be put inside
   const { project, nodeId } = made();
   assert.throws(() => createCustomFlow(project, { name: 'Empty', memberIds: [], inputs: [], outputs: [] }));
   assert.throws(() => createCustomFlow(project, { name: 'Nested', memberIds: [nodeId], inputs: [], outputs: [] }));
+});
+
+/* ---------------- building one on its own graph ---------------- */
+
+/** An empty custom flow with a decomposition and an edit built inside it, wired. */
+function built() {
+  const base = createProject('Built');
+  const empty = createEmptyCustomFlow(base, 'Trace', { x: 40, y: 60 });
+  const decompose = { ...createNode('art.vectorize', { x: 0, y: 0 }, 'Decompose'), group: empty.nodeId };
+  const tidy = { ...createNode('art.vector.edit', { x: 300, y: 0 }, 'Tidy'), group: empty.nodeId };
+  const project: Project = {
+    ...empty.project,
+    nodes: [...empty.project.nodes, decompose, tidy],
+    connections: [createConnection({ nodeId: decompose.id, portId: 'vector' }, { nodeId: tidy.id, portId: 'vector' })],
+  };
+  return { project, group: empty.nodeId, templateId: empty.templateId, decompose: decompose.id, tidy: tidy.id };
+}
+
+test('an empty custom flow is a card and a template with nothing behind them', () => {
+  const { project, nodeId, templateId } = createEmptyCustomFlow(createProject('Empty'), '  ', { x: 10, y: 20 });
+  const card = project.nodes.find((node) => node.id === nodeId)!;
+  assert.equal(card.kind, CUSTOM_FLOW_KIND);
+  assert.equal(card.name, 'Custom flow');
+  assert.deepEqual(flowPorts(card), { inputs: [], outputs: [] });
+  assert.equal(project.customFlows?.[0]?.id, templateId);
+  assert.deepEqual(membersOf(project, nodeId), []);
+});
+
+test('a port of a flow inside can be shown on the card, and taken off it again', () => {
+  const { project, group, decompose, tidy } = built();
+  const shown = exposePort(project, group, 'inputs', decompose, 'image');
+  const card = () => shown.nodes.find((node) => node.id === group)!;
+  assert.deepEqual(flowPorts(card()).inputs.map((port) => port.label), ['Image']);
+  assert.equal(exposePort(shown, group, 'inputs', decompose, 'image'), shown, 'showing it twice is showing it once');
+  assert.equal(exposePort(project, group, 'inputs', tidy, 'vector'), project, 'an input fed from inside is not taken');
+
+  // Wired from outside, then taken off: the wire goes with it.
+  const picture = createNode('art.image', { x: -300, y: 0 }, 'Picture');
+  const port = customDataOf(card()).inputs[0]!;
+  const wired: Project = {
+    ...shown,
+    nodes: [...shown.nodes, picture],
+    connections: [...shown.connections, createConnection({ nodeId: picture.id, portId: 'image' }, { nodeId: decompose, portId: 'image' })],
+  };
+  const hidden = unexposePort(wired, group, 'inputs', port.id);
+  assert.deepEqual(customDataOf(hidden.nodes.find((node) => node.id === group)!).inputs, []);
+  assert.equal(hidden.connections.length, 1, 'only the wire inside is left');
+});
+
+test('the wiring inside can say what to show, keeping names already given', () => {
+  const { project, group, decompose } = built();
+  const named = exposePort(project, group, 'inputs', decompose, 'image');
+  const renamed: Project = {
+    ...named,
+    nodes: named.nodes.map((node) =>
+      node.id === group
+        ? { ...node, data: { ...customDataOf(node), inputs: customDataOf(node).inputs.map((port) => ({ ...port, label: 'Picture in' })) } }
+        : node,
+    ),
+  };
+  const data = customDataOf(exposeFromWiring(renamed, group).nodes.find((node) => node.id === group)!);
+  assert.deepEqual(data.inputs.map((port) => port.label), ['Picture in']);
+  assert.ok(data.outputs.some((port) => port.node !== decompose && port.port === 'vector'), "the edit's drawing is given");
+  assert.ok(!data.outputs.some((port) => port.node === decompose && port.port === 'vector'), 'the one read inside is not');
+});
+
+test('removing a flow inside takes its shown ports and wires with it', () => {
+  const { project, group, decompose } = built();
+  const shown = exposeFromWiring(project, group);
+  const after = removeMember(shown, decompose);
+  const data = customDataOf(after.nodes.find((node) => node.id === group)!);
+  assert.ok([...data.inputs, ...data.outputs].every((port) => port.node !== decompose));
+  assert.deepEqual(after.connections, []);
+});
+
+test('a custom flow built on its own graph saves as a template and makes new uses', () => {
+  const { project, group, templateId } = built();
+  const saved = saveInstanceAsTemplate(exposeFromWiring(project, group), group);
+  const template = saved.customFlows!.find((one) => one.id === templateId)!;
+  assert.equal(template.members.length, 2);
+  assert.equal(template.connections.length, 1);
+  const again = instantiateCustomFlow(saved, templateId, { x: 800, y: 0 });
+  assert.equal(membersOf(again.project, again.nodeId).length, 2);
+  const card = again.project.nodes.find((node) => node.id === again.nodeId)!;
+  assert.deepEqual(
+    flowPorts(card).inputs.map((port) => port.id),
+    flowPorts(saved.nodes.find((node) => node.id === group)!).inputs.map((port) => port.id),
+    'the new use has the same ports as the one it was saved from',
+  );
 });

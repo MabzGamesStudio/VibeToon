@@ -85,9 +85,14 @@ function Facet<T extends string>({
 export interface FlowPaletteProps {
   /** Where a newly added flow lands, in world coordinates. */
   dropPoint: { x: number; y: number };
+  /**
+   * The custom flow being built, when the palette is on its graph: flows are
+   * added inside it, and custom flows are not offered (one cannot hold another).
+   */
+  group?: string;
 }
 
-export function FlowPalette({ dropPoint }: FlowPaletteProps): JSX.Element {
+export function FlowPalette({ dropPoint, group: inside }: FlowPaletteProps): JSX.Element {
   const { registry, addNode, project, transform, select, notify } = useStudio();
   const [filter, setFilter] = useState<FlowFilter>(EMPTY_FLOW_FILTER);
   const [open, setOpen] = useState(false);
@@ -96,10 +101,11 @@ export function FlowPalette({ dropPoint }: FlowPaletteProps): JSX.Element {
   const defs = useMemo(() => (registry?.flowKinds ?? []).filter((def) => def.kind !== CUSTOM_FLOW_KIND), [registry]);
   const templates = useMemo(() => {
     const query = filter.query.trim().toLowerCase();
+    if (inside) return [];
     return (project?.customFlows ?? []).filter(
       (template) => !query || `${template.name} ${template.description}`.toLowerCase().includes(query),
     );
-  }, [filter.query, project?.customFlows]);
+  }, [filter.query, inside, project?.customFlows]);
   const uses = useMemo(() => (project ? instanceCounts(project) : new Map<string, number>()), [project]);
   const matches = useMemo(() => filterFlowKinds(defs, filter), [defs, filter]);
   const facets = useMemo(() => flowFacets(defs, filter), [defs, filter]);
@@ -243,7 +249,13 @@ export function FlowPalette({ dropPoint }: FlowPaletteProps): JSX.Element {
                 key={def.kind}
                 type="button"
                 className={`vt-palette-item cat-${def.category}`}
-                onClick={() => addNode(def.kind, freeSpotNear(dropPoint, project?.nodes ?? []))}
+                onClick={() =>
+                  addNode(
+                    def.kind,
+                    freeSpotNear(dropPoint, (project?.nodes ?? []).filter((node) => node.group === inside)),
+                    inside,
+                  )
+                }
                 title={`${def.kind}\nin: ${def.inputs.map((p) => p.label).join(', ') || '—'}\nout: ${def.outputs
                   .map((p) => p.fileName ?? p.label)
                   .join(', ')}`}

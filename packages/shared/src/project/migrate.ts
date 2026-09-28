@@ -32,7 +32,7 @@ import {
 } from '../flows/palette';
 import { DEFAULT_VECTORIZE_OPTIONS } from '../flows/vectorize';
 import type { BriefFlowData, FlowData, FlowNode, Project } from '../types/project';
-import { DEFAULT_RANDOM_TEXT_OPTIONS } from '../types/text';
+import { DEFAULT_RANDOM_TEXT_OPTIONS, readTextMode } from '../types/text';
 import { defaultDataForKind } from './factory';
 
 function isBrief(data: FlowData): data is BriefFlowData {
@@ -106,8 +106,11 @@ export function normaliseFlowData(data: FlowData): FlowData {
     case 'text': {
       const options = fill(data.options, DEFAULT_RANDOM_TEXT_OPTIONS);
       const length = fill(data.options?.length, DEFAULT_RANDOM_TEXT_OPTIONS.length);
-      if (!options.filled && !length.filled) return data;
-      return { ...data, options: { ...options.value, length: length.value } };
+      // `generate` became `after`: writing on from the end of whatever came in,
+      // which with nothing coming in is what `generate` did.
+      const mode = readTextMode(data.options?.mode) ?? DEFAULT_RANDOM_TEXT_OPTIONS.mode;
+      if (!options.filled && !length.filled && mode === data.options?.mode) return data;
+      return { ...data, options: { ...options.value, mode, length: length.value } };
     }
     case 'lexicon': {
       const extract = fill(data.extract, DEFAULT_EXTRACT_OPTIONS);

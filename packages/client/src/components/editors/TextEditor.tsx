@@ -1,9 +1,11 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import {
   DEFAULT_RANDOM_TEXT_OPTIONS,
   LENGTH_MODES,
   LENGTH_MODE_LABEL,
+  RANDOM_TEXT_MODES,
   glossTokens,
+  mergeRunLexicons,
   renderParts,
   resolveTextRun,
   runRandomText,
@@ -11,8 +13,10 @@ import {
   type FlowNode,
   type LengthMode,
   type Project,
+  type RandomTextMode,
   type RandomTextOptions,
   type TextFlowData,
+  type WordRange,
 } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
 import { useView } from '../../state/view';
@@ -24,6 +28,45 @@ import { LexiconEditor } from './LexiconEditor';
 import { useUpstreamText } from './useUpstreamText';
 
 const SEED_WORDS = ['rain', 'gear', 'lamp', 'brass', 'quiet', 'ember', 'thread', 'hollow', 'drift', 'salt'];
+
+const MODE_TEXT: Record<RandomTextMode, { label: string; blurb: string }> = {
+  within: { label: 'Within', blurb: 'Write new words, phrases and fragments into the text that comes in.' },
+  after: { label: 'After', blurb: 'Keep the text that comes in and write on from its end.' },
+  alter: { label: 'Alter', blurb: 'Replace some of its words, each with a word, a phrase or a fragment.' },
+};
+
+/** Two number boxes for the fewest and most words of something. */
+function RangeField({
+  label,
+  tip,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string;
+  tip: string;
+  hint: string;
+  value: WordRange;
+  onChange: (value: WordRange) => void;
+}): JSX.Element {
+  const set = (key: keyof WordRange, raw: string) => {
+    const number = Math.max(1, Math.min(200, Math.round(Number(raw) || 1)));
+    const next = { ...value, [key]: number };
+    // Moving one end past the other takes the other with it.
+    if (key === 'min' && next.max < number) next.max = number;
+    if (key === 'max' && next.min > number) next.min = number;
+    onChange(next);
+  };
+  return (
+    <Field label={label} tip={tip} hint={hint}>
+      <div className="vt-row" style={{ gap: 6 }}>
+        <input type="number" min={1} aria-label={`${label}, fewest`} value={value.min} onChange={(event) => set('min', event.target.value)} />
+        <span className="vt-faint">to</span>
+        <input type="number" min={1} aria-label={`${label}, most`} value={value.max} onChange={(event) => set('max', event.target.value)} />
+      </div>
+    </Field>
+  );
+}
 
 export function TextEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
   const { setFlowData, generateFlow, notify } = useStudio();
@@ -57,25 +100,30 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
   );
 
   // The preview runs the same engine the server does, over the same resolved
-  // inputs, so what you see here is what the artifact will hold.
+  // inputs, so what you see here is what the artifact will hold. Merging the
+  // wired-in word databases is the slow part, and typing changes none of them,
+  // so it is done apart and only again when a database changes.
+  const lexicon = useMemo(() => mergeRunLexicons(data.lexicon, upstream.sources), [data.lexicon, upstream.sources]);
   const resolved = useMemo(
-    () => resolveTextRun(data, upstream.sources),
-    [data, upstream.sources],
+    () => resolveTextRun(data, upstream.sources, lexicon),
+    [data, upstream.sources, lexicon],
   );
+  // The run itself waits for typing to pause rather than holding each key up.
+  const settled = useDeferredValue(resolved);
 
   const preview = useMemo(() => {
     if (!live) return null;
     try {
       return runRandomText({
-        input: resolved.input,
-        options: resolved.options,
-        lexicon: resolved.lexicon,
-        grammar: resolved.grammar,
+        input: settled.input,
+        options: settled.options,
+        lexicon: settled.lexicon,
+        grammar: settled.grammar,
       });
     } catch (error) {
       return { error: (error as Error).message } as const;
     }
-  }, [live, resolved]);
+  }, [live, settled]);
 
   const result = preview && !('error' in preview) ? preview : null;
   const parts = useMemo(() => (result ? renderParts(result.tokens) : []), [result]);
@@ -144,20 +192,17 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                 <InfoTip tip="text.mode" label="What the run does" />
               </h3>
               <div className="vt-mode-picker">
-                {(['generate', 'alter'] as const).map((mode) => (
+                {RANDOM_TEXT_MODES.map((mode) => (
                   <button
                     key={mode}
                     type="button"
                     className={`vt-mode${options.mode === mode ? ' is-active' : ''}`}
+                    aria-pressed={options.mode === mode}
                     onClick={() => setOption('mode', mode)}
                   >
                     <div>
-                      <strong>{mode === 'generate' ? 'Generate' : 'Alter'}</strong>
-                      <span>
-                        {mode === 'generate'
-                          ? 'Write new text from the database.'
-                          : 'Rewrite the text that comes in.'}
-                      </span>
+                      <strong>{MODE_TEXT[mode].label}</strong>
+                      <span>{MODE_TEXT[mode].blurb}</span>
                     </div>
                   </button>
                 ))}
@@ -238,6 +283,59 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                 }
                 onChange={(value) => setLength('temperature', value)}
               />
+            </div>
+
+            <div className="vt-section">
+              <h3>Sizes</h3>
+              <RangeField
+                label="Words in a sentence"
+                tip="text.sentenceWords"
+                hint="A sentence is never shorter or longer than this."
+                value={options.sentenceWords}
+                onChange={(value) => setOption('sentenceWords', value)}
+              />
+              <RangeField
+                label="Words in a phrase"
+                tip="text.phraseWords"
+                hint="A run of words written into the text, or in place of a word."
+                value={options.phraseWords}
+                onChange={(value) => setOption('phraseWords', value)}
+              />
+              <RangeField
+                label="Words in a fragment"
+                tip="text.fragmentWords"
+                hint="A clause of its own, set off by commas."
+                value={options.fragmentWords}
+                onChange={(value) => setOption('fragmentWords', value)}
+              />
+              {options.mode !== 'after' ? (
+                <>
+                  <div className="vt-hint" style={{ margin: '8px 0 4px' }}>
+                    {options.mode === 'within' ? 'What is written in' : 'What replaces a word'}, how often:
+                  </div>
+                  <Slider
+                    range="text.unitWord"
+                    label="A word"
+                    tip="text.unitWord"
+                    value={options.units.word}
+                    onChange={(value) => setOption('units', { ...options.units, word: value })}
+                  />
+                  <Slider
+                    range="text.unitPhrase"
+                    label="A phrase"
+                    tip="text.unitPhrase"
+                    value={options.units.phrase}
+                    onChange={(value) => setOption('units', { ...options.units, phrase: value })}
+                  />
+                  <Slider
+                    range="text.unitFragment"
+                    label="A fragment"
+                    tip="text.unitFragment"
+                    value={options.units.fragment}
+                    onChange={(value) => setOption('units', { ...options.units, fragment: value })}
+                  />
+                </>
+              ) : null}
             </div>
 
             <div className="vt-section">
@@ -355,7 +453,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               hint={
                 upstreamText
                   ? `Coming from ${upstreamText.label}. The text below is kept for when nothing is wired in.`
-                  : 'The text to rewrite. Leave it empty to write from nothing.'
+                  : 'The text to write into, carry on from, or alter. Leave it empty to write from nothing.'
               }
               aside={
                 <span className="vt-faint">
@@ -381,7 +479,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
                     ? ` · ${stats.wordChangePercent >= 0 ? '+' : ''}${stats.wordChangePercent.toFixed(0)}% words`
                     : ''}
                   {stats.replaced > 0 ? ` · ${stats.replaced} replaced` : ''}
-                  {stats.added > 0 && stats.mode === 'alter' ? ` · ${stats.added} added` : ''}
+                  {stats.added > 0 && stats.mode !== 'after' ? ` · ${stats.added} added` : ''}
                   {stats.removed > 0 ? ` · ${stats.removed} removed` : ''}
                 </span>
               ) : null}
@@ -501,7 +599,7 @@ export function TextEditor({ project, node }: { project: Project; node: FlowNode
               </div>
             ) : null}
 
-            {result && stats?.mode === 'alter' ? (
+            {result && result.tokens.some((token) => token.origin !== 'added') ? (
               <div className="vt-row vt-faint" style={{ gap: 12, marginTop: 8, fontSize: 11 }}>
                 <span className="vt-tok is-kept">kept</span>
                 <span className="vt-tok is-replaced">replaced</span>

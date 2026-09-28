@@ -183,6 +183,10 @@ A region's points are **corners**, and pixels are their centres: a box drawn fro
 Filling is even-odd by scanline, so a shape drawn back over itself has a hole in
 the middle without that being a special case.
 
+A region is a selection on its own: one region kept, with no fill point and no
+cut, is a mask of what is inside it. (It used to make no mask at all until a fill
+point was added as well.)
+
 ## Moving and reshaping what is drawn
 
 Everything drawn can be moved and reshaped after the fact:

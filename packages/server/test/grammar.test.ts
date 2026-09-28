@@ -129,7 +129,7 @@ before(async () => {
         outputs: [],
       },
       textNode(WRITER_ID, 'Writer', {
-        mode: 'generate',
+        mode: 'after',
         seed: 'writer',
         grammarWeight: 0.8,
         length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, mode: 'words', words: 40 },

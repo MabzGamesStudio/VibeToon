@@ -25,12 +25,38 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
    * Random text — what the run does
    * ---------------------------------------------------------------- */
   'text.mode': {
-    what: 'Whether the run writes new text from the word database, or rewrites the text coming in.',
+    what: 'What the run does with the text coming in.',
     examples: [
-      'Generate — ignores the input and writes from nothing but the database.',
-      'Alter — keeps the shape of the input and swaps words out of it.',
+      'Within — keeps every word of it, in order, and writes new words, phrases and fragments in between until it is as long as the target.',
+      'After — keeps it as it is and writes on from its end until the whole is as long as the target. An unfinished last sentence is finished first. With nothing coming in, it writes from nothing.',
+      'Alter — replaces a share of its words (the alter temperature), each with a word, a phrase or a fragment.',
     ],
-    note: 'Alter with nothing wired in and nothing typed has nothing to work on, so it writes instead.',
+    note: 'Within and Alter with nothing wired in and nothing typed have nothing to work on, so they write instead.',
+  },
+  'text.sentenceWords': {
+    what: 'The fewest and most words a written sentence may have. A sentence shape from a grammar database is chosen within them, and a sentence written word by word is ended at the most.',
+    examples: ['3 to 12 — short and punchy.', '4 to 30 — ordinary prose. A good default.', '15 to 60 — long, winding sentences only.'],
+  },
+  'text.phraseWords': {
+    what: 'How many words a phrase has, when one is written into the text or in place of a word.',
+    examples: ['1 to 2 — hardly more than a word.', '2 to 4 — a good default.', '4 to 8 — whole runs of description.'],
+  },
+  'text.fragmentWords': {
+    what: 'How many words a fragment has: a clause of its own, set off from the sentence by commas. With a grammar database wired in, it is written into a fragment shape of that length.',
+    examples: ['2 to 4 — asides.', '3 to 7 — a good default.', '6 to 12 — whole clauses.'],
+  },
+  'text.unitWord': {
+    what: 'How often a single word is chosen, against a phrase and a fragment, when writing within the text or replacing a word.',
+    examples: ['1 with the others at 0 — word for word.', '1 — a good default.'],
+    note: 'The three are weighed against one another, so only how they compare matters.',
+  },
+  'text.unitPhrase': {
+    what: 'How often a phrase is chosen, against a word and a fragment.',
+    examples: ['0 — never.', '0.5 — about a third of the time, with the defaults.'],
+  },
+  'text.unitFragment': {
+    what: 'How often a fragment is chosen, against a word and a phrase.',
+    examples: ['0 — never.', '0.25 — now and then, with the defaults.'],
   },
   'text.seed': {
     what: 'The starting point for the run’s randomness. The same seed with the same settings always writes exactly the same text.',
@@ -94,7 +120,7 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
    * Random text — how words are picked
    * ---------------------------------------------------------------- */
   'text.alterTemperature': {
-    what: 'The share of the incoming words this run may replace. Only used when altering.',
+    what: 'The share of the incoming words this run replaces. Only used when altering.',
     examples: [
       '0 — nothing is replaced; the text comes back as it went in.',
       '0.35 — about one word in three is swapped for something the database thinks fits.',

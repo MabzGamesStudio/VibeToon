@@ -1,10 +1,18 @@
 import { hashString } from '../ids';
-import type { Lexeme, Lexicon, RandomTextOptions, WordType } from '../types/text';
+import {
+  DEFAULT_RANDOM_TEXT_OPTIONS,
+  type Lexeme,
+  type Lexicon,
+  type RandomTextOptions,
+  type WordRange,
+  type WordType,
+} from '../types/text';
 import { followWeight, type FollowFrom } from './grammar';
 import {
   buildGrammarModel,
   continuationScore,
   pickSentencePattern,
+  wordsIn,
   slotForLexeme,
   spellForSlot,
   type GrammarDataset,
@@ -79,6 +87,8 @@ export interface PickContext {
   nextType?: WordType;
   /** Lexeme ids that must not be picked, e.g. the word being replaced. */
   forbid?: Set<string>;
+  /** Only words: set when writing a phrase or a fragment into running text. */
+  noPunctuation?: boolean;
   /** The shape this position has to fill, when a grammar database is driving. */
   slot?: GrammarSlot;
   /** Sentence shapes and phrase counts, when one is wired in. */
@@ -120,16 +130,25 @@ export function contextPull(candidate: Lexeme, ctx: PickContext): number {
   return norm > 0 ? pull / norm : 0;
 }
 
+/** The fewest and most words a sentence may have, as the options set them. */
+export function sentenceBounds(options: RandomTextOptions): { min: number; max: number } {
+  const range = options.sentenceWords ?? DEFAULT_RANDOM_TEXT_OPTIONS.sentenceWords;
+  const min = Math.max(1, Math.round(Math.min(range.min, range.max)));
+  return { min, max: Math.max(min, Math.round(Math.max(range.min, range.max))) };
+}
+
 /** Punctuation is shaped by how far into a sentence we are, not by context. */
 function punctuationShape(candidate: Lexeme, ctx: PickContext): number {
   if (candidate.type !== 'punctuation') return 1;
+  if (ctx.noPunctuation) return 0;
   // Never two marks in a row, and never a mark to open a sentence.
   if (ctx.previousType === 'punctuation' || ctx.previousType === 'start') return 0;
-  const target = Math.max(3, ctx.options.sentenceLength);
-  const progress = ctx.wordsInSentence / target;
+  const { min, max } = sentenceBounds(ctx.options);
+  const target = Math.max(min, Math.min(max, ctx.options.sentenceLength));
+  const progress = ctx.wordsInSentence / Math.max(1, target);
 
   if (SENTENCE_END.has(candidate.spelling[0] ?? '')) {
-    if (ctx.wordsInSentence < 3) return 0;
+    if (ctx.wordsInSentence < min) return 0;
     return Math.min(2.5, progress ** 2.2);
   }
   // A comma wants the middle of a clause.
@@ -193,10 +212,22 @@ export function scoreCandidate(candidate: Lexeme, ctx: PickContext): number {
   return score;
 }
 
+/** Every index's words, commonest first, worked out once rather than on every pick. */
+const byFrequency = new WeakMap<LexiconIndex, Lexeme[]>();
+
+function commonest(index: LexiconIndex): Lexeme[] {
+  let sorted = byFrequency.get(index);
+  if (!sorted) {
+    sorted = [...index.byId.values()].sort((a, b) => b.frequency - a.frequency);
+    byFrequency.set(index, sorted);
+  }
+  return sorted;
+}
+
 /** Candidates worth scoring: everything the history points at, plus the common words. */
 function candidatePool(ctx: PickContext): Lexeme[] {
   const { index, options } = ctx;
-  if (index.byId.size <= POOL_LIMIT) return [...index.byId.values()];
+  if (index.byId.size <= POOL_LIMIT) return commonest(index);
 
   const pool = new Map<string, Lexeme>();
   const window = Math.max(1, Math.floor(options.contextWindow));
@@ -211,10 +242,11 @@ function candidatePool(ctx: PickContext): Lexeme[] {
       if (lexeme) pool.set(id, lexeme);
     }
   }
-  const common = [...index.byId.values()]
-    .sort((a, b) => b.frequency - a.frequency)
-    .slice(0, POOL_LIMIT - pool.size);
-  for (const lexeme of common) pool.set(lexeme.id, lexeme);
+  // Fill up to the limit with the commonest words the history did not reach.
+  for (const lexeme of commonest(index)) {
+    if (pool.size >= POOL_LIMIT) break;
+    pool.set(lexeme.id, lexeme);
+  }
   return [...pool.values()];
 }
 
@@ -426,17 +458,189 @@ function tokenForSlot(lexeme: Lexeme, slot: GrammarSlot): OutputToken {
   return { ...makeToken(spellForSlot(lexeme, slot), kind), origin: 'added' };
 }
 
-/** Write new text until the plan says to stop. */
+/** What every writing step needs, gathered once per run. */
+interface Writer {
+  index: LexiconIndex;
+  options: RandomTextOptions;
+  rng: () => number;
+  /** The grammar model, when one is wired in and has any weight. */
+  model: GrammarModel | null;
+  slotOf: Map<string, GrammarSlot>;
+}
+
+function slotOfLexeme(writer: Writer, lexeme: Lexeme): GrammarSlot {
+  const known = writer.slotOf.get(lexeme.id);
+  if (known) return known;
+  const slot = slotForLexeme(lexeme);
+  writer.slotOf.set(lexeme.id, slot);
+  return slot;
+}
+
+/** The shapes of the few tokens before `at`, for scoring what continues them. */
+function slotsBefore(tokens: readonly TextToken[], at: number, writer: Writer): GrammarSlot[] {
+  const slots: GrammarSlot[] = [];
+  for (let i = Math.max(0, at - 6); i < at; i += 1) {
+    const token = tokens[i]!;
+    if (token.kind === 'break') continue;
+    if (token.kind === 'punctuation') {
+      slots.push({ type: 'punctuation', mark: token.text });
+      continue;
+    }
+    const lexeme = resolve(token, writer.index);
+    if (lexeme) slots.push(slotOfLexeme(writer, lexeme));
+  }
+  return slots;
+}
+
+function between(range: WordRange, rng: () => number): number {
+  const low = Math.max(1, Math.round(Math.min(range.min, range.max)));
+  const high = Math.max(low, Math.round(Math.max(range.min, range.max)));
+  return low + Math.floor(rng() * (high - low + 1));
+}
+
+type Unit = 'word' | 'phrase' | 'fragment';
+
+/** Which size of writing goes in next, by the options' weights. */
+function pickUnit(options: RandomTextOptions, rng: () => number): Unit {
+  const units = options.units ?? DEFAULT_RANDOM_TEXT_OPTIONS.units;
+  const weights = [units.word, units.phrase, units.fragment].map((weight) => Math.max(0, weight || 0));
+  const total = weights[0]! + weights[1]! + weights[2]!;
+  if (total <= 0) return 'word';
+  let roll = rng() * total;
+  if ((roll -= weights[0]!) < 0) return 'word';
+  if ((roll -= weights[1]!) < 0) return 'phrase';
+  return 'fragment';
+}
+
+/** How far back a phrase written into the middle of text looks for its context. */
+const LOOK_BACK = 60;
+
+/**
+ * Write `count` words to go at `at`, reading the text before `at` and fitting
+ * the last word to what stands at `next`. Only words: a phrase set into running
+ * text brings no punctuation of its own. `pattern` gives each word a slot, when
+ * a fragment shape is being filled.
+ */
+function writeWords(
+  tokens: readonly TextToken[],
+  at: number,
+  next: number,
+  count: number,
+  writer: Writer,
+  pattern?: GrammarSlot[],
+): OutputToken[] {
+  const { index, options, model } = writer;
+  const work: TextToken[] = tokens.slice(Math.max(0, at - LOOK_BACK), at);
+  const recentSlots = model ? slotsBefore(tokens, at, writer) : [];
+  const nextType = typeAt(tokens as TextToken[], next, index);
+  const slots = pattern?.filter((slot) => slot.type !== 'punctuation');
+  const written: OutputToken[] = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const slot = slots?.[i];
+    const ctx: PickContext = {
+      index,
+      options,
+      ...buildContext(work, work.length, index, options),
+      noPunctuation: true,
+      ...(i === count - 1 && nextType ? { nextType } : {}),
+      ...(slot ? { slot } : {}),
+      ...(model ? { model, recentSlots, slotOf: writer.slotOf } : {}),
+    };
+    const lexeme = pickNext(ctx, writer.rng);
+    if (!lexeme || lexeme.type === 'punctuation') break;
+    const token = slot ? tokenForSlot(lexeme, slot) : tokenFor(lexeme);
+    work.push(token);
+    written.push(token);
+    recentSlots.push(slot ?? slotOfLexeme(writer, lexeme));
+    if (recentSlots.length > 8) recentSlots.shift();
+  }
+  return written;
+}
+
+/** A fragment shape of a length in range, commonest first, when the grammar has one. */
+function pickFragmentPattern(writer: Writer, range: WordRange): GrammarSlot[] | undefined {
+  const { model, options, rng } = writer;
+  if (!model) return undefined;
+  const low = Math.min(range.min, range.max);
+  const high = Math.max(range.min, range.max);
+  const fitting = model.fragments.filter((pattern) => {
+    const words = wordsIn(pattern.slots);
+    return words >= low && words <= high && pattern.slots.every((slot) => slot.type !== 'punctuation');
+  });
+  if (fitting.length === 0) return undefined;
+  const exponent = 1 / Math.max(0.05, Math.min(1, options.pickTemperature));
+  const weights = fitting.map((pattern) => pattern.count ** exponent);
+  let roll = rng() * weights.reduce((sum, weight) => sum + weight, 0);
+  for (let i = 0; i < fitting.length; i += 1) {
+    roll -= weights[i]!;
+    if (roll <= 0) return fitting[i]!.slots;
+  }
+  return fitting[fitting.length - 1]!.slots;
+}
+
+/**
+ * A fragment to go at `at`: a clause of a few words, set off by commas. A
+ * fragment shape from the grammar database decides its words' kinds, when one
+ * of the right length is there.
+ */
+function writeFragment(tokens: readonly TextToken[], at: number, next: number, writer: Writer): OutputToken[] {
+  const range = writer.options.fragmentWords ?? DEFAULT_RANDOM_TEXT_OPTIONS.fragmentWords;
+  const pattern = pickFragmentPattern(writer, range);
+  const count = pattern ? wordsIn(pattern) : between(range, writer.rng);
+  const words = writeWords(tokens, at, next, count, writer, pattern);
+  if (words.length === 0) return [];
+
+  const comma = (): OutputToken => ({ ...makeToken(',', 'punctuation'), origin: 'added' });
+  let before: TextToken | undefined;
+  for (let i = at - 1; i >= 0; i -= 1) {
+    if (tokens[i]!.kind === 'break') continue;
+    before = tokens[i];
+    break;
+  }
+  const after = tokens[next];
+  const opens = before !== undefined && before.kind !== 'punctuation';
+  const closes = after !== undefined && (after.kind === 'word' || after.kind === 'number');
+  return [...(opens ? [comma()] : []), ...words, ...(closes ? [comma()] : [])];
+}
+
+/** A word, a phrase or a fragment, by the options' weights, to go at `at`. */
+function writeUnit(
+  tokens: readonly TextToken[],
+  at: number,
+  next: number,
+  writer: Writer,
+  unit: Unit,
+  most = Number.POSITIVE_INFINITY,
+): OutputToken[] {
+  if (unit === 'fragment') return writeFragment(tokens, at, next, writer);
+  const size = unit === 'phrase' ? between(writer.options.phraseWords ?? DEFAULT_RANDOM_TEXT_OPTIONS.phraseWords, writer.rng) : 1;
+  return writeWords(tokens, at, next, Math.max(1, Math.min(size, most)), writer);
+}
+
+/** The last token that is not a line break. */
+function lastWritten(tokens: readonly TextToken[]): TextToken | undefined {
+  for (let i = tokens.length - 1; i >= 0; i -= 1) if (tokens[i]!.kind !== 'break') return tokens[i];
+  return undefined;
+}
+
+/**
+ * Write on from the end of `prefix` until the plan says to stop. With an empty
+ * prefix, that is writing from nothing.
+ *
+ * When the prefix stops mid-sentence, that sentence is finished word by word
+ * first; sentence shapes from a grammar database only start at a sentence's
+ * start. Every sentence is held between the options' fewest and most words.
+ */
 function generateTokens(
-  index: LexiconIndex,
-  options: RandomTextOptions,
+  prefix: OutputToken[],
+  writer: Writer,
   plan: LengthPlan | null,
-  rng: () => number,
   warnings: string[],
-  model: GrammarModel | null,
   counters: { patternsUsed: number },
 ): OutputToken[] {
-  const tokens: OutputToken[] = [];
+  const { index, options, rng, model } = writer;
+  const tokens: OutputToken[] = [...prefix];
   if (index.byId.size === 0) {
     warnings.push('The word database is empty, so there is nothing to write with.');
     return tokens;
@@ -449,17 +653,22 @@ function generateTokens(
   // picks one point in it and writes to that.
   const goal = Math.max(1, target + Math.round((rng() * 2 - 1) * tolerance));
   const ceiling = target + tolerance;
+  if (prefix.length > 0 && measure(prefix, metric) >= ceiling) {
+    warnings.push(`The text coming in is already ${measure(prefix, metric)} ${metric}, so nothing was written after it.`);
+    return tokens;
+  }
 
-  const useGrammar = model !== null && (options.grammarWeight ?? 0) > 0;
-  const slotOf = new Map<string, GrammarSlot>();
-  const recentSlots: GrammarSlot[] = [];
+  const bounds = sentenceBounds(options);
+  const recentSlots: GrammarSlot[] = model ? slotsBefore(tokens, tokens.length, writer) : [];
   let pending: GrammarSlot[] = [];
+  const tail = lastWritten(tokens);
+  let freeUntilEnd = tail !== undefined && !isSentenceEnd(tail);
 
   /** The next slot a sentence shape asks for, refilling from a new shape when spent. */
   const nextSlot = (): GrammarSlot | undefined => {
-    if (!useGrammar || !model) return undefined;
+    if (!model || freeUntilEnd) return undefined;
     if (pending.length === 0) {
-      const pattern = pickSentencePattern(model, rng, options.pickTemperature);
+      const pattern = pickSentencePattern(model, rng, options.pickTemperature, bounds);
       if (!pattern || pattern.slots.length === 0) return undefined;
       pending = [...pattern.slots];
       counters.patternsUsed += 1;
@@ -467,8 +676,23 @@ function generateTokens(
     return pending.shift();
   };
 
+  const endSentence = (mark: string, slot?: GrammarSlot) => {
+    tokens.push({ ...makeToken(mark, 'punctuation'), origin: 'added' });
+    recentSlots.push(slot ?? { type: 'punctuation', mark });
+    pending = [];
+    freeUntilEnd = false;
+  };
+
   const next = (): boolean => {
     const before = measure(tokens, metric);
+    const context = buildContext(tokens, tokens.length, index, options);
+
+    // A sentence at its longest ends here, whatever its shape had left.
+    if (context.wordsInSentence >= bounds.max && context.previousType !== 'punctuation' && context.previousType !== 'start') {
+      endSentence('.');
+      return true;
+    }
+
     const slot = nextSlot();
 
     // A shape that calls for punctuation gets it directly; there is no word to
@@ -477,6 +701,10 @@ function generateTokens(
       const mark = slot.mark ?? '.';
       const last = tokens[tokens.length - 1];
       if (!last || last.kind === 'punctuation') return true;
+      if (SENTENCE_END.has(mark[0] ?? '')) {
+        endSentence(mark, slot);
+        return true;
+      }
       tokens.push({ ...makeToken(mark, 'punctuation'), origin: 'added' });
       recentSlots.push(slot);
       return true;
@@ -485,14 +713,19 @@ function generateTokens(
     const ctx: PickContext = {
       index,
       options,
-      ...buildContext(tokens, tokens.length, index, options),
+      ...context,
       ...(slot ? { slot } : {}),
-      ...(useGrammar && model ? { model, recentSlots, slotOf } : {}),
+      ...(model ? { model, recentSlots, slotOf: writer.slotOf } : {}),
     };
     const lexeme = pickNext(ctx, rng);
     if (!lexeme) return false;
-    tokens.push(slot ? tokenForSlot(lexeme, slot) : tokenFor(lexeme));
-    recentSlots.push(slot ?? slotOf.get(lexeme.id) ?? slotForLexeme(lexeme));
+    const token = slot ? tokenForSlot(lexeme, slot) : tokenFor(lexeme);
+    if (isSentenceEnd(token)) {
+      endSentence(token.text);
+    } else {
+      tokens.push(token);
+      recentSlots.push(slot ?? slotOfLexeme(writer, lexeme));
+    }
     if (recentSlots.length > 8) recentSlots.shift();
     // A word is several characters, so the last one can overshoot a character
     // goal. Keep it only if stopping short would miss by more.
@@ -521,10 +754,11 @@ function generateTokens(
 
   closeSentence(tokens);
 
-  // Closing the sentence can tip a tight band; drop trailing words until it fits.
-  while (measure(tokens, metric) > ceiling && tokens.length > 1) {
+  // Closing the sentence can tip a tight band; drop trailing words until it
+  // fits, but never into the text that came in.
+  while (measure(tokens, metric) > ceiling && tokens.length > prefix.length + 1) {
     const withoutFullStop = tokens[tokens.length - 1]?.text === '.' ? 2 : 1;
-    tokens.splice(tokens.length - withoutFullStop, withoutFullStop);
+    tokens.splice(Math.max(prefix.length, tokens.length - withoutFullStop), withoutFullStop);
     closeSentence(tokens);
   }
 
@@ -540,65 +774,105 @@ function closeSentence(tokens: OutputToken[]): void {
   tokens.push({ ...makeToken('.', 'punctuation'), origin: 'added' });
 }
 
-/** Replace some share of the words, in place, reading the context around each one. */
-function alterTokens(
+/**
+ * Write into the text: words, phrases and fragments go in at places after a
+ * word, until the text is as long as the plan says. Nothing that came in is
+ * changed or moved, only spaced out.
+ */
+function insertWithin(
   tokens: OutputToken[],
-  index: LexiconIndex,
-  options: RandomTextOptions,
-  rng: () => number,
-  model: GrammarModel | null,
+  writer: Writer,
+  plan: LengthPlan,
+  warnings: string[],
 ): number {
+  const goal = plan.target + Math.round((writer.rng() * 2 - 1) * plan.tolerance);
+  if (measure(tokens, plan.metric) >= goal) {
+    warnings.push(`The text coming in is already ${measure(tokens, plan.metric)} ${plan.metric}, so nothing was written into it.`);
+    return 0;
+  }
+  const phrase = writer.options.phraseWords ?? DEFAULT_RANDOM_TEXT_OPTIONS.phraseWords;
+  const fragment = writer.options.fragmentWords ?? DEFAULT_RANDOM_TEXT_OPTIONS.fragmentWords;
+  let added = 0;
+  let stalled = 0;
+  let guard = 0;
+  while (guard < 2000 && stalled < 40) {
+    guard += 1;
+    const current = measure(tokens, plan.metric);
+    if (current >= goal) break;
+    const gaps: number[] = [];
+    for (let i = 0; i < tokens.length; i += 1) if (isEditable(tokens[i]!)) gaps.push(i + 1);
+    if (gaps.length === 0) break;
+    const at = gaps[Math.floor(writer.rng() * gaps.length)]!;
+
+    // Near the goal, a smaller piece rather than an overshoot.
+    let unit = pickUnit(writer.options, writer.rng);
+    const room = plan.metric === 'words' ? goal - current : Number.POSITIVE_INFINITY;
+    if (unit === 'fragment' && room < Math.min(fragment.min, fragment.max)) unit = 'phrase';
+    if (unit === 'phrase' && room < Math.min(phrase.min, phrase.max)) unit = 'word';
+
+    const written = writeUnit(tokens, at, at, writer, unit, room);
+    if (written.length === 0) {
+      stalled += 1;
+      continue;
+    }
+    tokens.splice(at, 0, ...written);
+    added += written.filter(isEditable).length;
+  }
+  return added;
+}
+
+/**
+ * Replace some share of the words, each with a word, a phrase or a fragment
+ * that reads on from what is before it and into what is after it.
+ */
+function alterTokens(tokens: OutputToken[], writer: Writer): number {
+  const { index, options, rng, model } = writer;
   const share = Math.max(0, Math.min(1, options.alterTemperature));
   if (share === 0) return 0;
-  let replaced = 0;
-  const slotOf = new Map<string, GrammarSlot>();
 
-  /** The shapes of the few tokens before `at`, for scoring what continues them. */
-  const slotsBefore = (at: number): GrammarSlot[] => {
-    const slots: GrammarSlot[] = [];
-    for (let i = Math.max(0, at - 6); i < at; i += 1) {
-      const token = tokens[i]!;
-      if (token.kind === 'break') continue;
-      if (token.kind === 'punctuation') {
-        slots.push({ type: 'punctuation', mark: token.text });
-        continue;
-      }
-      const lexeme = resolve(token, index);
-      if (lexeme) slots.push(slotOf.get(lexeme.id) ?? slotForLexeme(lexeme));
-    }
-    return slots;
-  };
-
+  // Chosen first, in reading order, then replaced from the end back so every
+  // position still points where it did.
+  const chosen: Array<{ at: number; unit: Unit }> = [];
   for (let i = 0; i < tokens.length; i += 1) {
-    const token = tokens[i]!;
-    if (!isEditable(token)) continue;
+    if (!isEditable(tokens[i]!)) continue;
     if (rng() >= share) continue;
+    chosen.push({ at: i, unit: pickUnit(options, rng) });
+  }
+
+  let replaced = 0;
+  for (const { at, unit } of chosen.reverse()) {
+    const token = tokens[at]!;
+    if (unit !== 'word') {
+      const written = writeUnit(tokens, at, at + 1, writer, unit);
+      if (written.length === 0) continue;
+      tokens.splice(at, 1, ...written.map((one) => ({ ...one, origin: 'replaced' as TokenOrigin })));
+      replaced += 1;
+      continue;
+    }
 
     const current = resolve(token, index);
-    const nextType = typeAt(tokens, i + 1, index);
+    const nextType = typeAt(tokens, at + 1, index);
     // Whatever form the word being replaced was in, the new word takes it: a
     // past tense verb comes back as a past tense verb. Which form it was in is
     // read off the entry's own paradigm, so a database whose variants have never
     // been looked up simply replaces the word without changing its shape.
     const form = current ? formIn(current.variations, token.key) : undefined;
-    const slot: GrammarSlot | undefined = current
-      ? { type: current.type, ...(form ? { form } : {}) }
-      : undefined;
+    const slot: GrammarSlot | undefined = current ? { type: current.type, ...(form ? { form } : {}) } : undefined;
 
     const ctx: PickContext = {
       index,
       options,
-      ...buildContext(tokens, i, index, options),
+      ...buildContext(tokens, at, index, options),
       ...(current ? { desiredType: current.type } : {}),
       ...(current ? { forbid: new Set([current.id]) } : {}),
       ...(nextType ? { nextType } : {}),
       ...(slot ? { slot } : {}),
-      ...(model ? { model, recentSlots: slotsBefore(i), slotOf } : {}),
+      ...(model ? { model, recentSlots: slotsBefore(tokens, at, writer), slotOf: writer.slotOf } : {}),
     };
     const next = pickNext(ctx, rng);
     if (!next || next.type === 'punctuation') continue;
 
-    tokens[i] = { ...(slot ? tokenForSlot(next, slot) : tokenFor(next)), origin: 'replaced' };
+    tokens[at] = { ...(slot ? tokenForSlot(next, slot) : tokenFor(next)), origin: 'replaced' };
     replaced += 1;
   }
 
@@ -709,9 +983,11 @@ export function runRandomText({ input, options, lexicon, grammar }: RunInput): R
   const warnings: string[] = [];
   const index = buildLexiconIndex(lexicon);
   const rng = createRng(options.seed || 'vibetoon');
-  const model = buildGrammarModel(grammar ?? null);
+  const built = buildGrammarModel(grammar ?? null);
+  const model = built && (options.grammarWeight ?? 0) > 0 ? built : null;
+  const writer: Writer = { index, options, rng, model, slotOf: new Map() };
   const counters = { patternsUsed: 0 };
-  if (model && model.sentences.length === 0 && (options.grammarWeight ?? 0) > 0) {
+  if (built && built.sentences.length === 0 && (options.grammarWeight ?? 0) > 0) {
     warnings.push('The grammar database has no sentence shapes in it yet.');
   }
 
@@ -719,15 +995,17 @@ export function runRandomText({ input, options, lexicon, grammar }: RunInput): R
   const inputWords = countWordTokens(inputTokens);
   const inputCharacters = countCharacters(inputTokens);
   const plan = planLength(options, inputTokens, warnings);
+  const kept = (): OutputToken[] => inputTokens.map((token) => ({ ...token, origin: 'kept' as TokenOrigin }));
+  const hasWords = inputTokens.some(isEditable);
 
   let tokens: OutputToken[];
   let replaced = 0;
   let added = 0;
   let removed = 0;
 
-  if (options.mode === 'alter' && inputTokens.length > 0) {
-    tokens = inputTokens.map((token) => ({ ...token, origin: 'kept' as TokenOrigin }));
-    replaced = alterTokens(tokens, index, options, rng, model);
+  if (options.mode === 'alter' && hasWords) {
+    tokens = kept();
+    replaced = alterTokens(tokens, writer);
     if (plan) {
       const fitted = fitLength(tokens, index, options, plan, rng);
       added = fitted.added;
@@ -735,12 +1013,17 @@ export function runRandomText({ input, options, lexicon, grammar }: RunInput): R
       // Growing or trimming can leave the text hanging mid-clause.
       closeSentence(tokens);
     }
+  } else if (options.mode === 'within' && hasWords) {
+    tokens = kept();
+    if (plan) added = insertWithin(tokens, writer, plan, warnings);
+    else warnings.push('The length is set to keep the text as it is, so there is no room to write into it.');
   } else {
-    if (options.mode === 'alter') {
-      warnings.push('Nothing came in to alter, so this run wrote new text instead.');
+    if (options.mode !== 'after') {
+      warnings.push(`Nothing came in to ${options.mode === 'alter' ? 'alter' : 'write into'}, so this run wrote new text instead.`);
     }
-    tokens = generateTokens(index, options, plan, rng, warnings, model, counters);
-    added = tokens.length;
+    const prefix = options.mode === 'after' ? kept() : [];
+    tokens = generateTokens(prefix, writer, plan, warnings, counters);
+    added = countWordTokens(tokens.slice(prefix.length));
   }
 
   const unknownWords = [
