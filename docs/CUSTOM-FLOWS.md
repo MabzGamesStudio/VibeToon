@@ -16,7 +16,32 @@ Picture ──▶ ┌ Trace ─────────────────�
 
 ## Making one
 
-1. On the graph, press **Make a custom flow**.
+There are two ways: build one from nothing on a graph of its own, or turn flows
+already on the graph into one.
+
+### On a graph of its own
+
+1. On the graph, press **New custom flow**. A card appears, and its own graph
+   opens: empty, with a **Takes** card on the left and a **Gives** card on the
+   right.
+2. Add flows from the palette beside it. They go inside the custom flow, not on
+   the main graph.
+3. Wire them as on the main graph: drag from a port to a port.
+4. Drag an input onto **Takes** to show it on the card, so it can be wired from
+   outside. Drag an output onto **Gives** to show that. A dotted line joins each
+   to the port it stands for. **×** on either card, or **Hide** in the side
+   panel, takes a port off the card again (with any wire to it from outside).
+   **Show what the wiring leaves open** shows every input nothing inside feeds and
+   every output nothing inside reads, keeping names already given.
+5. Name it (on the graph and in the palette) and press **Save over the
+   template**. It is in the palette under **Custom flows** from then on.
+
+An input that another flow inside already feeds cannot be taken: it is not
+something the custom flow takes from outside.
+
+### From flows already on the graph
+
+1. On the graph, press **Make a custom flow from these**.
 2. Tick the flows that go in it. **+ everything upstream** adds everything that
    feeds the ones ticked.
 3. Name it, and say what it does if you like.
@@ -47,22 +72,29 @@ settings in two places.
 
 ## Inside a custom flow
 
-Double-click the card to open it. The editor lists:
+Double-click the card to open it. It opens as a graph of its own, laid out like
+the main one:
 
-- the flows inside, in the order they run, each with its status and an
-  **Open ▸** button;
-- the wires between them;
-- the ports it takes and gives: which flow and port each stands for, and what
-  it is wired to. Each port's name can be edited.
+- the flows inside, as cards, wired to one another. Drag them about, wire and
+  unwire them, add flows from the palette, delete them with Delete;
+- **Takes** on the left and **Gives** on the right: the ports on the card, each
+  joined by a dotted line to the flow port it stands for;
+- a side panel with its names, its template, and its ports: which flow and port
+  each stands for, and what it is wired to outside. Each port's name can be
+  edited.
 
-**Open ▸** opens a flow's ordinary editor. Everything works there as it always
-does, including undo. The back button, and the path in the header, lead back to
-the custom flow.
+Double-click a flow (or select it and press Enter) to open its ordinary editor.
+Everything works there as it always does, including undo. The back button, and the
+path in the header, lead back to the custom flow. Selecting a wire opens the
+inspector beside the graph, for its rules.
+
+Undo here is the graph's undo: adding, wiring, moving and removing flows inside
+it, and showing and hiding ports.
 
 | Button | What it does |
 | --- | --- |
 | **Generate** | Generates every flow inside, upstream first, so each reads what the one before it made in the same pass. |
-| **Save over the template** | Makes this use's settings the template's, so new uses start from here. Uses already on the graph keep their own. |
+| **Save over the template** | Makes this use's flows, wires, ports and settings the template's, so new uses start from here. Uses already on the graph keep their own. |
 | **Open out** | Puts the flows back on the graph as ordinary flows where the card was, and removes the card. The wires stay. |
 | **Remove** | Removes the card and every flow inside it. |
 

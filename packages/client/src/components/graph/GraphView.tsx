@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { staleNodes, type Vec2 } from '@vibetoon/shared';
+import { createEmptyCustomFlow, staleNodes, type Vec2 } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
 import { useView } from '../../state/view';
 import { Inspector } from '../inspector/Inspector';
@@ -8,7 +8,7 @@ import { FlowPalette } from './FlowPalette';
 import { GraphCanvas } from './GraphCanvas';
 
 export function GraphView(): JSX.Element {
-  const { project, busyFlows, generateAll } = useStudio();
+  const { project, busyFlows, generateAll, transform, focusFlow } = useStudio();
   const { view, toggle } = useView();
   const paletteOpen = view.palette;
   const [dropPoint, setDropPoint] = useState<Vec2>({ x: 160, y: 120 });
@@ -36,10 +36,26 @@ export function GraphView(): JSX.Element {
         <button
           type="button"
           className="vt-btn is-small"
+          title="Start a custom flow from nothing, and build it on a graph of its own"
+          onClick={() => {
+            let made = '';
+            transform((current) => {
+              const result = createEmptyCustomFlow(current, 'Custom flow', dropPoint);
+              made = result.nodeId;
+              return result.project;
+            });
+            if (made) focusFlow(made);
+          }}
+        >
+          New custom flow
+        </button>
+        <button
+          type="button"
+          className="vt-btn is-small"
           title="Save some flows, wired as they are, as one flow you can use again"
           onClick={() => setMaking(true)}
         >
-          Make a custom flow
+          Make a custom flow from these
         </button>
         {stale.length > 0 ? (
           <button

@@ -196,6 +196,14 @@ export function paintOrder(
     .map((entry) => entry.object);
 }
 
+/**
+ * Has anything been done that makes a mask: a fill, a cut, or a region? A
+ * region on its own is a whole selection, and must never read as "nothing".
+ */
+export function hasObjects(data: CutoutFlowData): boolean {
+  return data.seeds.length > 0 || data.lines.length > 0 || regionsOf(data).length > 0;
+}
+
 export function findObject(data: CutoutFlowData, id: string): CutObject | undefined {
   return objectsOf(data).find((object) => object.id === id);
 }

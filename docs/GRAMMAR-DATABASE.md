@@ -22,6 +22,24 @@ needs both:
 Wire its Grammar database output into a Random Text flow's Grammar database
 input, and turn that flow's **Grammar database** slider up.
 
+## Where a sentence starts and ends
+
+A sentence runs from one full stop (or `!`, `?`, `…`) to the next:
+
+- `Mr.`, `Mrs.`, `Dr.`, `St.` and other titles and abbreviations do not end one,
+  nor does an initial (`F. Scott`).
+- A closing quote or bracket after the full stop stays with its sentence:
+  `"Go home."` is one sentence, and the next begins after the quote.
+- A blank line ends whatever was running. A heading with no full stop is not a
+  sentence, and does not run on into the paragraph under it.
+- A run in capitals or roman numerals (`CHAPTER IV.`, `THE END.`, `II.`) is a
+  heading, and is not read.
+- Only a run that ends in its own full stop is a whole sentence. The text's last
+  unfinished line, a title or a list item still gives fragments and phrases.
+
+Quote marks and brackets are left out of every shape: they are not grammar, and a
+shape that opened a quote without closing it would write unbalanced quotes.
+
 ## What a slot is
 
 Each token becomes one slot:
@@ -51,6 +69,11 @@ A sentence shape is kept even if it was only seen once — a whole sentence
 repeating at all is already meaningful — while fragments and phrases have to meet
 the **A pattern must occur** floor.
 
+**Sentence lengths** are counted too: how many sentences had each number of
+words, for every sentence read, including those too long to keep as a shape. The
+sentence shapes kept are shared out between lengths in proportion, so the one-off
+long sentences are not squeezed out by the few short ones that repeat exactly.
+
 ## Combining and taking back out
 
 Patterns are stored as **counts**, exactly as corpora are, so the same arithmetic
@@ -62,9 +85,9 @@ nothing drifts.
 
 | Setting | What it does |
 | --- | --- |
-| Longest sentence kept | A longer sentence is read and counted, but its shape is not stored. |
+| Longest sentence kept | A longer sentence is read and its length counted, but its shape is not stored (40 slots by default). |
 | Shortest / longest phrase | The range of run lengths kept as phrases. |
-| Patterns kept of each kind | How many of each kind to keep, commonest first. |
+| Patterns kept of each kind | How many of each kind to keep, commonest first (1,500 by default). Sentence shapes are shared out between lengths. |
 | A pattern must occur | How often a shape has to turn up before it is kept. |
 | Include word forms | `verb:past` versus plain `verb`. |
 
@@ -72,13 +95,23 @@ nothing drifts.
 
 Two things, both scaled by the Random Text flow's **Grammar database** weight:
 
-1. **A sentence shape to write into.** One is drawn, weighted by how often the
+1. **A sentence shape to write into.** First a length is drawn, as often as the
+   corpus wrote sentences that long, within the Random Text flow's **words in a
+   sentence**. Then a shape of that length is drawn, weighted by how often the
    corpus used it, and the run fills its slots in order. A slot asking for
    punctuation gets the mark directly; a slot asking for `verb:past` gets a verb,
    spelled `walked` rather than `walk`.
 2. **A score on every candidate.** The longest run of recent slots the grammar
    has seen is looked up, and a word whose slot often continued that run scores
    higher. A word of the wrong type for the slot is pushed down hard.
+
+Drawing the length first is what keeps short sentences as rare as the corpus had
+them. Weighting whole shapes by how often each repeated made the shortest ones
+(`noun .`) come up far too often: they repeat word for word, where long sentences
+almost never do.
+
+A fragment written into the text by the Random Text flow's **Within** or **Alter**
+mode is written into a fragment shape of the right length, when there is one.
 
 At weight 0 a wired grammar database changes nothing at all, so it is easy to
 hear what it is doing: same seed, same settings, slider at 0 and then at 0.7.

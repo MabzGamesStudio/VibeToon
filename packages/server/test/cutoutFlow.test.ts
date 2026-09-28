@@ -165,6 +165,19 @@ test('selections with no rendered picture warn rather than writing the notes alo
   assert.ok(run.warnings.some((warning) => /has not been rendered/.test(warning)), run.warnings.join('; '));
 });
 
+test('a single region is a whole selection: it writes the cutout', async () => {
+  // A region alone used to read as "nothing selected", so no mask was made.
+  await setCutout({
+    ...emptyCutoutFlowData(),
+    regions: [{ id: 'region-1', points: [0, 0, 2, 0, 2, 2, 0, 2], curved: false, mode: 'include' }],
+    imageHash: sourceHash,
+  });
+  const run = (await generate(bothPngs())).runs[0]!;
+  assert.equal(run.ok, true, run.warnings.join('; '));
+  assert.ok(!run.warnings.some((warning) => /Nothing has been selected/.test(warning)), run.warnings.join('; '));
+  assert.deepEqual(run.outputs.map((output) => output.fileName).sort(), ['cutout.md', 'cutout.png', 'mask.png']);
+});
+
 /* ---------------- what it writes ---------------- */
 
 test('a cutout writes the picture, the mask and the notes', async () => {

@@ -10,6 +10,8 @@ import { countWordTokens, renderTokens, tokenize } from '../src/text/tokenize';
 import { DEFAULT_RANDOM_TEXT_OPTIONS, type Lexicon, type RandomTextOptions } from '../src/types/text';
 
 const LEXICON = starterLexicon();
+/** Word for word, as altering was before it could write phrases and fragments. */
+const WORDS_ONLY = { word: 1, phrase: 0, fragment: 0 };
 
 function options(overrides: Partial<RandomTextOptions> = {}): RandomTextOptions {
   return {
@@ -156,6 +158,7 @@ test('a percentage grows and shrinks the text it is given', () => {
     options: options({
       mode: 'alter',
       seed: 'grow',
+      units: WORDS_ONLY,
       length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, mode: 'wordPercent', wordPercent: 50, temperature: 0.1 },
     }),
   });
@@ -193,7 +196,12 @@ test('keeping the length leaves the word count alone', () => {
   const result = runRandomText({
     input: INPUT,
     lexicon: LEXICON,
-    options: options({ mode: 'alter', seed: 'keep', length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, mode: 'keep' } }),
+    options: options({
+      mode: 'alter',
+      seed: 'keep',
+      units: WORDS_ONLY,
+      length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, mode: 'keep' },
+    }),
   });
   assert.equal(result.stats.plan, null);
   assert.equal(result.stats.outputWords, result.stats.inputWords);
@@ -433,4 +441,136 @@ test('a new wire is seeded with rules that mean something to the flow it lands o
   assert.doesNotMatch(defaultRulesForConnection({ kind: 'text.random', portId: 'lexicon' }, { kind: 'text.random', portId: 'lexicon' }), /alter:/);
   // Nothing suggested either way is an empty box, not a wrong one.
   assert.equal(defaultRulesForConnection({ kind: 'brainstorm.tone', portId: 'tone' }, { kind: 'world.design', portId: 'tone' }), '');
+});
+
+/* ---------------- writing into, after, and in place of ---------------- */
+
+const OPEN = 'The lamp ticks. The gear turns and the brass machine';
+
+function words(text: string): string[] {
+  return tokenize(text)
+    .filter((token) => token.kind === 'word')
+    .map((token) => token.key);
+}
+
+/** Is `inner` in `outer`, in order, with anything between? */
+function inOrder(inner: string[], outer: string[]): boolean {
+  let at = 0;
+  for (const word of outer) if (word === inner[at]) at += 1;
+  return at === inner.length;
+}
+
+test('writing within keeps every word that came in, in order, and grows to the target', () => {
+  const result = runRandomText({
+    input: INPUT,
+    lexicon: LEXICON,
+    options: options({ mode: 'within', seed: 'within', length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, mode: 'words', words: 45, temperature: 0 } }),
+  });
+  assert.ok(inOrder(words(INPUT), words(result.text)), result.text);
+  assert.ok(result.stats.outputWords >= 45, `${result.stats.outputWords} words`);
+  assert.equal(result.stats.replaced, 0);
+  assert.ok(result.tokens.some((token) => token.origin === 'added'));
+  assert.equal(
+    result.tokens.filter((token) => token.origin === 'kept').map((token) => token.text).join(' '),
+    tokenize(INPUT).map((token) => token.text).join(' '),
+    'every token that came in is still there, untouched',
+  );
+});
+
+test('writing within can put in phrases and fragments set off by commas', () => {
+  const result = runRandomText({
+    input: INPUT,
+    lexicon: LEXICON,
+    options: options({
+      mode: 'within',
+      seed: 'fragments',
+      units: { word: 0, phrase: 0, fragment: 1 },
+      fragmentWords: { min: 3, max: 3 },
+      length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, mode: 'words', words: 40, temperature: 0 },
+    }),
+  });
+  const added = result.tokens.filter((token) => token.origin === 'added');
+  assert.ok(added.some((token) => token.text === ','), 'fragments come with their commas');
+  assert.ok(inOrder(words(INPUT), words(result.text)));
+});
+
+test('writing after keeps the text as it came and carries on from its end', () => {
+  const result = runRandomText({
+    input: OPEN,
+    lexicon: LEXICON,
+    options: options({ mode: 'after', seed: 'after', length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, words: 40, temperature: 0 } }),
+  });
+  const came = tokenize(OPEN);
+  assert.deepEqual(
+    result.tokens.slice(0, came.length).map((token) => [token.text, token.origin]),
+    came.map((token) => [token.text, 'kept']),
+  );
+  assert.ok(result.stats.outputWords >= 36, `${result.stats.outputWords} words`);
+  const next = result.tokens[came.length]!;
+  assert.notEqual(next.kind, 'punctuation', 'the unfinished sentence is carried on, not cut off');
+});
+
+test('with nothing to write into, a run writes new text and says so', () => {
+  const result = runRandomText({ input: '', lexicon: LEXICON, options: options({ mode: 'within', seed: 'empty' }) });
+  assert.ok(result.stats.outputWords > 20);
+  assert.ok(result.warnings.some((warning) => /Nothing came in/.test(warning)));
+});
+
+test('altering can put a phrase where a word was', () => {
+  const result = runRandomText({
+    input: INPUT,
+    lexicon: LEXICON,
+    options: options({
+      mode: 'alter',
+      seed: 'phrases',
+      alterTemperature: 0.3,
+      units: { word: 0, phrase: 1, fragment: 0 },
+      phraseWords: { min: 3, max: 3 },
+      length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, mode: 'keep' },
+    }),
+  });
+  assert.ok(result.stats.replaced > 0);
+  // Each replaced word became three.
+  assert.equal(result.stats.outputWords, result.stats.inputWords + result.stats.replaced * 2);
+  assert.ok(result.tokens.every((token) => token.origin !== 'replaced' || token.kind !== 'punctuation'));
+});
+
+test('sentences are held between the fewest and most words', () => {
+  const result = runRandomText({
+    input: '',
+    lexicon: LEXICON,
+    options: options({
+      mode: 'after',
+      seed: 'bounds',
+      sentenceWords: { min: 5, max: 9 },
+      length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, words: 200, temperature: 0 },
+    }),
+  });
+  const lengths: number[] = [];
+  let count = 0;
+  for (const token of result.tokens) {
+    if (token.kind === 'word' || token.kind === 'number') count += 1;
+    if (token.kind === 'punctuation' && /^[.!?…]/.test(token.text)) {
+      lengths.push(count);
+      count = 0;
+    }
+  }
+  // The last sentence can be cut short to land on the length.
+  const whole = lengths.slice(0, -1);
+  assert.ok(whole.length > 10);
+  assert.ok(whole.every((length) => length >= 5 && length <= 9), whole.join(','));
+});
+
+test('a rule can choose the mode, old names included', () => {
+  const base = options({ mode: 'alter', alterTemperature: 0 });
+  assert.equal(applyRulesToOptions(base, parseRules('mode: within')).mode, 'within');
+  assert.equal(applyRulesToOptions(base, parseRules('mode: insert')).mode, 'within');
+  assert.equal(applyRulesToOptions(base, parseRules('mode: generate')).mode, 'after');
+  assert.equal(applyRulesToOptions(base, parseRules('mode: after')).mode, 'after');
+});
+
+test('a flow saved in generate mode opens writing after', () => {
+  const data = emptyTextData();
+  const stored = { ...data, options: { ...data.options, mode: 'generate' } } as unknown as typeof data;
+  assert.equal(resolveTextRun(stored, []).options.mode, 'after');
 });

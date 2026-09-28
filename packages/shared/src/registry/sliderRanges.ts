@@ -65,8 +65,14 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('text.grammarBias', 'Grammar bias', TEXT, 'Grammar', 0, 1, 0.05),
   def('text.grammarWeight', 'Grammar database', TEXT, 'Grammar', 0, 1, 0.05),
   def('text.sentenceLength', 'Sentence length', TEXT, 'Grammar', 3, 40, 1, 'words'),
+  def('text.unitWord', 'A word', TEXT, 'Sizes', 0, 1, 0.05),
+  def('text.unitPhrase', 'A phrase', TEXT, 'Sizes', 0, 1, 0.05),
+  def('text.unitFragment', 'A fragment', TEXT, 'Sizes', 0, 1, 0.05),
   def('lexicon.frequency', 'Word frequency', TEXT, 'Word list', 0, 1, 0.01),
   def('lexicon.contextWeight', 'Context link weight', TEXT, 'Word list', 0, 1, 0.05),
+  def('lexicon.adjacentChance', 'Next to it', ['text.lexicon'], 'Counting', 0, 1, 0.05),
+  def('lexicon.sentenceChance', 'In the same sentence', ['text.lexicon'], 'Counting', 0, 1, 0.05),
+  def('lexicon.paragraphChance', 'In the same paragraph', ['text.lexicon'], 'Counting', 0, 0.5, 0.01),
 
   // Timeline
   def('timeline.placeLevel', 'Place level', ['story.timeline'], 'Color', 1, 5, 1, 'levels'),

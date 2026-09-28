@@ -268,8 +268,8 @@ function templateOf(
   meta: { id: string; name: string; description: string; createdAt: string },
 ): CustomFlowTemplate {
   const keyOf = new Map(members.map((node, index) => [node.id, `m${index + 1}`]));
-  const minX = Math.min(...members.map((node) => node.position.x));
-  const minY = Math.min(...members.map((node) => node.position.y));
+  const minX = members.length > 0 ? Math.min(...members.map((node) => node.position.x)) : 0;
+  const minY = members.length > 0 ? Math.min(...members.map((node) => node.position.y)) : 0;
   const ids = new Set(members.map((node) => node.id));
   return {
     ...meta,
@@ -489,7 +489,7 @@ export function saveInstanceAsTemplate(project: Project, groupId: string): Proje
   const data = customDataOf(group);
   const template = templateById(project, data.templateId);
   const members = membersOf(project, groupId);
-  if (!template || members.length === 0) return project;
+  if (!template) return project;
   const next = templateOf(project, members, data.inputs, data.outputs, {
     id: template.id,
     name: template.name,
@@ -534,4 +534,138 @@ export function instanceCounts(project: Project): Map<string, number> {
     counts.set(id, (counts.get(id) ?? 0) + 1);
   }
   return counts;
+}
+
+/* ------------------------------------------------------------------ *
+ * Building one on its own graph
+ * ------------------------------------------------------------------ */
+
+/**
+ * A custom flow with nothing in it yet, and its first instance on the graph:
+ * the place to build one from scratch, on its own graph, rather than from
+ * flows already on the main one.
+ */
+export function createEmptyCustomFlow(
+  project: Project,
+  name: string,
+  position: Vec2,
+): { project: Project; templateId: string; nodeId: string } {
+  const title = name.trim() || 'Custom flow';
+  const now = new Date().toISOString();
+  const template: CustomFlowTemplate = {
+    id: newId('custom'),
+    name: title,
+    description: '',
+    createdAt: now,
+    updatedAt: now,
+    members: [],
+    connections: [],
+    inputs: [],
+    outputs: [],
+  };
+  const group: FlowNode = {
+    id: newId('flow'),
+    kind: CUSTOM_FLOW_KIND,
+    name: title,
+    position,
+    notes: '',
+    data: { editor: 'custom', templateId: template.id, templateName: title, inputs: [], outputs: [] },
+    outputs: [],
+  };
+  return {
+    project: { ...project, customFlows: [...(project.customFlows ?? []), template], nodes: [...project.nodes, group] },
+    templateId: template.id,
+    nodeId: group.id,
+  };
+}
+
+function withInstanceData(project: Project, groupId: string, change: (data: CustomFlowData) => CustomFlowData): Project {
+  return {
+    ...project,
+    nodes: project.nodes.map((node) =>
+      node.id === groupId && isCustomNode(node) ? { ...node, data: change(customDataOf(node)) } : node,
+    ),
+  };
+}
+
+/** Is this member port one the instance shows? */
+export function exposedPort(
+  data: CustomFlowData,
+  side: 'inputs' | 'outputs',
+  memberId: string,
+  portId: string,
+): ExposedPort | undefined {
+  return data[side].find((port) => port.node === memberId && port.port === portId);
+}
+
+/**
+ * Show a member's port on the instance's card, so it can be wired from (an
+ * input) or read from (an output) outside. A port shown already is left as it
+ * is; an input another member feeds is not something the flow takes.
+ */
+export function exposePort(project: Project, groupId: string, side: 'inputs' | 'outputs', memberId: string, portId: string): Project {
+  const group = project.nodes.find((node) => node.id === groupId);
+  const member = project.nodes.find((node) => node.id === memberId);
+  if (!group || !isCustomNode(group) || !member || member.group !== groupId) return project;
+  const data = customDataOf(group);
+  if (exposedPort(data, side, memberId, portId)) return project;
+  const spec = portOf(member, portId, side);
+  if (!spec) return project;
+  if (side === 'inputs' && project.connections.some((c) => c.to.nodeId === memberId && c.to.portId === portId && project.nodes.find((node) => node.id === c.from.nodeId)?.group === groupId)) {
+    return project;
+  }
+  const members = membersOf(project, groupId);
+  const added = uniqueLabels([...data[side], expose(member, spec)], members);
+  return withInstanceData(project, groupId, (current) => ({ ...current, [side]: added.map((port, index) => (index < current[side].length ? current[side][index]! : port)) }));
+}
+
+/**
+ * Stop showing a port. A wire from outside to it would be a wire to something
+ * that cannot be seen, so it goes too.
+ */
+export function unexposePort(project: Project, groupId: string, side: 'inputs' | 'outputs', exposedId: string): Project {
+  const group = project.nodes.find((node) => node.id === groupId);
+  if (!group || !isCustomNode(group)) return project;
+  const port = customDataOf(group)[side].find((one) => one.id === exposedId);
+  if (!port) return project;
+  const inside = new Set(membersOf(project, groupId).map((node) => node.id));
+  const next = withInstanceData(project, groupId, (data) => ({ ...data, [side]: data[side].filter((one) => one.id !== exposedId) }));
+  return {
+    ...next,
+    connections: next.connections.filter((c) =>
+      side === 'inputs'
+        ? !(c.to.nodeId === port.node && c.to.portId === port.port && !inside.has(c.from.nodeId))
+        : !(c.from.nodeId === port.node && c.from.portId === port.port && !inside.has(c.to.nodeId)),
+    ),
+  };
+}
+
+/**
+ * Show what the wiring inside suggests (see {@link proposePorts}), keeping the
+ * names of ports shown already.
+ */
+export function exposeFromWiring(project: Project, groupId: string): Project {
+  const group = project.nodes.find((node) => node.id === groupId);
+  if (!group || !isCustomNode(group)) return project;
+  const data = customDataOf(group);
+  const proposed = proposePorts(project, membersOf(project, groupId).map((node) => node.id));
+  const keep = (side: 'inputs' | 'outputs') =>
+    proposed[side].map((port) => exposedPort(data, side, port.node, port.port) ?? port);
+  return withInstanceData(project, groupId, (current) => ({ ...current, inputs: keep('inputs'), outputs: keep('outputs') }));
+}
+
+/** Remove one flow from inside an instance, with its wires and any port of it the instance showed. */
+export function removeMember(project: Project, memberId: string): Project {
+  const member = project.nodes.find((node) => node.id === memberId);
+  const rest: Project = {
+    ...project,
+    nodes: project.nodes.filter((node) => node.id !== memberId),
+    connections: project.connections.filter((c) => c.from.nodeId !== memberId && c.to.nodeId !== memberId),
+  };
+  if (!member?.group) return rest;
+  return withInstanceData(rest, member.group, (data) => ({
+    ...data,
+    inputs: data.inputs.filter((port) => port.node !== memberId),
+    outputs: data.outputs.filter((port) => port.node !== memberId),
+  }));
 }

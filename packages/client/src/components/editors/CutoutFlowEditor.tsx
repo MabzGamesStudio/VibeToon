@@ -4,6 +4,7 @@ import {
   buildMask,
   deleteSelected,
   edgeNear,
+  hasObjects,
   insertNodeAt,
   moveNodeAt,
   moveObject,
@@ -198,7 +199,7 @@ export function CutoutFlowEditor({ project, node }: { project: Project; node: Fl
 
   const built = useMemo(() => {
     if (!bitmap) return null;
-    if (data.seeds.length === 0 && data.lines.length === 0) return null;
+    if (!hasObjects(data)) return null;
     return buildMask(bitmap, data);
   }, [bitmap, data]);
 

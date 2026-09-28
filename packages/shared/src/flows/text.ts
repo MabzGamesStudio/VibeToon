@@ -4,6 +4,7 @@ import { mergeLexicons } from '../text/lexicon';
 import { starterLexicon } from './lexicon';
 import {
   DEFAULT_RANDOM_TEXT_OPTIONS,
+  readTextMode,
   type Lexicon,
   type RandomTextOptions,
   type TextFlowData,
@@ -74,8 +75,8 @@ export function applyRulesToOptions(options: RandomTextOptions, rules: ParsedRul
   const length = ruleValue(rules, 'length');
   if (length !== undefined) next = applyLengthRule(next, length);
 
-  const mode = ruleValue(rules, 'mode');
-  if (mode === 'generate' || mode === 'alter') next.mode = mode;
+  const mode = readTextMode(ruleValue(rules, 'mode')?.trim().toLowerCase());
+  if (mode) next.mode = mode;
 
   const seed = ruleValue(rules, 'seed');
   if (seed) next.seed = seed;
@@ -128,13 +129,29 @@ export interface ResolvedTextRun {
  * the flow's own, when nothing is wired in), every lexicon merged into the local
  * one, and the options after the connection rules have had their say.
  */
-export function resolveTextRun(data: TextFlowData, sources: TextRunSource[]): ResolvedTextRun {
+/**
+ * The flow's own word database with every wired-in one merged into it. This is
+ * the expensive part of resolving a run, so the editor keeps it apart and only
+ * redoes it when a database changes, not on every keystroke.
+ */
+export function mergeRunLexicons(own: Lexicon, sources: readonly TextRunSource[]): Lexicon {
+  let lexicon = own;
+  for (const source of sources) if (source.lexicon) lexicon = mergeLexicons(lexicon, source.lexicon);
+  return lexicon;
+}
+
+/**
+ * `merged`, when given, is {@link mergeRunLexicons} of the same flow and
+ * sources, already worked out.
+ */
+export function resolveTextRun(data: TextFlowData, sources: TextRunSource[], merged?: Lexicon): ResolvedTextRun {
   const notes: string[] = [];
   // Fill in any option a stored project predates, so an older flow runs with
   // this build's defaults rather than with undefined.
   let options: RandomTextOptions = {
     ...DEFAULT_RANDOM_TEXT_OPTIONS,
     ...data.options,
+    mode: readTextMode(data.options.mode) ?? DEFAULT_RANDOM_TEXT_OPTIONS.mode,
     length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, ...data.options.length },
   };
 
@@ -150,12 +167,14 @@ export function resolveTextRun(data: TextFlowData, sources: TextRunSource[]): Re
       texts.push(source.text.trim());
       notes.push(`Read ${source.text.trim().length} characters from ${source.label}.`);
     }
-    if (source.lexicon) {
+    if (source.lexicon && !merged) {
       const before = lexicon.lexemes.length;
       lexicon = mergeLexicons(lexicon, source.lexicon);
       notes.push(
         `Merged ${source.lexicon.lexemes.length} word(s) from ${source.label}: ${before} → ${lexicon.lexemes.length}.`,
       );
+    } else if (source.lexicon) {
+      notes.push(`Merged ${source.lexicon.lexemes.length} word(s) from ${source.label}.`);
     }
     if (source.grammar) {
       grammar = source.grammar;
@@ -170,5 +189,5 @@ export function resolveTextRun(data: TextFlowData, sources: TextRunSource[]): Re
     notes.push('Used the text written in the flow, since nothing is wired into the Text input.');
   }
 
-  return { input, lexicon, grammar, options, notes };
+  return { input, lexicon: merged ?? lexicon, grammar, options, notes };
 }

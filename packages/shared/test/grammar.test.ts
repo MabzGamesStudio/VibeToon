@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { sampleGrammarDataset } from '../src/flows/grammar';
 import { starterLexicon } from '../src/flows/lexicon';
-import { runRandomText } from '../src/text/generate';
+import { createRng, runRandomText } from '../src/text/generate';
+import { sentenceSpans, tokenize } from '../src/text/tokenize';
 import {
   DEFAULT_GRAMMAR_OPTIONS,
   buildGrammarModel,
@@ -11,6 +12,8 @@ import {
   extractGrammar,
   parsePattern,
   patternSignature,
+  pickSentencePattern,
+  wordsIn,
   slotForLexeme,
   spellForSlot,
   subtractGrammar,
@@ -347,7 +350,7 @@ test('a wired grammar database writes into its sentence shapes', () => {
   const result = runRandomText({
     input: '',
     options: options({
-      mode: 'generate',
+      mode: 'after',
       seed: 'grammar-on',
       grammarWeight: 0.8,
       length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, mode: 'words', words: 40 },
@@ -364,14 +367,14 @@ test('a wired grammar database writes into its sentence shapes', () => {
 test('with no grammar wired in, or none wanted, nothing is taken from it', () => {
   const without = runRandomText({
     input: '',
-    options: options({ mode: 'generate', seed: 'grammar-off', grammarWeight: 0.8 }),
+    options: options({ mode: 'after', seed: 'grammar-off', grammarWeight: 0.8 }),
     lexicon: STARTER,
   });
   assert.equal(without.stats.patternsUsed, 0, 'there is no grammar to take a shape from');
 
   const ignored = runRandomText({
     input: '',
-    options: options({ mode: 'generate', seed: 'grammar-off', grammarWeight: 0 }),
+    options: options({ mode: 'after', seed: 'grammar-off', grammarWeight: 0 }),
     lexicon: STARTER,
     grammar: SAMPLE_GRAMMAR,
   });
@@ -385,7 +388,7 @@ test('with no grammar wired in, or none wanted, nothing is taken from it', () =>
 
 test('the grammar changes what gets written', () => {
   const settings = {
-    mode: 'generate' as const,
+    mode: 'after' as const,
     seed: 'same-seed',
     length: { ...DEFAULT_RANDOM_TEXT_OPTIONS.length, mode: 'words' as const, words: 30 },
   };
@@ -416,7 +419,7 @@ test('a grammar database with no sentence shapes says so', () => {
   const empty: GrammarDataset = { ...SAMPLE_GRAMMAR, sentences: [], fragments: [], phrases: [] };
   const result = runRandomText({
     input: '',
-    options: options({ mode: 'generate', seed: 'empty-grammar', grammarWeight: 0.8 }),
+    options: options({ mode: 'after', seed: 'empty-grammar', grammarWeight: 0.8 }),
     lexicon: STARTER,
     grammar: empty,
   });
@@ -424,4 +427,101 @@ test('a grammar database with no sentence shapes says so', () => {
     result.warnings.some((warning) => warning.includes('no sentence shapes')),
     'the run warns rather than writing as if it had one',
   );
+});
+
+/* ---------------- where a sentence starts and ends ---------------- */
+
+function spansOf(text: string): string[] {
+  const tokens = tokenize(text);
+  return sentenceSpans(tokens).map((span) =>
+    tokens
+      .slice(span.start, span.end)
+      .map((token) => token.text)
+      .join(' ') + (span.closed ? '' : ' |open'),
+  );
+}
+
+test('titles and initials do not end a sentence', () => {
+  assert.deepEqual(spansOf('Mr. Gatsby met Dr. T. J. Eckleburg. He left.'), [
+    'Mr . Gatsby met Dr . T . J . Eckleburg .',
+    'He left .',
+  ]);
+});
+
+test('a closing quote stays with the sentence it closes', () => {
+  assert.deepEqual(spansOf('"Go home." "Now?" she said.'), ['" Go home . "', '" Now ? "', 'she said .']);
+});
+
+test('a blank line ends whatever was running', () => {
+  assert.deepEqual(spansOf('CHAPTER I\n\nThe lamp is old. The gear'), ['CHAPTER I |open', 'The lamp is old .', 'The gear |open']);
+});
+
+const GATSBY_LIKE = [
+  'CHAPTER I.',
+  '',
+  '"The lamp is old," said Mr. Lamp. "The gear is old."',
+  'The old lamp is old and the gear is old. Old. The lamp is old.',
+  '',
+  'II.',
+  '',
+  'The gear is old and the old lamp is old.',
+].join('\n');
+
+test('headings, titles and quotes do not become one-word sentences', () => {
+  const dataset = extract(GATSBY_LIKE, 'test', { ...OPTIONS, minCount: 1 });
+  const oneWord = dataset.sentences.filter(([signature]) => wordsIn(parsePattern(signature)) === 1);
+  // `Old.` really is a one-word sentence; `CHAPTER I.`, `II.` and `Mr.` are not.
+  assert.equal(oneWord.reduce((sum, [, count]) => sum + count, 0), 1);
+  assert.equal(dataset.stats.sentences, 6);
+  assert.ok(
+    dataset.sentences.every(([signature]) => !signature.includes('punctuation:"')),
+    'quote marks are left out of the shapes',
+  );
+  assert.deepEqual(
+    dataset.lengths?.map(([words]) => words),
+    [1, 4, 7, 10],
+    'every sentence read is counted by its length',
+  );
+});
+
+test('a sentence length is drawn as often as the corpus wrote it', () => {
+  // One short shape that repeats exactly, against many longer one-offs.
+  const text = [
+    ...Array.from({ length: 6 }, () => 'Old.'),
+    'The lamp is old. The gear is old. The old lamp is old. The old gear is old.',
+    'The lamp is older. The gear is older. The old lamp is older. The old gear is older.',
+    'The lamps is old. The gears is old. The old lamps is old. The old gears is old.',
+  ].join(' ');
+  const model = buildGrammarModel(extract(text, 'test', { ...OPTIONS, minCount: 1 }))!;
+  const rng = createRng('lengths');
+  let short = 0;
+  const draws = 2000;
+  for (let i = 0; i < draws; i += 1) {
+    if (wordsIn(pickSentencePattern(model, rng, 0.45)!.slots) === 1) short += 1;
+  }
+  // 6 of the 18 sentences had one word. Weighting whole shapes by count^2.2
+  // instead would pick it nearly every time.
+  assert.ok(Math.abs(short / draws - 6 / 18) < 0.05, `drew one-word sentences ${short} times`);
+});
+
+test('sentence bounds keep the drawn length in range', () => {
+  const model = buildGrammarModel(extract(GATSBY_LIKE, 'test', { ...OPTIONS, minCount: 1 }))!;
+  const rng = createRng('bounds');
+  for (let i = 0; i < 200; i += 1) {
+    const words = wordsIn(pickSentencePattern(model, rng, 0.5, { min: 4, max: 6 })!.slots);
+    assert.ok(words >= 4 && words <= 6);
+  }
+  assert.equal(
+    wordsIn(pickSentencePattern(model, rng, 0.5, { min: 20, max: 30 })!.slots),
+    10,
+    'with nothing in range, the nearest length there is',
+  );
+});
+
+test('lengths add up when datasets combine, and come off when they subtract', () => {
+  const a = extract(GATSBY_LIKE, 'a', { ...OPTIONS, minCount: 1 });
+  const b = extract('The lamp is old.', 'b', { ...OPTIONS, minCount: 1 });
+  const master = combineGrammar([a, b]);
+  assert.equal(master.lengths?.find(([words]) => words === 4)?.[1], (a.lengths?.find(([w]) => w === 4)?.[1] ?? 0) + 1);
+  assert.deepEqual(subtractGrammar(master, b).lengths, a.lengths);
 });

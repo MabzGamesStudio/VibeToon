@@ -170,7 +170,7 @@ test('a filter writes the picture and a report that names the palette', async ()
   assert.match(body, new RegExp(RED));
   assert.match(body, new RegExp(BLUE));
   assert.match(body, /Keep only palette colors/);
-  assert.match(body, /OKLab/);
+  assert.match(body, /hue, saturation, brightness and opacity/);
 });
 
 test('the report says what the mode does, not just which one it was', async () => {

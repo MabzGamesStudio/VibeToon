@@ -17,6 +17,7 @@ import {
   nextRedo,
   realEndpoint,
   removeInstance,
+  removeMember,
   nextUndo,
   record,
   redo as redoStep,
@@ -90,7 +91,8 @@ interface StudioValue {
   update(mutate: (draft: Project) => void): void;
   patchNode(nodeId: string, patch: Partial<FlowNode>): void;
   setFlowData(nodeId: string, data: FlowData): void;
-  addNode(kind: string, position: Vec2): FlowNode | null;
+  /** Add a flow; with `group`, inside that custom flow rather than on the main graph. */
+  addNode(kind: string, position: Vec2, group?: string): FlowNode | null;
   removeNode(nodeId: string): void;
   connect(from: PortRef, to: PortRef): boolean;
   patchConnection(connectionId: string, patch: Partial<Connection>): void;
@@ -341,10 +343,11 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
   );
 
   const addNode = useCallback(
-    (kind: string, position: Vec2): FlowNode | null => {
+    (kind: string, position: Vec2, group?: string): FlowNode | null => {
       const current = projectRef.current;
       if (!current) return null;
-      const node = createNode(kind, position);
+      const made = createNode(kind, position);
+      const node = group ? { ...made, group } : made;
       commit({ ...current, nodes: [...current.nodes, node] });
       setSelection({ type: 'node', id: node.id });
       return node;
@@ -358,17 +361,9 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
       if (!current) return;
       const node = current.nodes.find((candidate) => candidate.id === nodeId);
       // A custom flow goes with everything behind it.
-      commit(
-        isCustomNode(node)
-          ? removeInstance(current, nodeId)
-          : {
-              ...current,
-              nodes: current.nodes.filter((candidate) => candidate.id !== nodeId),
-              connections: current.connections.filter(
-                (connection) => connection.from.nodeId !== nodeId && connection.to.nodeId !== nodeId,
-              ),
-            },
-      );
+      // A custom flow goes with everything behind it; a flow inside one takes
+      // the ports it showed on the card with it.
+      commit(isCustomNode(node) ? removeInstance(current, nodeId) : removeMember(current, nodeId));
       setSelection({ type: 'none' });
       setFocusedFlowId((focused) => (focused === nodeId ? null : focused));
     },
@@ -448,7 +443,10 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
     (direction: 'undo' | 'redo') => {
       const current = projectRef.current;
       if (!current) return;
-      const scope = focusedRef.current;
+      // A custom flow's editor is a graph of its own, so undo there is the
+      // graph's undo: flows added, wired and moved inside it.
+      const focused = focusedRef.current;
+      const scope = focused && isCustomNode(projectRef.current?.nodes.find((node) => node.id === focused)) ? null : focused;
       const result = (direction === 'undo' ? undoStep : redoStep)(historyRef.current, current, scope);
       if (!result) return;
       setHistory(result.history);
@@ -468,8 +466,10 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
 
   const undoState = useMemo<UndoState>(() => {
     if (!project) return { canUndo: false, canRedo: false, undoLabel: '', redoLabel: '' };
-    const back = nextUndo(historyRef.current, project, focusedFlowId);
-    const forward = nextRedo(historyRef.current, project, focusedFlowId);
+    const scope =
+      focusedFlowId && isCustomNode(project.nodes.find((node) => node.id === focusedFlowId)) ? null : focusedFlowId;
+    const back = nextUndo(historyRef.current, project, scope);
+    const forward = nextRedo(historyRef.current, project, scope);
     return {
       canUndo: Boolean(back),
       canRedo: Boolean(forward),

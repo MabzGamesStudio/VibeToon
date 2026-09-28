@@ -1,4 +1,4 @@
-import { labelOf, objectsOf, summariseCutout, type CutoutFlowData } from '@vibetoon/shared';
+import { hasObjects, labelOf, objectsOf, summariseCutout, type CutoutFlowData } from '@vibetoon/shared';
 import { writeArtifact } from '../storage';
 import type { GenerationContext, GenerationResult } from './types';
 
@@ -28,7 +28,7 @@ export async function generateCutout(ctx: GenerationContext): Promise<Generation
   const cutout = ctx.attachments.find((attachment) => attachment.name === 'cutout.png');
   const mask = ctx.attachments.find((attachment) => attachment.name === 'mask.png');
 
-  if (data.seeds.length === 0 && data.lines.length === 0) {
+  if (!hasObjects(data)) {
     ctx.warn(
       'Nothing has been selected yet. Open this flow’s editor and left-click the part of the image to keep.',
     );

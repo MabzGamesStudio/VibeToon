@@ -6,6 +6,7 @@ import {
   combineDatasets,
   deriveLexicon,
   extractCorpus,
+  gatherContexts,
   isLookupCandidate,
   meaningForToken,
   subtractDataset,
@@ -13,6 +14,7 @@ import {
   type CorpusDataset,
 } from '../src/text/corpus';
 import { buildLexiconIndex } from '../src/text/lexicon';
+import { tokenize } from '../src/text/tokenize';
 import { lexemeIdFor, type WordMeaning } from '../src/text/senses';
 
 const OPTIONS = { ...DEFAULT_EXTRACT_OPTIONS, minPairCount: 1, maxWords: 200 };
@@ -287,4 +289,101 @@ test('a word nobody has looked up gets no type rather than a guessed one', () =>
     words.every((lexeme) => lexeme.variations === undefined),
     'and no forms either, since forms follow from the type',
   );
+});
+
+/* ---------------- the company a word keeps ---------------- */
+
+function nearOf(dataset: CorpusDataset, spelling: string): Map<string, number> {
+  return new Map(entry(dataset, spelling)?.near ?? []);
+}
+
+/** The same sentence many times over, as its own paragraph each time. */
+function repeated(sentence: string, times: number): string {
+  return Array.from({ length: times }, () => sentence).join('\n\n');
+}
+
+test('a word right next to another is taken as its context more often than one further off', () => {
+  const dataset = extract(repeated('The quick brown fox jumps over the lazy dog.', 200));
+  const dog = nearOf(dataset, 'dog');
+  assert.ok((dog.get('lazy') ?? 0) > (dog.get('quick') ?? 0) * 2, 'lazy is right beside it; quick is not');
+  assert.ok((dog.get('lazy') ?? 0) > (dog.get('the') ?? 0), '`the` is beside it too, but is common');
+  assert.ok(!dog.has('.'), 'marks are not company');
+});
+
+test('a word in the same paragraph has a smaller chance than one in the same sentence', () => {
+  const dataset = extract(repeated('The lamp glows. A kettle sings.', 300));
+  const lamp = nearOf(dataset, 'lamp');
+  assert.ok((lamp.get('glows') ?? 0) > (lamp.get('sings') ?? 0) * 2);
+  assert.ok((lamp.get('sings') ?? 0) > 0, 'but it still has one');
+});
+
+test('a paragraph break ends the reach', () => {
+  const dataset = extract(repeated('The lamp glows.\n\nA kettle sings.', 100));
+  assert.ok(!nearOf(dataset, 'lamp').has('kettle'));
+});
+
+test('gathering is the same every time for the same text', () => {
+  const text = repeated('The quick brown fox jumps over the lazy dog.', 40);
+  assert.deepEqual(extract(text).entries, extract(text).entries);
+});
+
+test('full slots are taken over by the weakest context, and fill slots double', () => {
+  // Sixty different words, each three times beside `bell`.
+  const name = (i: number) => `w${String.fromCharCode(97 + (i % 26))}${String.fromCharCode(97 + Math.floor(i / 26))}`;
+  const tokens = tokenize(Array.from({ length: 60 }, (_, i) => `Bell ${name(i)} ${name(i)} ${name(i)}.`).join('\n\n'));
+  const counts = new Map<string, number>();
+  for (const token of tokens) if (token.kind === 'word') counts.set(token.key, (counts.get(token.key) ?? 0) + 1);
+  const kept = new Set(counts.keys());
+  const options = { ...OPTIONS, contextSlots: 4, adjacentChance: 1, sentenceChance: 1, paragraphChance: 0 };
+
+  const tight = gatherContexts(tokens, counts, kept, 240, { ...options, contextGrowAt: 1000 }, 'x').get('bell')!;
+  assert.equal(tight.capacity, 4, 'never filled enough to grow');
+  assert.equal(tight.weights.size, 4, 'so it holds four contexts');
+
+  const growing = gatherContexts(tokens, counts, kept, 240, { ...options, contextGrowAt: 2 }, 'x').get('bell')!;
+  assert.ok(growing.capacity > 4, 'heavy use doubles the slots');
+  assert.ok(growing.weights.size > 4);
+});
+
+test('a context that keeps a word no more company than it keeps everyone is dropped', () => {
+  // `and` is everywhere, so beside `bell` it is less than its usual share.
+  const text = [
+    ...Array.from({ length: 30 }, () => 'bell chime ring toll and'),
+    ...Array.from({ length: 90 }, () => 'stone and pebble'),
+  ].join('.\n\n');
+  const dataset = extractCorpus(text, 'test', { kind: 'pasted' }, { ...OPTIONS, adjacentChance: 1, sentenceChance: 1 });
+  assert.ok(nearOf(dataset, 'bell').has('and'), 'it was gathered');
+  const bell = deriveLexicon(dataset, {}).lexemes.find((lexeme) => lexeme.spelling === 'bell')!;
+  const ids = bell.contexts.map((context) => context.id);
+  assert.ok(ids.includes(lexemeIdFor('chime')));
+  assert.ok(!ids.includes(lexemeIdFor('and')), 'but is not kept');
+});
+
+test('each sense is known by the words of its own definition too', () => {
+  const text = repeated('The bank was near the river. The bank held money.', 30);
+  const dataset = extract(text);
+  const meanings: Record<string, WordMeaning> = {
+    bank: {
+      source: 'dictionary',
+      senses: [
+        { type: 'noun', description: 'The land beside a river.' },
+        { type: 'noun', description: 'A place that keeps money.' },
+      ],
+    },
+  };
+  const [edge, lender] = deriveLexicon(dataset, meanings).lexemes.filter((lexeme) => lexeme.spelling === 'bank');
+  const weight = (lexeme: typeof edge, word: string) =>
+    lexeme!.contexts.find((context) => context.id === lexemeIdFor(word))?.weight ?? 0;
+  assert.ok(weight(edge, 'river') > weight(lender, 'river'), 'the river bank leans to river');
+  assert.ok(weight(lender, 'money') > weight(edge, 'money'), 'the lending bank to money');
+});
+
+test('contexts add up when datasets combine and come back out exactly', () => {
+  const a = extract(repeated('The brass beetle sat.', 20), 'a');
+  const b = extract(repeated('The iron lamp glowed.', 20), 'b');
+  const both = combineDatasets([a, b]);
+  assert.deepEqual(nearOf(both, 'brass'), nearOf(a, 'brass'));
+  const back = subtractDataset(both, b);
+  assert.deepEqual(entry(back, 'beetle')?.near, entry(a, 'beetle')?.near);
+  assert.equal(entry(back, 'lamp'), undefined);
 });

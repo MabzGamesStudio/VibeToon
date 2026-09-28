@@ -1,9 +1,42 @@
 # Random Text
 
-The `text.random` flow writes text from a word database, or rewrites text that
-arrives over a wire. Nothing about it is a language model: every run is a walk
-through a graph of words you can see and edit, seeded so the same settings always
-produce the same text.
+The `text.random` flow writes text from a word database: into the text that
+arrives over a wire, after it, or in place of some of its words. Nothing about it
+is a language model: every run is a walk through a graph of words you can see and
+edit, seeded so the same settings always produce the same text.
+
+## What a run does
+
+| Mode | What happens to the text coming in |
+| --- | --- |
+| **Within** | Every word of it is kept, in order. New words, phrases and fragments are written in between, after a word, until the whole is as long as the target. |
+| **After** | It is kept as it is, and the run writes on from its end until the whole is as long as the target. If it stops mid-sentence, that sentence is finished word by word first. With nothing coming in, this is writing from nothing. |
+| **Alter** | A share of its words (the **alter temperature**) is replaced, each with a word, a phrase or a fragment. |
+
+Within and Alter with nothing to work on write from nothing instead, and say so.
+A flow saved when the modes were *Generate* and *Alter* opens in **After** where it
+said Generate: with nothing coming in, it writes what Generate did.
+
+### Words, phrases and fragments
+
+Where a run writes into the text (Within) or replaces a word (Alter), each piece is
+one of three sizes, chosen by three weights, **A word**, **A phrase** and **A
+fragment**. Only how they compare matters: 1, 0, 0 is word for word.
+
+- **A phrase** is a run of words, from **Words in a phrase** (2 to 4 by
+  default). It brings no punctuation; its last word is fitted to the word after it.
+- **A fragment** is a clause of its own, from **Words in a fragment** (3 to 7),
+  set off by a comma before it, and one after it when a word follows. With a
+  grammar database wired in, it is written into one of the database's fragment
+  shapes of that length.
+
+### Sentence sizes
+
+**Words in a sentence** (4 to 30 by default) holds every sentence the run writes:
+a full stop is impossible before the fewest, and one is put in at the most. With
+a grammar database wired in, the sentence shape is chosen from within the range
+as well. **Sentence length** is where, inside the range, a full stop starts to
+become likely.
 
 ## The word database
 
@@ -51,7 +84,8 @@ score = frequency^e × (1 + gain × contextPull) × grammar × sentenceShape × 
   ignored entirely — word soup. At 1 a determiner is followed by a noun or an
   adjective and very little else.
 - **Sentence shape** is what puts punctuation in: a full stop becomes likely as
-  the sentence passes **sentence length** words, and impossible before three.
+  the sentence passes **sentence length** words, and is impossible before the
+  fewest **words in a sentence**.
 - **`nextFit`** is the [grammar database](GRAMMAR-DATABASE.md), when one is wired
   in and the **Grammar database** weight is above 0: a word whose slot often
   continued the run just written scores higher, and a word of the wrong type for
@@ -65,10 +99,15 @@ always wins, at 1 the draw is straight proportional to score.
 ## Sentence shapes
 
 Wire a **Grammar Database** flow into the Grammar database input and the run
-stops writing word by word and starts writing *into a shape*: a whole sentence
-pattern is drawn — weighted by how often the corpus used it — and each slot is
-filled with a word of that type, spelled into that form. A slot asking for
-`verb:past` gets `walked`, not `walk`.
+stops writing word by word and starts writing *into a shape*. A sentence's length
+is drawn first, as often as the corpus wrote sentences that long (and within
+**words in a sentence**). Then a shape of that length is drawn, weighted by how
+often the corpus used it. Each slot is filled with a word of that type, spelled
+into that form: a slot asking for `verb:past` gets `walked`, not `walk`.
+
+Drawing the length first keeps short sentences as rare as the corpus had them.
+Short shapes repeat word for word far more often than long ones, so drawing whole
+shapes by count made one-word sentences come up many times too often.
 
 The **Grammar database** slider is how hard that pulls. At 0 a wired grammar
 changes nothing, which makes it easy to hear what it does: same seed, same
@@ -100,10 +139,11 @@ last, punctuation never.
 
 ## Altering
 
-**Alter temperature** is the share of the incoming words a run may replace. Each
-replacement is drawn with the same scoring, with two additions: the word being
-replaced is excluded, and its part of speech is preferred, so a noun comes back
-as a noun. With a grammar database wired in, the replacement also has to fit the
+**Alter temperature** is the share of the incoming words a run replaces. A word
+replaced by a word is drawn with the same scoring, with two additions: the word
+being replaced is excluded, and its part of speech is preferred, so a noun comes
+back as a noun. A word replaced by a phrase or a fragment reads on from what is
+before it and into what is after it. With a grammar database wired in, the replacement also has to fit the
 form the original was in and follow what came before it, so a past tense stays
 past tense.
 
@@ -132,6 +172,7 @@ A connection into a random text flow can set the run's options, so one database
 can be driven differently by each flow that reads from it:
 
 ```
+mode: within
 alter: 0.35
 length: +50%
 temperature: 0.45
@@ -139,10 +180,17 @@ context window: 4
 seed: rain
 ```
 
-`length` takes `keep`, `120 words`, `900 characters`, `+20%`, or
+`mode` takes `within` (or `insert`), `after` (or `generate`, `continue`) and
+`alter`. `length` takes `keep`, `120 words`, `900 characters`, `+20%`, or
 `-15% characters`. Setting `alter` also switches the flow into altering, since
 saying how much to change implies wanting the incoming text changed. The editor
 shows a banner when a wire is overriding the flow's own settings.
+
+## Speed
+
+The editor merges every wired-in word database once, when one changes, not on
+every keystroke. The live preview waits for typing to pause. With live preview
+off, typing into the input costs nothing but the text itself.
 
 ## Outputs
 

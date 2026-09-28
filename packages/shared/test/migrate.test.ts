@@ -86,6 +86,26 @@ test('every random text setting comes back, however old the project', () => {
   );
 });
 
+test('a text flow saved in generate mode writes after its input', () => {
+  const data = emptyTextData();
+  const old = normaliseFlowData({ ...data, options: { ...data.options, mode: 'generate' } } as never);
+  assert.equal((old as typeof data).options.mode, 'after');
+  assert.equal(normaliseFlowData(data), data, 'a current one is left as it is');
+});
+
+test('a word database on the old context cap takes the new one', () => {
+  const old = normaliseFlowData({
+    editor: 'lexicon',
+    datasets: [],
+    included: [],
+    meanings: {},
+    extract: { maxWords: 1200, maxLinksPerWord: 16, minPairCount: 2, includePunctuation: true },
+    derive: { liftCeiling: 12, minWeight: 0.08, maxContexts: 12 },
+  } as never) as { derive: { maxContexts: number }; extract: { contextSlots: number } };
+  assert.equal(old.derive.maxContexts, 128);
+  assert.equal(old.extract.contextSlots, 16);
+});
+
 test('a value that was saved is never overwritten by its default', () => {
   const data = emptyTextData();
   data.options.pickTemperature = 0.99;

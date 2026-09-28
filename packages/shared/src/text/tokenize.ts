@@ -23,6 +23,101 @@ export function isSentenceEnd(token: TextToken | undefined): boolean {
   return SENTENCE_END.has(token.text[0] ?? '');
 }
 
+/**
+ * Words a full stop follows without ending the sentence: `Mr. Gatsby` is one
+ * sentence, not a sentence `Mr.` and another starting `Gatsby`.
+ */
+export const ABBREVIATIONS = new Set([
+  'mr', 'mrs', 'ms', 'messrs', 'dr', 'st', 'jr', 'sr', 'mt', 'ft', 'vs', 'viz', 'etc', 'cf', 'al',
+  'prof', 'gen', 'col', 'capt', 'cpt', 'lt', 'sgt', 'maj', 'cmdr', 'adm', 'rev', 'fr', 'hon', 'gov', 'sen', 'rep', 'pres',
+  'no', 'vol', 'ch', 'fig', 'pp', 'esq', 'bros', 'co', 'inc', 'ltd', 'ave', 'blvd', 'rd',
+  'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep', 'sept', 'oct', 'nov', 'dec',
+]);
+
+/** Marks that close a sentence's quote or bracket after its full stop: `"Go."` */
+const TRAILING = new Set(['"', '”', '’', "'", ')', ']', '»']);
+/** Of those, the ones that could as well open the next sentence. */
+const EITHER_WAY = new Set(['"', "'"]);
+
+/**
+ * Does the token at `at` end a sentence? An end mark does, except a full stop
+ * after an abbreviation (`Mr.`) or an initial (`F. Scott`).
+ */
+export function endsSentenceAt(tokens: readonly TextToken[], at: number): boolean {
+  const token = tokens[at];
+  if (!isSentenceEnd(token)) return false;
+  if (token!.text !== '.') return true;
+  let before: TextToken | undefined;
+  for (let i = at - 1; i >= 0; i -= 1) {
+    if (tokens[i]!.kind === 'break') break;
+    before = tokens[i];
+    break;
+  }
+  if (!before || before.kind !== 'word') return true;
+  if (ABBREVIATIONS.has(before.key)) return false;
+  // A lone capital is an initial; `I.` at the end of a sentence is the one
+  // exception, and it reads the same either way.
+  return !(before.text.length === 1 && /[A-Z]/.test(before.text) && before.text !== 'I');
+}
+
+export interface SentenceSpan {
+  /** Token indexes, `end` exclusive. */
+  start: number;
+  end: number;
+  /** Ended by a full stop (or `!` `?` `…`), rather than cut off by a paragraph break or the end of the text. */
+  closed: boolean;
+  /** Which paragraph it is in, counting blank lines. */
+  paragraph: number;
+}
+
+/**
+ * The text's sentences: each runs from just after one sentence end to the next,
+ * taking any closing quote or bracket after its full stop with it. A blank line
+ * ends a paragraph, and with it whatever was running — a heading with no full
+ * stop is not a sentence and does not run on into the one after it.
+ */
+export function sentenceSpans(tokens: readonly TextToken[]): SentenceSpan[] {
+  const spans: SentenceSpan[] = [];
+  let paragraph = 0;
+  let start = -1;
+  const close = (end: number, closed: boolean) => {
+    if (start >= 0 && end > start) spans.push({ start, end, closed, paragraph });
+    start = -1;
+  };
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i]!;
+    if (token.kind === 'break') {
+      if (token.text.length > 1) {
+        close(i, false);
+        paragraph += 1;
+      }
+      continue;
+    }
+    if (start < 0) {
+      // A stray closing mark at the start of a run belongs to nothing.
+      const mark = token.text[0] ?? '';
+      if (token.kind === 'punctuation' && TRAILING.has(mark) && !EITHER_WAY.has(mark)) continue;
+      start = i;
+    }
+    if (endsSentenceAt(tokens, i)) {
+      // Take the closing marks, but only one straight quote of each kind: the
+      // second in `."  "` opens the next sentence.
+      let end = i + 1;
+      const taken = new Set<string>();
+      while (end < tokens.length && tokens[end]!.kind === 'punctuation') {
+        const mark = tokens[end]!.text[0] ?? '';
+        if (!TRAILING.has(mark) || (EITHER_WAY.has(mark) && taken.has(mark))) break;
+        taken.add(mark);
+        end += 1;
+      }
+      close(end, true);
+      i = end - 1;
+    }
+  }
+  close(tokens.length, false);
+  return spans;
+}
+
 /** Punctuation that attaches to the word before it, with no space. */
 const CLOSING = new Set([
   '.', ',', '!', '?', ';', ':', '…', ')', ']', '}', '’', "'", '”', '%', '"',
