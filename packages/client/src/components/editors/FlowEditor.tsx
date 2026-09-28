@@ -21,6 +21,8 @@ import { TextEditor } from './TextEditor';
 import { TimelineFlowEditor } from './TimelineFlowEditor';
 import { MapFlowEditor } from './MapFlowEditor';
 import { RigMatchFlowEditor } from './RigMatchFlowEditor';
+import { CustomFlowEditor } from './CustomFlowEditor';
+import { VideoMatchFlowEditor } from './VideoMatchFlowEditor';
 import { VectorEditFlowEditor } from './VectorEditFlowEditor';
 import { VectorizeFlowEditor } from './VectorizeFlowEditor';
 
@@ -76,6 +78,10 @@ export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
       return <MapFlowEditor project={project} node={node} />;
     case 'rigMatch':
       return <RigMatchFlowEditor project={project} node={node} />;
+    case 'custom':
+      return <CustomFlowEditor project={project} node={node} />;
+    case 'videoMatch':
+      return <VideoMatchFlowEditor project={project} node={node} />;
     default:
       return <BriefEditor project={project} node={node} />;
   }

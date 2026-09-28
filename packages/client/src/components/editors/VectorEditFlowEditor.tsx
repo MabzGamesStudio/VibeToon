@@ -1,23 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  VECTOR_TOOLS,
   VECTOR_TOOL_HINT,
   VECTOR_TOOL_LABEL,
   addPoint,
   allPoints,
   adopt,
+  averageNodeRuns,
+  brushOf,
   containsPoint,
+  curveFromHandle,
+  curveNodes,
+  deleteNode,
   deletePoint,
   deleteRun,
   deleteShapes,
   editState,
   emptyVectorEditFlowData,
+  handlePosition,
   imageOf,
   inputsForPort,
   mapPoints,
   nearestPoint,
   nearestSegment,
   newId,
+  nodeHandles,
+  pointKey,
   readVectorImage,
+  setNodeCurve,
+  shapeNodesNear,
   shapeById,
   shapePath,
   splitLine,
@@ -25,6 +36,7 @@ import {
   summariseVector,
   type FlowNode,
   type Project,
+  type VectorBrush,
   type VectorEditFlowData,
   type VectorLine,
   type VectorPoint,
@@ -35,12 +47,16 @@ import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
 import { useView } from '../../state/view';
 import { Field } from '../common/Field';
+import { Slider } from '../common/Slider';
 import { onScreen } from '../common/handles';
 import { Stage } from '../common/Stage';
 import { EditorShell } from './EditorShell';
 
 /** How near the cursor has to be, in screen pixels, to grab something. */
 const GRAB = 10;
+
+/** How far out a corner's handles are drawn, as a curve, so there is something to pull. */
+const GHOST = 0.4;
 
 /**
  * Editing a vectorized image.
@@ -76,11 +92,24 @@ export function VectorEditFlowEditor({
     { id: string; kind: 'cut'; from: VectorPoint } | { id: string; kind: 'erase'; index: number } | null
   >(null);
   const [hover, setHover] = useState<string | null>(null);
+  /** The node the Curves tool is working on, by where it is. */
+  const [picked, setPicked] = useState<string | null>(null);
+  const [pulling, setPulling] = useState<'ahead' | 'behind' | null>(null);
+  /** The nodes the smoothing brush has passed over in this stroke. */
+  const [brushed, setBrushed] = useState<Set<string> | null>(null);
+  const [cursor, setCursor] = useState<{ point: VectorPoint; scale: number } | null>(null);
   const frame = useRef<HTMLDivElement | null>(null);
 
   const image = imageOf(data);
   const state = editState(data, artifact?.hash);
   const summary = useMemo(() => summariseVector(image), [image]);
+  const brush = brushOf(data);
+  const selected = image.shapes.filter((shape) => data.selected.includes(shape.id));
+  const one = selected.length === 1 ? selected[0]! : null;
+  const handles = useMemo(
+    () => (tool === 'curve' && picked ? nodeHandles(image, picked, data.selected[0]) : null),
+    [data.selected, image, picked, tool],
+  );
 
   const patch = useCallback(
     (over: Partial<VectorEditFlowData>) => setFlowData(node.id, { ...data, ...over }),
@@ -143,10 +172,15 @@ export function VectorEditFlowEditor({
   };
 
   /** The shape and anchor nearest the cursor, if anything is near enough. */
-  const grab = (point: VectorPoint, scale: number) => {
+  const grab = (point: VectorPoint, scale: number, preferSelected = false) => {
     const reach = GRAB / scale;
     let best: { shape: VectorShape; index: number; distance: number } | null = null;
-    for (const shape of image.shapes) {
+    // A node shown on the selected shape wins over one hidden in another.
+    const inOrder = preferSelected
+      ? [...image.shapes.filter((shape) => data.selected.includes(shape.id)), ...image.shapes.filter((shape) => !data.selected.includes(shape.id))]
+      : image.shapes;
+    for (const shape of inOrder) {
+      if (preferSelected && best && !data.selected.includes(shape.id)) break;
       const near = nearestPoint(shape, point);
       if (!near || near.distance > reach) continue;
       if (!best || near.distance < best.distance) {
@@ -244,6 +278,53 @@ export function VectorEditFlowEditor({
       return;
     }
 
+    if (tool === 'node') {
+      const anchor = grab(point, scale, true);
+      if (anchor) {
+        const key = pointKey(allPoints(anchor.shape)[anchor.index]!);
+        edit(deleteNode(image, key), [anchor.shape.id]);
+        return;
+      }
+      const edge = grabEdge(point, scale);
+      patch({ selected: edge ? [edge.shape.id] : [] });
+      return;
+    }
+
+    if (tool === 'curve') {
+      if (handles) {
+        for (const which of ['ahead', 'behind'] as const) {
+          if ((which === 'ahead' ? handles.ahead : handles.behind) === 0) continue;
+          const at = handlePosition(handles, which, GHOST);
+          if (Math.hypot(at.x - point.x, at.y - point.y) <= GRAB / scale) {
+            setPulling(which);
+            return;
+          }
+        }
+      }
+      const anchor = grab(point, scale, true);
+      if (anchor) {
+        setPicked(pointKey(allPoints(anchor.shape)[anchor.index]!));
+        patch({ selected: [anchor.shape.id] });
+        return;
+      }
+      const edge = grabEdge(point, scale);
+      setPicked(null);
+      patch({ selected: edge ? [edge.shape.id] : [] });
+      return;
+    }
+
+    if (tool === 'smooth') {
+      const target = selected.length === 1 ? selected[0]! : null;
+      const edge = target ? null : grabEdge(point, scale);
+      if (!target) {
+        // Nothing to brush yet: the first click picks the shape.
+        patch({ selected: edge ? [edge.shape.id] : [] });
+        return;
+      }
+      stroke(target, point, scale, new Set());
+      return;
+    }
+
     if (tool === 'erase') {
       const anchor = grab(point, scale);
       if (!anchor) return;
@@ -277,10 +358,37 @@ export function VectorEditFlowEditor({
     if (edge) edit(deleteShapes(image, [edge.shape.id]), []);
   };
 
+  /**
+   * One step of a brush stroke: take in the selected shape's nodes under the
+   * brush. Curving happens as it goes; averaging waits for the stroke to end,
+   * since averaging the same nodes again on every move would wear the outline
+   * away under a brush held still.
+   */
+  const stroke = (shape: VectorShape, point: VectorPoint, scale: number, so: Set<string>) => {
+    const under = shapeNodesNear(shape, point, brush.size / scale).filter((key) => !so.has(key));
+    const next = new Set([...so, ...under]);
+    setBrushed(next);
+    if (brush.mode === 'curve' && under.length > 0) {
+      patch({ image: curveNodes(image, new Set(under), brush.amount) });
+    }
+  };
+
+  const setBrush = (over: Partial<VectorBrush>) => patch({ brush: { ...brush, ...over } });
+
   const onMove = (event: React.MouseEvent) => {
-    if (!dragging) return;
     const found = locate(event);
     if (!found) return;
+    if (tool === 'smooth') setCursor(found);
+    if (pulling && handles) {
+      const curve = curveFromHandle(handles, pulling, found.point);
+      patch({ image: setNodeCurve(image, handles.key, curve) });
+      return;
+    }
+    if (brushed && selected.length === 1) {
+      stroke(selected[0]!, found.point, found.scale, brushed);
+      return;
+    }
+    if (!dragging) return;
     // Moved straight into the image rather than through `edit`, so a drag is one
     // edit rather than one per frame — and the undo count stays meaningful.
     const shape = shapeById(image, dragging.id);
@@ -290,8 +398,22 @@ export function VectorEditFlowEditor({
   };
 
   const onUp = () => {
-    if (dragging) patch({ edits: data.edits + 1 });
+    if (dragging || pulling) patch({ edits: data.edits + 1 });
+    if (brushed && brushed.size > 0 && selected.length === 1) {
+      if (brush.mode === 'average') {
+        edit(averageNodeRuns(image, selected[0]!.id, brushed, brush.window).image);
+      } else {
+        patch({ edits: data.edits + 1 });
+      }
+    }
     setDragging(null);
+    setPulling(null);
+    setBrushed(null);
+  };
+
+  const onLeave = () => {
+    onUp();
+    setCursor(null);
   };
 
   /* ---------------- keys ---------------- */
@@ -302,6 +424,12 @@ export function VectorEditFlowEditor({
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
 
       if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (tool === 'curve' && handles) {
+          event.preventDefault();
+          edit(deleteNode(image, handles.key));
+          setPicked(null);
+          return;
+        }
         if (data.selected.length === 0) return;
         event.preventDefault();
         edit(deleteShapes(image, data.selected), []);
@@ -313,9 +441,6 @@ export function VectorEditFlowEditor({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
-
-  const selected = image.shapes.filter((shape) => data.selected.includes(shape.id));
-  const one = selected.length === 1 ? selected[0]! : null;
 
   const blocked = !input
     ? 'Wire a Polygon Decomposition flow into the Vector input.'
@@ -359,7 +484,7 @@ export function VectorEditFlowEditor({
         <div className="vt-section">
           <h3>Tool</h3>
           <div className="vt-facet-values">
-            {(['select', 'add', 'cut', 'erase'] as VectorTool[]).map((value) => (
+            {VECTOR_TOOLS.map((value) => (
               <button
                 key={value}
                 type="button"
@@ -368,6 +493,8 @@ export function VectorEditFlowEditor({
                 onClick={() => {
                   setTool(value);
                   setPending(null);
+                  setPicked(null);
+                  setCursor(null);
                 }}
               >
                 {VECTOR_TOOL_LABEL[value]}
@@ -382,6 +509,118 @@ export function VectorEditFlowEditor({
               : VECTOR_TOOL_HINT[tool]}
           </p>
         </div>
+
+        {tool === 'curve' ? (
+          <div className="vt-section">
+            <h3>Node</h3>
+            {handles ? (
+              <>
+                <Slider
+                  range="vectorEdit.nodeCurve"
+                  label="How curved"
+                  tip="vectorEdit.nodeCurve"
+                  value={handles.s}
+                  format={(value) => (value === 0 ? 'a sharp corner' : value.toFixed(2))}
+                  onChange={(s) => edit(setNodeCurve(image, handles.key, { s }))}
+                />
+                <Slider
+                  range="vectorEdit.nodeTurn"
+                  label="Turn"
+                  tip="vectorEdit.nodeTurn"
+                  within={{ min: -180, max: 180 }}
+                  value={handles.a}
+                  format={(value) => `${value.toFixed(0)}°`}
+                  onChange={(a) => edit(setNodeCurve(image, handles.key, { a }))}
+                />
+                <div className="vt-row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                  <button type="button" className="vt-btn is-small" onClick={() => edit(setNodeCurve(image, handles.key, { s: 0, a: 0 }))}>
+                    Sharp corner
+                  </button>
+                  <button type="button" className="vt-btn is-small" onClick={() => edit(setNodeCurve(image, handles.key, { s: 1, a: 0 }))}>
+                    Smooth
+                  </button>
+                  <button
+                    type="button"
+                    className="vt-btn is-small is-danger"
+                    onClick={() => {
+                      edit(deleteNode(image, handles.key));
+                      setPicked(null);
+                    }}
+                  >
+                    Delete node
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
+                Click a node to curve it. Select a shape first to see its nodes.
+              </p>
+            )}
+          </div>
+        ) : null}
+
+        {tool === 'smooth' ? (
+          <div className="vt-section">
+            <h3>Smooth brush</h3>
+            <div className="vt-facet-values">
+              {(['average', 'curve'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`vt-chip${brush.mode === mode ? ' is-on' : ''}`}
+                  onClick={() => setBrush({ mode })}
+                >
+                  {mode === 'average' ? 'Average nodes' : 'Curve nodes'}
+                </button>
+              ))}
+            </div>
+            <Slider
+              range="vectorEdit.brushSize"
+              label="Brush size"
+              tip="vectorEdit.brushSize"
+              value={brush.size}
+              format={(value) => `${value.toFixed(0)} px`}
+              onChange={(size) => setBrush({ size })}
+            />
+            {brush.mode === 'average' ? (
+              <Slider
+                range="vectorEdit.brushWindow"
+                label="Nodes averaged into one"
+                tip="vectorEdit.brushWindow"
+                value={brush.window}
+                format={(value) => `${value.toFixed(0)} → 1`}
+                onChange={(window) => setBrush({ window })}
+              />
+            ) : (
+              <Slider
+                range="vectorEdit.brushAmount"
+                label="How curved"
+                tip="vectorEdit.brushAmount"
+                value={brush.amount}
+                format={(value) => (value === 0 ? 'sharp corners' : value.toFixed(2))}
+                onChange={(amount) => setBrush({ amount })}
+              />
+            )}
+            {one ? (
+              <button
+                type="button"
+                className="vt-btn is-small"
+                onClick={() => {
+                  const every = new Set(allPoints(one).map(pointKey));
+                  edit(
+                    brush.mode === 'average'
+                      ? averageNodeRuns(image, one.id, every, brush.window).image
+                      : curveNodes(image, every, brush.amount),
+                  );
+                }}
+              >
+                {brush.mode === 'average' ? 'Average' : 'Curve'} the whole shape
+              </button>
+            ) : (
+              <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>Click a shape to brush it.</p>
+            )}
+          </div>
+        ) : null}
 
         <div className="vt-section">
           <h3>What is here</h3>
@@ -500,9 +739,9 @@ export function VectorEditFlowEditor({
                 onMouseDown={onDown}
                 onMouseMove={onMove}
                 onMouseUp={onUp}
-                onMouseLeave={onUp}
+                onMouseLeave={onLeave}
                 onContextMenu={onContextMenu}
-                style={{ aspectRatio: `${image.width} / ${image.height}`, cursor: tool === 'select' ? 'default' : 'crosshair' }}
+                style={{ aspectRatio: `${image.width} / ${image.height}`, cursor: tool === 'select' ? 'default' : tool === 'smooth' && one ? 'none' : 'crosshair' }}
               >
                 <svg
                   className="vt-vector-svg is-editable"
@@ -553,8 +792,10 @@ export function VectorEditFlowEditor({
                         r={onScreen(Math.max(1, image.width / 260), scale)}
                         strokeWidth={onScreen(1, scale)}
                         className={`vt-anchor${
-                          dragging?.id === shape.id && dragging.index === index ? ' is-held' : ''
-                        }${
+                          (dragging?.id === shape.id && dragging.index === index) || (picked !== null && handles?.key === pointKey(point))
+                            ? ' is-held'
+                            : ''
+                        }${brushed?.has(pointKey(point)) && brush.mode === 'average' ? ' is-brushed' : ''}${
                           pending?.kind === 'erase' && pending.id === shape.id && pending.index === index
                             ? ' is-marked'
                             : ''
@@ -562,6 +803,44 @@ export function VectorEditFlowEditor({
                       />
                     )),
                   )}
+
+                  {handles
+                    ? (['ahead', 'behind'] as const)
+                        .filter((which) => (which === 'ahead' ? handles.ahead : handles.behind) > 0)
+                        .map((which) => {
+                          const at = handlePosition(handles, which, GHOST);
+                          const ghost = handles.s === 0;
+                          return (
+                            <g key={which}>
+                              <line
+                                x1={handles.at.x}
+                                y1={handles.at.y}
+                                x2={at.x}
+                                y2={at.y}
+                                strokeWidth={onScreen(1, scale)}
+                                className={`vt-curve-arm${ghost ? ' is-ghost' : ''}`}
+                              />
+                              <circle
+                                cx={at.x}
+                                cy={at.y}
+                                r={onScreen(4, scale)}
+                                strokeWidth={onScreen(1.5, scale)}
+                                className={`vt-curve-handle${ghost ? ' is-ghost' : ''}`}
+                              />
+                            </g>
+                          );
+                        })
+                    : null}
+
+                  {tool === 'smooth' && one && cursor ? (
+                    <circle
+                      cx={cursor.point.x}
+                      cy={cursor.point.y}
+                      r={brush.size / cursor.scale}
+                      strokeWidth={onScreen(1, scale)}
+                      className="vt-brush-ring"
+                    />
+                  ) : null}
                 </svg>
               </div>
             ) : (

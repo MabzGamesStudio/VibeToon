@@ -36,6 +36,9 @@ export function EditorShell({
   const status = flowStatus(project, node);
   const busy = busyFlows.includes(node.id);
 
+  // A flow behind a custom flow goes back to it rather than to the graph.
+  const group = node.group ? project.nodes.find((one) => one.id === node.group) : undefined;
+
   const incoming = (def?.inputs ?? []).flatMap((port) =>
     inputsForPort(project, node.id, port.id).map((input) => ({ port, input })),
   );
@@ -43,8 +46,8 @@ export function EditorShell({
   return (
     <div className={`vt-editor${view.sidebar ? '' : ' is-no-sidebar'}`}>
       <div className="vt-editor-bar">
-        <button type="button" className="vt-btn is-small" onClick={() => focusFlow(null)}>
-          ◀ Graph
+        <button type="button" className="vt-btn is-small" onClick={() => focusFlow(group?.id ?? null)}>
+          ◀ {group ? group.name : 'Graph'}
         </button>
         <strong>{node.name}</strong>
         <span className="vt-faint">{def?.label}</span>

@@ -18,7 +18,7 @@ import {
   type RigFit,
   type RigMatchOptions,
 } from './rigMatch';
-import { holesOf, type VectorImage, type VectorPoint } from './vector';
+import { flattenShape, type VectorImage, type VectorPoint } from './vector';
 
 /**
  * Finding a bound rig's body in a picture, by small features.
@@ -76,9 +76,11 @@ export function paintVector(target: Bitmap, image: VectorImage, options: PaintOp
     if (options.only && !options.only.has(shape.id)) return;
     const color = fromHex(shape.color);
     if (!color) return;
-    const points = shape.points.map(map);
+    // Curves followed as they are drawn, in steps of about a pixel once placed.
+    const flat = flattenShape(shape, 1.5 / Math.max(0.05, lineScale));
+    const points = flat.points.map(map);
     if (points.length === 0) return;
-    const holes = holesOf(shape).map((hole) => hole.map(map));
+    const holes = flat.holes.map((hole) => hole.map(map));
     const pad = shape.kind === 'line' ? (shape.width * lineScale) / 2 + 2 : 1;
     let minX = Infinity;
     let minY = Infinity;

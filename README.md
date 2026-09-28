@@ -148,15 +148,25 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   set. A stroke widens until it fills the contrast gap it was traced from, and
   grows at each end while growing keeps helping.
 - **Vector editor.** Where the decomposition gets fixed: drag anchors, add and
-  delete them, cut a shape in two, or delete a run out of a line. The edits are
-  the work, so they are kept rather than recomputed — an upstream re-run is
-  reported, not allowed to throw them away.
+  delete them, cut a shape in two, or delete a run out of a line.
+  - **Nodes and curves.** Delete a single node from every shape that shares it,
+    or turn any node into a Bézier curve by dragging its handles.
+  - **Smoothing brush.** Averages a run of nodes a few at a time into one, or
+    curves them.
+  - **Decomposition finishing.** At the end of a decomposition, slivers whose
+    sides all face straight across become lines of their color, and shallow
+    corners become curves while sharp ones stay sharp.
+
+  The edits are the work, so they are kept rather than recomputed: an upstream
+  re-run is reported, not allowed to throw them away.
   See [docs/VECTOR-FLOWS.md](docs/VECTOR-FLOWS.md) for both.
 - **Rig binding.** A skeleton and a vectorized drawing in: assign shapes to bones
   by picking or by lassoing a region, and add or delete bones as you go. The rig
   is scaled onto the drawing when it arrives, because the two were made in
   different spaces and a skeleton in the corner has no bone to aim at. One shape
-  belongs to one bone — an outline has to go somewhere whole.
+  belongs to one bone — an outline has to go somewhere whole. **Checks** ring the
+  nodes bound to nothing and the nodes two parts both claim, and put them in one
+  part or separate them.
 - **Pose.** Move the bound rig. Turn a joint and everything below it comes along,
   or drag the end of a limb and the joints above it work out how to get there. A
   reach it cannot make falls short and says how far out it was, rather than
@@ -168,6 +178,16 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   range of sizes and angles, with a confidence for every part. Drag any joint,
   or the whole body, to put it right; the fitted rig comes out ready to pose.
   See [docs/RIG-MATCH.md](docs/RIG-MATCH.md).
+- **Video Rig Match.** A bound rig and a video in: the video is sampled into
+  frames (so many a second, or so many in all). The Rig Match runs on each,
+  with each frame following on from the last. Frames below a confidence
+  threshold are dropped and split the animation into segments. It plays back as
+  the body and skeleton alone, and writes a rig animation.
+  See [docs/VIDEO-RIG-MATCH.md](docs/VIDEO-RIG-MATCH.md).
+- **Custom flows.** Save any arrangement of flows, wired as it is, as one named
+  flow in the palette. Each use has its own copies of the flows inside, so its
+  settings are edited independently. See
+  [docs/CUSTOM-FLOWS.md](docs/CUSTOM-FLOWS.md).
 - **Color palette.** An image in, the colors it actually uses most out —
   *counted*, not averaged, which is how palettes avoid coming out as five
   shades of mud. A minimum distance measured in OKLab stops a gradient of near

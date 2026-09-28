@@ -12,6 +12,20 @@ import { fromHex, toHex, type Rgb } from './palette';
 export interface VectorPoint {
   x: number;
   y: number;
+  /**
+   * How curved the outline is through this node: 0 (or absent) is a corner and
+   * the segments either side are straight; 1 is smooth, the curve passing
+   * through with the handles a third of each segment long. Anything between
+   * bows the segments less.
+   */
+  s?: number;
+  /**
+   * A turn of the curve's direction through this node, in degrees, from the
+   * direction it would take on its own (along the line from the node before to
+   * the node after). Relative, so it survives the drawing being moved, turned
+   * or posed.
+   */
+  a?: number;
 }
 
 /**
@@ -76,9 +90,15 @@ export function holesOf(shape: VectorShape): VectorPoint[][] {
  */
 export function mapPoints<T extends VectorShape>(shape: T, move: (point: VectorPoint, index: number) => VectorPoint): T {
   let index = 0;
-  const points = shape.points.map((point) => move(point, index++));
+  // A node's curve goes where the node goes: what it is, not where it is.
+  const carry = (point: VectorPoint): VectorPoint => {
+    const moved = move(point, index++);
+    if (moved === point || (point.s === undefined && point.a === undefined)) return moved;
+    return { ...moved, ...(point.s !== undefined && moved.s === undefined ? { s: point.s } : {}), ...(point.a !== undefined && moved.a === undefined ? { a: point.a } : {}) };
+  };
+  const points = shape.points.map(carry);
   if (shape.kind !== 'polygon' || !shape.holes) return { ...shape, points };
-  const holes = shape.holes.map((hole) => hole.map((point) => move(point, index++)));
+  const holes = shape.holes.map((hole) => hole.map(carry));
   return { ...shape, points, holes };
 }
 
@@ -337,12 +357,223 @@ export function shapePath(shape: VectorShape): string {
   }
 
   const closes = shape.kind === 'polygon' || shape.closed;
-  const outline = ringPath(points, closes);
+  const outline = hasCurves(points) ? curvedRingPath(points, closes) : ringPath(points, closes);
   // Each hole is one more closed subpath; drawn with fill-rule evenodd, it is cut out.
   const holes = holesOf(shape)
     .filter((hole) => hole.length >= 3)
-    .map((hole) => ringPath(hole, true));
+    .map((hole) => (hasCurves(hole) ? curvedRingPath(hole, true) : ringPath(hole, true)));
   return [outline, ...holes].join(' ');
+}
+
+/** Whether any node of a loop is curved. */
+export function hasCurves(points: readonly VectorPoint[]): boolean {
+  return points.some((point) => (point.s ?? 0) > 0);
+}
+
+export interface CurveSegment {
+  from: VectorPoint;
+  c1: VectorPoint;
+  c2: VectorPoint;
+  to: VectorPoint;
+  /** False where both ends are corners: a straight segment. */
+  curved: boolean;
+}
+
+/**
+ * The direction the curve takes through node `index`: along the line from the
+ * node before to the node after (the end nodes of an open line along their one
+ * segment), turned by the node's own `a`.
+ */
+export function nodeTangent(points: readonly VectorPoint[], index: number, closed: boolean): VectorPoint {
+  const n = points.length;
+  const at = (k: number) => (closed ? points[((k % n) + n) % n]! : points[Math.max(0, Math.min(n - 1, k))]!);
+  const before = at(index - 1);
+  const after = at(index + 1);
+  let dx = after.x - before.x;
+  let dy = after.y - before.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 1e-9) return { x: 0, y: 0 };
+  dx /= length;
+  dy /= length;
+  const turn = ((points[index]?.a ?? 0) * Math.PI) / 180;
+  if (turn === 0) return { x: dx, y: dy };
+  return { x: dx * Math.cos(turn) - dy * Math.sin(turn), y: dx * Math.sin(turn) + dy * Math.cos(turn) };
+}
+
+/**
+ * A loop as cubic segments, one between each pair of nodes. A segment's handles
+ * are a third of its length times how curved each end is, along each end's
+ * direction — so a corner at both ends is a straight segment, and two shapes
+ * sharing a run of nodes draw exactly the same curve along it, each walking it
+ * the other way.
+ */
+export function ringSegments(points: readonly VectorPoint[], closed: boolean): CurveSegment[] {
+  const out: CurveSegment[] = [];
+  const n = points.length;
+  if (n < 2) return out;
+  const last = closed ? n : n - 1;
+  for (let index = 0; index < last; index += 1) {
+    const from = points[index]!;
+    const to = points[(index + 1) % n]!;
+    const s1 = from.s ?? 0;
+    const s2 = to.s ?? 0;
+    if (s1 <= 0 && s2 <= 0) {
+      out.push({ from, c1: from, c2: to, to, curved: false });
+      continue;
+    }
+    const reach = Math.hypot(to.x - from.x, to.y - from.y) / 3;
+    const t1 = nodeTangent(points, index, closed);
+    const t2 = nodeTangent(points, (index + 1) % n, closed);
+    out.push({
+      from,
+      c1: { x: from.x + t1.x * reach * s1, y: from.y + t1.y * reach * s1 },
+      c2: { x: to.x - t2.x * reach * s2, y: to.y - t2.y * reach * s2 },
+      to,
+      curved: true,
+    });
+  }
+  return out;
+}
+
+function curvedRingPath(points: VectorPoint[], closes: boolean): string {
+  const head = `M ${round(points[0]!.x)} ${round(points[0]!.y)}`;
+  const body = ringSegments(points, closes)
+    .map((segment) =>
+      segment.curved
+        ? `C ${round(segment.c1.x)} ${round(segment.c1.y)} ${round(segment.c2.x)} ${round(segment.c2.y)} ${round(segment.to.x)} ${round(segment.to.y)}`
+        : `L ${round(segment.to.x)} ${round(segment.to.y)}`,
+    )
+    .join(' ');
+  return `${head}${body ? ` ${body}` : ''}${closes ? ' Z' : ''}`;
+}
+
+/**
+ * A loop as straight steps, curves followed closely enough to paint: each
+ * curved segment in steps no longer than `step`, at least four.
+ */
+export function flattenRing(points: readonly VectorPoint[], closed: boolean, legacyCurved = false, step = 2): VectorPoint[] {
+  if (points.length < 2) return points.map((point) => ({ x: point.x, y: point.y }));
+  const segments = legacyCurved && !hasCurves(points)
+    ? toCubics([...points], closed).map((cubic, index) => ({ from: points[index]!, c1: cubic.c1, c2: cubic.c2, to: cubic.to, curved: true }))
+    : ringSegments(points, closed);
+  const out: VectorPoint[] = [{ x: points[0]!.x, y: points[0]!.y }];
+  for (const segment of segments) {
+    if (!segment.curved) {
+      out.push({ x: segment.to.x, y: segment.to.y });
+      continue;
+    }
+    const length = Math.hypot(segment.c1.x - segment.from.x, segment.c1.y - segment.from.y) + Math.hypot(segment.c2.x - segment.c1.x, segment.c2.y - segment.c1.y) + Math.hypot(segment.to.x - segment.c2.x, segment.to.y - segment.c2.y);
+    const steps = Math.max(4, Math.min(64, Math.ceil(length / step)));
+    for (let k = 1; k <= steps; k += 1) {
+      const t = k / steps;
+      const u = 1 - t;
+      out.push({
+        x: u * u * u * segment.from.x + 3 * u * u * t * segment.c1.x + 3 * u * t * t * segment.c2.x + t * t * t * segment.to.x,
+        y: u * u * u * segment.from.y + 3 * u * u * t * segment.c1.y + 3 * u * t * t * segment.c2.y + t * t * t * segment.to.y,
+      });
+    }
+  }
+  // A closed loop came back round to its start; the start is already there.
+  if (closed && out.length > 1) out.pop();
+  return out;
+}
+
+/** A shape's outline and holes as straight steps, for painting into pixels. */
+export function flattenShape(shape: VectorShape, step = 2): { points: VectorPoint[]; holes: VectorPoint[][] } {
+  const closes = shape.kind === 'polygon' || shape.closed;
+  const legacy = shape.kind === 'line' && shape.curved;
+  return {
+    points: flattenRing(shape.points, closes, legacy, step),
+    holes: holesOf(shape).map((hole) => flattenRing(hole, true, false, step)),
+  };
+}
+
+/**
+ * How far an outline turns at a node, in degrees: 0 straight on, 180 doubling
+ * back. The end nodes of an open line do not turn.
+ */
+export function nodeTurn(points: readonly VectorPoint[], index: number, closed: boolean): number {
+  const n = points.length;
+  if (!closed && (index === 0 || index === n - 1)) return 0;
+  const before = points[(index - 1 + n) % n]!;
+  const here = points[index]!;
+  const after = points[(index + 1) % n]!;
+  const ax = here.x - before.x;
+  const ay = here.y - before.y;
+  const bx = after.x - here.x;
+  const by = after.y - here.y;
+  const la = Math.hypot(ax, ay);
+  const lb = Math.hypot(bx, by);
+  if (la < 1e-9 || lb < 1e-9) return 0;
+  const cos = Math.max(-1, Math.min(1, (ax * bx + ay * by) / (la * lb)));
+  return (Math.acos(cos) * 180) / Math.PI;
+}
+
+/** A node's name: where it is. Two points in the same place are one node. */
+export function pointKey(point: VectorPoint): string {
+  return `${point.x},${point.y}`;
+}
+
+/**
+ * Change nodes by where they are, in every shape that has them.
+ *
+ * Neighbouring shapes share the nodes along the boundary between them — that
+ * is how they fit — so a node moved, deleted or curved in one shape has to be
+ * the same in all of them, or the boundary opens. `change` is told each node
+ * and returns what it becomes: itself, a changed node, or null to delete it. A
+ * shape left with too few nodes to be a shape (a polygon under three, a line
+ * under two) is dropped; a hole under three closes.
+ */
+export function changeNodes(image: VectorImage, change: (point: VectorPoint, key: string) => VectorPoint | null): VectorImage {
+  const shapes: VectorShape[] = [];
+  const ring = (points: VectorPoint[]) => {
+    const out: VectorPoint[] = [];
+    for (const point of points) {
+      const next = change(point, pointKey(point));
+      if (!next) continue;
+      // Two nodes landing in the same place in a row are one.
+      const previous = out[out.length - 1];
+      if (previous && previous.x === next.x && previous.y === next.y) continue;
+      out.push(next);
+    }
+    return out;
+  };
+  for (const shape of image.shapes) {
+    const points = ring(shape.points);
+    const closes = shape.kind === 'polygon' || shape.closed;
+    if (closes && points.length > 1 && points[0]!.x === points[points.length - 1]!.x && points[0]!.y === points[points.length - 1]!.y) points.pop();
+    if (points.length < (shape.kind === 'polygon' ? 3 : 2)) continue;
+    if (shape.kind === 'polygon') {
+      const holes = holesOf(shape).map(ring).filter((hole) => hole.length >= 3);
+      const { holes: _old, ...rest } = shape;
+      shapes.push(holes.length > 0 ? { ...rest, points, holes } : { ...rest, points });
+    } else {
+      shapes.push({ ...shape, points });
+    }
+  }
+  return { ...image, shapes };
+}
+
+/** Delete one node from every shape that shares it. */
+export function deleteNode(image: VectorImage, key: string): VectorImage {
+  return changeNodes(image, (point, at) => (at === key ? null : point));
+}
+
+/** Set a node's curve — how curved, and its turn — in every shape that shares it. */
+export function setNodeCurve(image: VectorImage, key: string, curve: { s?: number; a?: number }): VectorImage {
+  return changeNodes(image, (point, at) => {
+    if (at !== key) return point;
+    const next: VectorPoint = { ...point };
+    if (curve.s !== undefined) {
+      if (curve.s <= 0) delete next.s;
+      else next.s = Math.round(curve.s * 1000) / 1000;
+    }
+    if (curve.a !== undefined) {
+      if (curve.a === 0) delete next.a;
+      else next.a = Math.round(curve.a * 10) / 10;
+    }
+    return next;
+  });
 }
 
 function ringPath(points: VectorPoint[], closes: boolean): string {
@@ -433,7 +664,7 @@ export function movePoint(
 ): VectorImage {
   const shape = shapeById(image, id);
   if (!shape || !ringOf(shape, index)) return image;
-  return replace(image, id, mapPoints(shape, (point, at) => (at === index ? { ...to } : point)));
+  return replace(image, id, mapPoints(shape, (point, at) => (at === index ? { ...point, x: to.x, y: to.y } : point)));
 }
 
 /**
@@ -774,7 +1005,13 @@ function readPoints(value: unknown): VectorPoint[] {
       const point = entry as Record<string, unknown>;
       const x = Number(point.x);
       const y = Number(point.y);
-      if (Number.isFinite(x) && Number.isFinite(y)) out.push({ x, y });
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      const read: VectorPoint = { x, y };
+      const curve = Number(point.s);
+      const turn = Number(point.a);
+      if (point.s !== undefined && Number.isFinite(curve) && curve > 0) read.s = Math.min(2, curve);
+      if (point.a !== undefined && Number.isFinite(turn) && turn !== 0) read.a = Math.max(-180, Math.min(180, turn));
+      out.push(read);
     }
   }
   return out;

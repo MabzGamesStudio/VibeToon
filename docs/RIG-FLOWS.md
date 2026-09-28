@@ -128,6 +128,35 @@ Deleting a bone re-hangs its children on its parent **where they already are**,
 and moves its nodes there too. Deleting a bone should take that bone away, not
 collapse everything below it onto the origin.
 
+## Checks
+
+Two buttons under **Checks** find the nodes that need a decision.
+
+**Unbound nodes (N)** rings every node that follows no part: when the rig
+moves, those stay where they were drawn. They can be put in a part two ways:
+
+- **All into** *the picked part*.
+- **Each into its shape's part**: the part most of its shape's nodes are
+  already in. A node whose shapes have no part yet is left for you.
+
+**In two parts (N)** finds nodes more than one part lays claim to. They are
+grouped by the parts involved, so a shoulder with thirty boundary nodes is one
+decision, not thirty. Click a group to ring just its nodes.
+
+- **On the boundary.** A node where a shape of one part meets a shape of
+  another. It follows one bone, and the other part's outline is pulled along
+  with it. Either:
+  - put all of the group into one part, which keeps the two joined; or
+  - **Separate** it. Each part's shapes get their own copy of each node, a
+    hair's breadth apart and bound to that part, so each outline follows its
+    own bone. The node itself stays with the bone it had. This changes the
+    drawing, and the parts can open a gap when the rig moves; that is what
+    separating means.
+- **On top of each other.** Nodes too close to tell apart (under ¾ of a pixel)
+  bound to different bones. They tear apart the moment the rig moves. Put them
+  all into one part. Copies made by *Separate* are marked as meant to come
+  apart, and are not reported here.
+
 ## The edits are the work
 
 Like the vector editor, this flow writes what it holds rather than something

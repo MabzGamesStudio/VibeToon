@@ -794,6 +794,22 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'A gap of one pixel in a boundary is enough for two regions to bleed into one, so lower this before raising the other if shapes are merging.',
     ],
   },
+  'videoMatch.sampling': {
+    what: 'Which frames of the video are matched: so many a second, or so many spread evenly over the whole video. Each is a full Rig Match, so more frames is a smoother animation and a longer wait. At most 600 frames.',
+    examples: [
+      '6 a second — enough to follow a walk; a 10-second clip is 60 matches.',
+      '12 a second — follows quick movement; twice the wait.',
+      '24 in all — a quick look at a long video, a frame every so often.',
+    ],
+  },
+  'videoMatch.threshold': {
+    what: 'How sure a frame’s match has to be for the character to count as in it. A frame below this is dropped and the animation is split there: each run of frames the body was found in is a segment of its own.',
+    examples: [
+      '0.2 — keeps anything at all like the body; a cut to another shot may still pass.',
+      '0.3 — drops frames where the character is off screen or hidden.',
+      '0.5 — keeps only clear views; more, shorter segments.',
+    ],
+  },
   'rigMatch.features': {
     what: 'How many small patches each body part gives to be looked for, before a bigger part is given more and a smaller one fewer.',
     examples: [
@@ -942,6 +958,54 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'Off — every polygon is cut into convex pieces, its holes bridged, for a consumer that needs every polygon convex.',
     ],
     note: 'Exactly the same color means the same hex. Two shapes a shade apart are two things in the picture.',
+  },
+  'vectorize.flatTolerance': {
+    what: 'How closely a polygon’s edge normals must face straight across it for it to count as flat — a line traced as a sliver of area — and be replaced with a line of its color, as wide as it was.',
+    examples: [
+      '8° — the default: a sliver whose long sides run within 8° of each other is a line.',
+      '20° — also takes slightly wavy slivers.',
+      '0 — never; every area stays an area.',
+    ],
+  },
+  'vectorize.smoothAngle': {
+    what: 'Nodes that turn less than this many degrees become smooth — the outline curves through them as a Bézier — and sharper nodes stay corners. Where three shapes meet a node always stays a corner, so neighbours keep sharing their edge exactly.',
+    examples: [
+      '0 — off: straight segments between every node, as before.',
+      '25° — outlines traced as many short steps round a curve become one smooth curve; a mouth’s corners stay corners.',
+      '60° — nearly everything curves but real corners.',
+    ],
+  },
+  'vectorEdit.nodeCurve': {
+    what: 'How curved the outline is through this node: how far out its handles reach, as a share of a third of each segment beside it. The node is the same in every shape that shares it, so neighbours bend together.',
+    examples: [
+      '0 — a sharp corner: straight segments meet here.',
+      '1 — a natural curve: the handles reach a third of the way along each segment.',
+      '2 — a bulging one, pulled well past its neighbours.',
+    ],
+  },
+  'vectorEdit.nodeTurn': {
+    what: 'Which way the curve runs through the node, as a turn from the direction straight from the node before it to the one after. Only a curved node has a direction to turn.',
+    examples: [
+      '0° — the curve runs straight through, as smooth as the nodes around it allow.',
+      '30° — it leans one way, bulging the segment ahead out and the one behind in.',
+      '−30° — the same the other way.',
+    ],
+  },
+  'vectorEdit.brushSize': {
+    what: 'The smoothing brush’s radius, in screen pixels, so it covers the same amount of the screen at any zoom. Only the selected shape’s nodes inside it are touched.',
+    examples: ['8 px — one or two nodes at a time.', '24 px — a stretch of outline.', '80 px — a whole side at once.'],
+  },
+  'vectorEdit.brushWindow': {
+    what: 'Averaging: how many brushed nodes in a row are merged into one, at the place they were on average. The rest are deleted, from every shape that shares them.',
+    examples: [
+      '2 — halves the nodes along the stroke, a light touch.',
+      '3 — a third of them are left; a jagged outline comes out noticeably calmer.',
+      '8 — a run of steps becomes a few long ones.',
+    ],
+  },
+  'vectorEdit.brushAmount': {
+    what: 'Curving: how curved every brushed node becomes, as with the Curves tool. The nodes stay where they are and the outline between them bends.',
+    examples: ['0 — makes them sharp corners again.', '1 — a natural curve through each.', '1.5 — rounder, pulled out between nodes.'],
   },
   'vectorize.joinGap': {
     what: 'How close the ends of two lines of the same color have to be for them to become one line, in pixels.',

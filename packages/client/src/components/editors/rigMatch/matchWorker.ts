@@ -22,6 +22,11 @@ export type MatchRequest =
       picture: { width: number; height: number; pixels: ArrayBuffer };
       options: RigMatchOptions;
       from?: RigFit;
+      /**
+       * A new picture under the same key — the next frame of a video. What was
+       * worked out about the body is kept; what was about the last picture is not.
+       */
+      freshPicture?: boolean;
     }
   | {
       type: 'score';
@@ -45,6 +50,10 @@ let cache: { key: string; value: MatchCache } | null = null;
 scope.onmessage = (event: MessageEvent<MatchRequest>) => {
   const request = event.data;
   if (!cache || cache.key !== request.key) cache = { key: request.key, value: {} };
+  if (request.type === 'match' && request.freshPicture) {
+    delete cache.value.picture;
+    delete cache.value.background;
+  }
   const picture = { width: request.picture.width, height: request.picture.height, data: new Uint8ClampedArray(request.picture.pixels) };
   try {
     if (request.type === 'match') {

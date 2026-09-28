@@ -3,6 +3,7 @@ import {
   DEFAULT_BRUSH,
   addBone,
   bindNodes,
+  bindUnboundByShape,
   bindState,
   deleteBone,
   emptyBindFlowData,
@@ -20,12 +21,16 @@ import {
   nodesNear,
   nodesOf,
   placedImage,
+  putInPart,
   readVectorImage,
   restPose,
+  separateNodes,
   shapePath,
   shareOf,
+  splitNodes,
   summariseBinding,
   unbindNodes,
+  unboundNodeKeys,
   zoomImage,
   zoomRig,
   type BindFlowData,
@@ -94,6 +99,9 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
   /** Where the pointer is, and how many screen pixels a picture pixel is, for drawing the brush. */
   const [cursor, setCursor] = useState<{ at: VectorPoint; perUnit: number } | null>(null);
   const frame = useRef<HTMLDivElement | null>(null);
+  /** Which check's nodes are ringed on the drawing, and which of its groups is picked. */
+  const [reveal, setReveal] = useState<'unbound' | 'split' | null>(null);
+  const [focus, setFocus] = useState<string | null>(null);
 
   const raw = imageOfBinding(data);
   const image = useMemo(() => placedImage(data), [data]);
@@ -104,6 +112,19 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
   const summary = useMemo(() => summariseBinding(data), [data]);
   const bones = useMemo(() => (rig ? restPose(rig) : new Map()), [rig]);
   const state = bindState(data, rigInput?.artifact?.hash, vectorInput?.artifact?.hash);
+  const unbound = useMemo(() => unboundNodeKeys(data), [data]);
+  const splits = useMemo(() => splitNodes(data), [data]);
+  const splitCount = splits.reduce((sum, group) => sum + group.keys.length, 0);
+  const nodeAt = useMemo(() => new Map(nodes.map((node) => [node.key, node])), [nodes]);
+  /** The nodes the open check is about, ringed on the drawing. */
+  const flagged = useMemo(() => {
+    if (reveal === 'unbound') return unbound;
+    if (reveal === 'split') {
+      const picked = splits.find((group) => group.id === focus);
+      return picked ? picked.keys : splits.flatMap((group) => group.keys);
+    }
+    return [];
+  }, [focus, reveal, splits, unbound]);
 
   const patch = useCallback(
     (over: Partial<BindFlowData> | BindFlowData) => setFlowData(node.id, { ...data, ...over }),
@@ -135,6 +156,7 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
         rig: fitRigTo(skeleton, drawing),
         image: drawing,
         nodes: {},
+        apart: [],
         selected: [],
         boneId: skeleton.bones[0]?.id ?? null,
         placement: { x: 0, y: 0, scale: 1 },
@@ -401,6 +423,7 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
   }, [data.nodes]);
 
   const boneName = data.boneId ? rig?.bones.find((bone) => bone.id === data.boneId)?.name : undefined;
+  const nameOfBone = (id: string) => rig?.bones.find((bone) => bone.id === id)?.name ?? id;
 
   return (
     <EditorShell
@@ -513,6 +536,117 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
             show which part each point is in. Hiding what is already taken leaves only what is still
             to do.
           </p>
+        </div>
+
+        <div className="vt-section">
+          <h3>Checks</h3>
+          <div className="vt-row" style={{ gap: 4, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className={`vt-chip${reveal === 'unbound' ? ' is-on' : ''}`}
+              title="Ring every node that follows no part"
+              onClick={() => setReveal(reveal === 'unbound' ? null : 'unbound')}
+            >
+              Unbound nodes ({unbound.length})
+            </button>
+            <button
+              type="button"
+              className={`vt-chip${reveal === 'split' ? ' is-on' : ''}`}
+              title="Find nodes more than one part lays claim to"
+              onClick={() => {
+                setReveal(reveal === 'split' ? null : 'split');
+                setFocus(null);
+              }}
+            >
+              In two parts ({splitCount})
+            </button>
+          </div>
+          {reveal === 'unbound' ? (
+            unbound.length === 0 ? (
+              <p className="vt-faint" style={{ fontSize: 11, marginTop: 6 }}>Every node follows a part.</p>
+            ) : (
+              <>
+                <p className="vt-faint" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.45 }}>
+                  {unbound.length} node(s), ringed on the drawing, follow nothing and stay put when the rig moves.
+                </p>
+                <div className="vt-row" style={{ gap: 4, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="vt-btn is-small"
+                    disabled={!data.boneId}
+                    onClick={() => data.boneId && patch(bindNodes(data, unbound, data.boneId))}
+                  >
+                    All into {boneName ?? 'the picked part'}
+                  </button>
+                  <button
+                    type="button"
+                    className="vt-btn is-small"
+                    title="Each goes to the part most of its shape's nodes are in"
+                    onClick={() => {
+                      const { data: next, bound } = bindUnboundByShape(data);
+                      if (bound === 0) notify('error', 'None of their shapes is in a part yet.');
+                      else {
+                        patch(next);
+                        notify('success', `Put ${bound} node(s) in their shapes’ parts.`);
+                      }
+                    }}
+                  >
+                    Each into its shape’s part
+                  </button>
+                </div>
+              </>
+            )
+          ) : null}
+          {reveal === 'split' ? (
+            splits.length === 0 ? (
+              <p className="vt-faint" style={{ fontSize: 11, marginTop: 6 }}>No node is claimed by two parts.</p>
+            ) : (
+              <div className="vt-split-list">
+                {splits.map((group) => (
+                  <div key={group.id} className={`vt-split-group${focus === group.id ? ' is-selected' : ''}`}>
+                    <button
+                      type="button"
+                      className="vt-split-title"
+                      title="Ring just these"
+                      onClick={() => setFocus(focus === group.id ? null : group.id)}
+                    >
+                      {group.bones.map((bone) => (
+                        <span key={bone} className="vt-object-dot" style={{ background: colorForBone(bone) ?? undefined }} />
+                      ))}
+                      <strong>{group.bones.map(nameOfBone).join(' / ')}</strong>
+                      <span className="vt-faint">
+                        {group.keys.length} node(s) {group.kind === 'shared' ? 'on the boundary' : 'on top of each other'}
+                      </span>
+                    </button>
+                    <div className="vt-row" style={{ gap: 4, flexWrap: 'wrap' }}>
+                      {group.bones.map((bone) => (
+                        <button key={bone} type="button" className="vt-btn is-small" onClick={() => patch(putInPart(data, group, bone))}>
+                          All into {nameOfBone(bone)}
+                        </button>
+                      ))}
+                      {group.kind === 'shared' ? (
+                        <button
+                          type="button"
+                          className="vt-btn is-small"
+                          title="Give each part its own copy of these nodes, so each outline follows its own bone"
+                          onClick={() => {
+                            patch(separateNodes(data, group));
+                            setFocus(null);
+                          }}
+                        >
+                          Separate
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+                <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
+                  A boundary node follows one bone and pulls the other part’s outline with it. Put it
+                  into one part to keep the two joined, or separate it so each part has its own.
+                </p>
+              </div>
+            )
+          ) : null}
         </div>
 
         <div className="vt-section">
@@ -684,6 +818,22 @@ export function BindFlowEditor({ project, node }: { project: Project; node: Flow
                         strokeWidth={onScreen(mine ? 1 : 0.6, scale)}
                         className={`vt-node-dot${mine ? ' is-mine' : bone ? ' is-taken' : ''}`}
                         style={bone ? { fill: colorForBone(bone) ?? undefined } : undefined}
+                      />
+                    );
+                  })}
+
+                  {flagged.map((key) => {
+                    const node = nodeAt.get(key);
+                    if (!node) return null;
+                    const at = placedAt(node.x, node.y);
+                    return (
+                      <circle
+                        key={`flag-${key}`}
+                        cx={at.x}
+                        cy={at.y}
+                        r={onScreen(6, scale)}
+                        strokeWidth={onScreen(1.5, scale)}
+                        className={`vt-node-flag${reveal === 'unbound' ? ' is-unbound' : ''}`}
                       />
                     );
                   })}

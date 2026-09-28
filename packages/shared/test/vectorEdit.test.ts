@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  DEFAULT_VECTOR_BRUSH,
+  VECTOR_TOOLS,
   VECTOR_TOOL_HINT,
   VECTOR_TOOL_LABEL,
   adopt,
+  brushOf,
   editState,
   emptyVectorEditFlowData,
   emptyVectorizeFlowData,
@@ -93,7 +96,7 @@ test('an editor with no hash to compare is ready rather than stale', () => {
 });
 
 test('every tool is named and explained', () => {
-  for (const tool of ['select', 'add', 'cut', 'erase'] as const) {
+  for (const tool of VECTOR_TOOLS) {
     assert.ok(VECTOR_TOOL_LABEL[tool].length > 2, tool);
     assert.ok(VECTOR_TOOL_HINT[tool].length > 25, `${tool} needs a real explanation`);
   }
@@ -104,4 +107,13 @@ test('every tool is named and explained', () => {
 test('adopting keeps the hash out when there is none to record', () => {
   const started = adopt(emptyVectorEditFlowData(), image(), undefined);
   assert.equal('sourceHash' in started, false, 'rather than storing undefined and comparing against it');
+});
+
+test('the smoothing brush has settings from the start, and keeps what was changed', () => {
+  assert.deepEqual(brushOf(emptyVectorEditFlowData()), DEFAULT_VECTOR_BRUSH);
+  const changed = brushOf({ ...emptyVectorEditFlowData(), brush: { ...DEFAULT_VECTOR_BRUSH, mode: 'curve', amount: 0.5 } });
+  assert.equal(changed.mode, 'curve');
+  assert.equal(changed.amount, 0.5);
+  assert.equal(changed.window, DEFAULT_VECTOR_BRUSH.window);
+  assert.ok(VECTOR_TOOLS.includes('node') && VECTOR_TOOLS.includes('curve') && VECTOR_TOOLS.includes('smooth'));
 });

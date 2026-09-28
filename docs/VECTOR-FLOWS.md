@@ -461,6 +461,58 @@ So even an infinitely fast GPU could save at most about a fifth, before paying t
 move the pixels there and back — not worth a second implementation of each stage
 to keep in step with the first.
 
+## Finishing: flat shapes become lines, shallow corners become curves
+
+Two optional last steps, both under **Finishing**. Both work on the joined
+shapes, so they run only when *Join shapes of one color* is on.
+
+**Flat shapes become lines** (*normals within* N°). A polygon can be a stroke
+drawn as an area: a long sliver no thicker than a line. Its shape gives it away.
+
+- The direction it runs in is the one its points spread furthest along.
+- Each edge's normal either faces straight across that direction (within the
+  tolerance), making it one of the two long sides, or it does not, making it an
+  end or a bump.
+- A shape is flat when all of the following hold:
+  - it is no thicker than half the widest stroke;
+  - it is at least three times as long as it is thick, and at least the
+    shortest line;
+  - everything that is not a long side adds up to no more than two ends.
+
+A flat shape is replaced by a line of its color down its middle, as wide as the
+shape was on average. A small rectangle as wide as a stroke is still an area, a
+shape with a hole is never flat, and at 0° nothing is replaced.
+
+**Smooth shallow corners** (turns under N°). Traced boundaries turn at every
+node, but most of those turns are an outline stepping round a curve, not
+corners.
+
+- A node that turns less than the angle becomes **smooth**, and the outline
+  runs through it as a Bézier curve.
+- A sharper node stays a **corner**, so the corners of a mouth stay sharp.
+- A node stays a corner wherever three or more boundaries meet, and at the end
+  of an open line. Its curve is worked out from its neighbours, and a node with
+  three sets of neighbours would bend each shape a different way and open a gap
+  between them.
+- At 0° every node is a corner, as before.
+
+## What a node stores
+
+Each node of an outline can carry two more numbers:
+
+| | What it is |
+| --- | --- |
+| `s` | How curved the outline is through it. 0 or absent is a sharp corner; 1 is a natural curve, with handles a third of each neighbouring segment long; up to 2 bulges further. |
+| `a` | Which way the curve runs through it, in degrees, turned from the direction straight from the node before to the node after. |
+
+A segment is straight only where both of its ends are corners. Its handles
+point along each end's direction, sized by each end's `s`. So two shapes sharing
+a run of nodes draw exactly the same curve along it, each walking it the other
+way, and neighbours still meet.
+
+The written SVG holds these as real cubic Béziers. The Rig Match paints curves
+by following them closely.
+
 ## What a line stores
 
 The **anchors**, plus whether the run between them is smoothed — not cubic
@@ -491,6 +543,9 @@ where that gets fixed.
 | **Add point** | Click an edge to put a new anchor there — where you pointed, not at the midpoint. |
 | **Cut** | Click across a shape to cut it in two. A line is cut where you click once. |
 | **Delete part** | Click two anchors on a shape to delete the run between them. |
+| **Delete node** | Click a node to delete just it, from every shape that shares it, so neighbours still meet. A shape left with too few nodes goes. |
+| **Curves** | Click a node, then drag either of its handles, or use **How curved** and **Turn**. **Sharp corner** and **Smooth** set it in one click. |
+| **Smooth brush** | Select a shape, then brush along its outline. See below. |
 
 `Delete` removes whatever is selected. `Esc` abandons a half-finished cut.
 
@@ -514,6 +569,42 @@ Cutting a **closed** line opens it instead, because that is what cutting a loop
 once does. Taking a bite out of the middle of a line leaves two pieces; taking one
 off an end just shortens it. A loop with a bite out of it becomes a line, because
 it is not a loop any more.
+
+## Curves
+
+A node's two handles point along the curve through it: one toward the next
+node, one toward the one before.
+
+- **How far out** a handle is sets how curved the node is. A third of the
+  segment is a natural curve; pulled all the way in, the node is a sharp
+  corner.
+- **Which way** a handle points turns the curve through the node. The other
+  handle mirrors it through the node, so the curve stays smooth.
+- A corner shows faint handles, so there is something to pull.
+
+A node is a position, so a curve set on it is set in every shape that shares
+it. `Delete` deletes the picked node.
+
+## The smoothing brush
+
+Select a shape and brush along its outline. Only that shape's nodes under the
+brush are touched. The brush is sized on screen, so it covers the same amount of
+the screen at any zoom.
+
+- **Average nodes.** Each run of brushed nodes is taken a few at a time
+  (**Nodes averaged into one**). Each group becomes one node where the group
+  was on average, and the rest of the group are deleted, from every shape that
+  shares them. This happens when the stroke ends, so a brush held still does not
+  wear the outline away. An open line's ends stay put, and no outline is left
+  with too few nodes to be a shape.
+- **Curve nodes.** The brushed nodes become curved by **How curved**, as the
+  Curves tool would make them, as the brush passes. At 0 they become corners
+  again.
+
+**Average / Curve the whole shape** does the same to every node of the selected
+shape at once.
+
+A brush stroke, a handle drag and each click are one undo step each.
 
 ## The edits are the work
 

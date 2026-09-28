@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react';
 import {
+  CUSTOM_FLOW_KIND,
   EMPTY_FLOW_FILTER,
+  deleteTemplate,
+  instanceCounts,
+  instantiateCustomFlow,
   FLOW_CATEGORY_LABEL,
   activeFacetCount,
   filterFlowKinds,
@@ -84,11 +88,19 @@ export interface FlowPaletteProps {
 }
 
 export function FlowPalette({ dropPoint }: FlowPaletteProps): JSX.Element {
-  const { registry, addNode, project } = useStudio();
+  const { registry, addNode, project, transform, select, notify } = useStudio();
   const [filter, setFilter] = useState<FlowFilter>(EMPTY_FLOW_FILTER);
   const [open, setOpen] = useState(false);
 
-  const defs = registry?.flowKinds ?? [];
+  // A custom flow is added from one of the project's saved ones, never blank.
+  const defs = useMemo(() => (registry?.flowKinds ?? []).filter((def) => def.kind !== CUSTOM_FLOW_KIND), [registry]);
+  const templates = useMemo(() => {
+    const query = filter.query.trim().toLowerCase();
+    return (project?.customFlows ?? []).filter(
+      (template) => !query || `${template.name} ${template.description}`.toLowerCase().includes(query),
+    );
+  }, [filter.query, project?.customFlows]);
+  const uses = useMemo(() => (project ? instanceCounts(project) : new Map<string, number>()), [project]);
   const matches = useMemo(() => filterFlowKinds(defs, filter), [defs, filter]);
   const facets = useMemo(() => flowFacets(defs, filter), [defs, filter]);
 
@@ -175,6 +187,54 @@ export function FlowPalette({ dropPoint }: FlowPaletteProps): JSX.Element {
       </header>
 
       <div className="vt-palette-list">
+        {templates.length > 0 ? (
+          <div className="vt-palette-group">
+            <h3>Custom flows</h3>
+            {templates.map((template) => (
+              <div key={template.id} className="vt-palette-custom">
+                <button
+                  type="button"
+                  className="vt-palette-item cat-production is-custom"
+                  title={`${template.members.length} flow(s) inside\nin: ${template.inputs.map((p) => p.label).join(', ') || '—'}\nout: ${template.outputs.map((p) => p.label).join(', ') || '—'}`}
+                  onClick={() => {
+                    if (!project) return;
+                    let made = '';
+                    transform((current) => {
+                      const result = instantiateCustomFlow(current, template.id, freeSpotNear(dropPoint, current.nodes.filter((node) => !node.group)));
+                      made = result.nodeId;
+                      return result.project;
+                    });
+                    if (made) select({ type: 'node', id: made });
+                  }}
+                >
+                  <span className="vt-palette-name">
+                    <span className="vt-row" style={{ gap: 6 }}>
+                      <span className="vt-palette-dot" />
+                      {template.name}
+                    </span>
+                    <span className="vt-pill">{uses.get(template.id) ?? 0} in use</span>
+                  </span>
+                  <span className="vt-palette-summary">
+                    {template.description || `${template.members.length} flow(s): ${template.members.map((member) => member.name).join(' → ')}`}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="vt-btn is-ghost is-small"
+                  title="Forget this custom flow. Uses already on the graph keep working."
+                  aria-label={`Forget ${template.name}`}
+                  onClick={() => {
+                    if (!window.confirm(`Forget the custom flow “${template.name}”? Uses already on the graph keep working.`)) return;
+                    transform((current) => deleteTemplate(current, template.id));
+                    notify('info', `Forgot “${template.name}”.`);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {[...grouped.entries()].map(([category, group]) => (
           <div key={category} className="vt-palette-group">
             <h3>{FLOW_CATEGORY_LABEL[category]}</h3>

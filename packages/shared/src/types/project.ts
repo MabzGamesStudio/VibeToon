@@ -15,6 +15,8 @@ import type { PaletteFilterFlowData } from '../flows/paletteFilter';
 import type { TimelineFlowData } from '../flows/timeline';
 import type { WorldMapFlowData } from '../flows/worldMap';
 import type { RigMatchFlowData } from '../flows/rigMatch';
+import type { CustomFlowData, CustomFlowTemplate } from '../flows/customFlow';
+import type { VideoMatchFlowData } from '../flows/videoMatch';
 import type { RigFlowData } from '../flows/rig';
 import type { TextFlowData } from './text';
 
@@ -202,7 +204,9 @@ export type FlowData =
   | PoseFlowData
   | TimelineFlowData
   | WorldMapFlowData
-  | RigMatchFlowData;
+  | RigMatchFlowData
+  | CustomFlowData
+  | VideoMatchFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph
@@ -219,6 +223,11 @@ export interface FlowNode {
   notes: string;
   data: FlowData;
   outputs: ArtifactRef[];
+  /**
+   * The custom flow instance this flow is behind, if any. Such a flow is not
+   * drawn on the graph; its instance's card stands for it (see `customFlow.ts`).
+   */
+  group?: string;
   /** Set by the last generate run; `signature` covers inputs + own data. */
   lastRun?: {
     at: string;
@@ -286,6 +295,8 @@ export interface Project {
   nodes: FlowNode[];
   connections: Connection[];
   view: ProjectView;
+  /** Arrangements of flows saved to be used again, listed in the palette. */
+  customFlows?: CustomFlowTemplate[];
 }
 
 export interface ProjectSummary {

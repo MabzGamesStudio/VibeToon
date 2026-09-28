@@ -38,13 +38,18 @@ export function vectorizeState(
 /* ------------------------------------------------------------------ */
 
 /** What the editor is doing with a click. */
-export type VectorTool = 'select' | 'add' | 'cut' | 'erase';
+export type VectorTool = 'select' | 'add' | 'cut' | 'erase' | 'node' | 'curve' | 'smooth';
+
+export const VECTOR_TOOLS: VectorTool[] = ['select', 'add', 'cut', 'erase', 'node', 'curve', 'smooth'];
 
 export const VECTOR_TOOL_LABEL: Record<VectorTool, string> = {
   select: 'Move',
   add: 'Add point',
   cut: 'Cut',
   erase: 'Delete part',
+  node: 'Delete node',
+  curve: 'Curves',
+  smooth: 'Smooth brush',
 };
 
 export const VECTOR_TOOL_HINT: Record<VectorTool, string> = {
@@ -53,7 +58,32 @@ export const VECTOR_TOOL_HINT: Record<VectorTool, string> = {
   add: 'Click a shape’s edge to put a new point there.',
   cut: 'Click twice across a shape to cut it in two. A line is cut where you click once.',
   erase: 'Click two points on a line to delete the run between them.',
+  node:
+    'Click a node to delete just it. Every shape that shares it loses it too, so neighbours still meet; a shape left with too few nodes goes.',
+  curve:
+    'Click a node, then drag its handles or use the sliders: how far out a handle is sets how curved the node is, and which way it points turns the curve. A node with no curve is a sharp corner.',
+  smooth:
+    'Select a shape, then brush along its outline. Average merges the brushed nodes a few at a time into one; Curve makes them smooth Bézier nodes.',
 };
+
+/** What the smoothing brush does to the nodes it passes over. */
+export type VectorBrushMode = 'average' | 'curve';
+
+export interface VectorBrush {
+  mode: VectorBrushMode;
+  /** Its radius, in screen pixels, so it is the same size at any zoom. */
+  size: number;
+  /** Average: how many nodes in a row become one. */
+  window: number;
+  /** Curve: how curved the brushed nodes become. */
+  amount: number;
+}
+
+export const DEFAULT_VECTOR_BRUSH: VectorBrush = { mode: 'average', size: 24, window: 3, amount: 1 };
+
+export function brushOf(data: VectorEditFlowData): VectorBrush {
+  return { ...DEFAULT_VECTOR_BRUSH, ...(data.brush ?? {}) };
+}
 
 /**
  * The vector editor's own state.
@@ -72,6 +102,8 @@ export interface VectorEditFlowData {
   sourceHash?: string;
   /** How many edits have been made, so the flow can say whether it has done any. */
   edits: number;
+  /** The smoothing brush's settings, kept with the flow. */
+  brush?: VectorBrush;
 }
 
 export function emptyVectorEditFlowData(): VectorEditFlowData {

@@ -1,5 +1,6 @@
 import { DEFAULT_FEATURES, DEFAULT_LAYERS, DEFAULT_TERRAIN, defaultMapSettings } from '../flows/worldMap';
 import { DEFAULT_RIG_MATCH_OPTIONS } from '../flows/rigMatch';
+import { DEFAULT_VIDEO_SAMPLING, DEFAULT_VIDEO_THRESHOLD } from '../flows/videoMatch';
 import {
   DEFAULT_COLOR_SETTING,
   DEFAULT_SPAN,
@@ -179,6 +180,24 @@ export function normaliseFlowData(data: FlowData): FlowData {
         showSkeleton: data.showSkeleton ?? true,
         showFeatures: data.showFeatures ?? false,
         bodyOpacity: typeof data.bodyOpacity === 'number' ? data.bodyOpacity : 0.7,
+      };
+    }
+    case 'videoMatch': {
+      const options = fill(data.options, DEFAULT_RIG_MATCH_OPTIONS);
+      const sampling = fill(data.sampling, DEFAULT_VIDEO_SAMPLING);
+      const whole = Array.isArray(data.frames) && typeof data.threshold === 'number' && typeof data.showVideo === 'boolean' && typeof data.showBody === 'boolean' && typeof data.showSkeleton === 'boolean' && typeof data.bodyOpacity === 'number';
+      if (!options.filled && !sampling.filled && whole && data.bound !== undefined) return data;
+      return {
+        ...data,
+        bound: data.bound ?? null,
+        options: options.value,
+        sampling: sampling.value,
+        threshold: typeof data.threshold === 'number' ? data.threshold : DEFAULT_VIDEO_THRESHOLD,
+        frames: Array.isArray(data.frames) ? data.frames : [],
+        showVideo: data.showVideo ?? false,
+        showBody: data.showBody ?? true,
+        showSkeleton: data.showSkeleton ?? true,
+        bodyOpacity: typeof data.bodyOpacity === 'number' ? data.bodyOpacity : 1,
       };
     }
     case 'grammar': {

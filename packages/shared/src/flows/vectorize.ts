@@ -1,3 +1,4 @@
+import { flatShapesToLines, smoothShallowNodes } from './vectorSmooth';
 import type { Bitmap } from './cutout';
 import { coverageFor, fillInto, strokeInto, type Box } from './fit';
 import { traceShared, type RegionLoops } from './arcs';
@@ -140,6 +141,18 @@ export interface VectorizeOptions {
    * than this off a longer line is dropped. 0 keeps every line.
    */
   minLineLength: number;
+  /**
+   * Nodes that turn less than this many degrees become smooth — the outline
+   * curves through them as a Bézier — and sharper ones stay corners. 0 leaves
+   * every node a corner, which is how a decomposition always came out before.
+   */
+  smoothAngle: number;
+  /**
+   * How closely, in degrees, a polygon's edge normals have to face straight
+   * across it for it to count as flat — a line drawn as a sliver of area — and
+   * be replaced with a line of its color. 0 never replaces one.
+   */
+  flatTolerance: number;
 }
 
 export const DEFAULT_VECTORIZE_OPTIONS: VectorizeOptions = {
@@ -159,6 +172,8 @@ export const DEFAULT_VECTORIZE_OPTIONS: VectorizeOptions = {
   minNodeGap: 1.5,
   minPolygonArea: 6,
   minLineLength: 4,
+  smoothAngle: 0,
+  flatTolerance: 8,
 };
 
 export interface VectorizeReport {
@@ -190,6 +205,10 @@ export interface VectorizeReport {
   shortLines: number;
   /** Skinny polygons whose lines would all be under the minimum length, kept as polygons. */
   shortStrokes: number;
+  /** Polygons found flat by their normals, and replaced with lines. */
+  flattened?: number;
+  /** Nodes shallow enough to become smooth curves. */
+  smoothed?: number;
   transparent: number;
   /** Pixels the edge pass claimed, before they were handed back to regions. */
   edgePixels: number;
@@ -1279,7 +1298,21 @@ export function vectorize(
 
   best.report.wrongPixels = measured.plain;
   best.report.overNothing = measured.overNothing;
-  return { image: best.image, report: best.report };
+
+  // Last of all: flat slivers of area become lines, and shallow corners curves.
+  // Not when the shapes are wanted as convex pieces: those are parts of an
+  // area, not lines, however thin one comes out.
+  const flat = options.joinShapes
+    ? flatShapesToLines(best.image, options.flatTolerance ?? 0, options.lineWidth, makeId, options.minLineLength)
+    : { image: best.image, flattened: 0 };
+  const smooth = smoothShallowNodes(flat.image, options.smoothAngle ?? 0);
+  best.report.flattened = flat.flattened;
+  best.report.smoothed = smooth.smoothed;
+  if (flat.flattened > 0) {
+    best.report.polygons -= flat.flattened;
+    best.report.lines += flat.flattened;
+  }
+  return { image: smooth.image, report: best.report };
 }
 
 /** The picture as shapes, at whatever tolerance each boundary is granted. */
@@ -2080,5 +2113,7 @@ export function summariseVectorize(report: VectorizeReport): string {
     `${report.lines} line(s)`,
     `${report.polygons} polygon(s)`,
     ...(report.dropped > 0 ? [`${report.dropped} dropped as too small`] : []),
+    ...((report.flattened ?? 0) > 0 ? [`${report.flattened} flat shape(s) drawn as lines`] : []),
+    ...((report.smoothed ?? 0) > 0 ? [`${report.smoothed} node(s) smoothed into curves`] : []),
   ].join(' · ');
 }

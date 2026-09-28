@@ -322,6 +322,20 @@ Finds a bound rig’s body in a picture: places, sizes and turns it, then each p
   keep: placement, joint angles, part sizes, confidence
   ```
 
+### Video Rig Match
+
+`animation.video.match` · **bespoke editor**
+
+Finds a bound rig’s body in every sampled frame of a video and turns it into a rig animation, split wherever the character is not found.
+
+- **In:** Bound rig *(required)*, Video
+- **Out:** Rig animation `animation.json`, Report `animation.md`, Video `video.mp4`
+- **Rules a new wire leaving `animation` starts with:**
+
+  ```
+  keep: placement, joint angles, part sizes, timing
+  ```
+
 ### Animatic
 
 `animation.animatic` · **bespoke editor**
@@ -599,6 +613,15 @@ One registry of every asset, so nothing gets re-made or lost.
 - **Out:** Asset list `assets.json`, Index `assets.md`
 - **Fields:** Naming, Tracked
 
+### Custom flow
+
+`custom.flow` · **bespoke editor**
+
+An arrangement of flows saved under a name and used again as one, each use with its own settings.
+
+- **In:** —
+- **Out:** —
+
 ---
 
-49 flow kinds.
+51 flow kinds.

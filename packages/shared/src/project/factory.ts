@@ -19,6 +19,8 @@ import { emptyTextData } from '../flows/text';
 import { emptyTimelineFlowData } from '../flows/timeline';
 import { emptyWorldMapFlowData } from '../flows/worldMap';
 import { emptyRigMatchFlowData } from '../flows/rigMatch';
+import { emptyCustomFlowData } from '../flows/customFlow';
+import { emptyVideoMatchFlowData } from '../flows/videoMatch';
 import { newId } from '../ids';
 import { getFlowKind, requireFlowKind } from '../registry/flowKinds';
 import { parseRules, RULE_DIRECTIVES } from '../rules/parseRules';
@@ -86,6 +88,10 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyWorldMapFlowData();
     case 'rigMatch':
       return emptyRigMatchFlowData();
+    case 'custom':
+      return emptyCustomFlowData();
+    case 'videoMatch':
+      return emptyVideoMatchFlowData();
     default:
       return emptyBriefData(def);
   }
