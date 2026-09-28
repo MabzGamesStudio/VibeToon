@@ -633,3 +633,14 @@ test('a seed, a cut or a region moves as a whole', async () => {
   assert.deepEqual(moved.lines[0]!.points, [2, -1, 7, 4]);
   assert.deepEqual(moved.regions[0]!.points, [2, -1, 6, -1, 6, 3]);
 });
+
+test('a region on its own is a selection: it makes a mask', async () => {
+  const { hasObjects, buildMask, emptyCutoutFlowData } = await import('../src/flows/cutout');
+  const data = { ...emptyCutoutFlowData(), regions: [{ id: 'r', points: [1, 1, 8, 1, 8, 8, 1, 8], curved: false, mode: 'include' as const }] };
+  assert.equal(hasObjects(emptyCutoutFlowData()), false);
+  assert.equal(hasObjects(data), true);
+  const image = { width: 10, height: 10, data: new Uint8ClampedArray(400).fill(200) };
+  const { mask, report } = buildMask(image, data);
+  assert.ok(report.inside > 30, `${report.inside} pixels inside`);
+  assert.ok(mask.alpha.some((value) => value > 0));
+});

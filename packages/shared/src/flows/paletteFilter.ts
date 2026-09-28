@@ -1,5 +1,5 @@
 import type { Bitmap } from './cutout';
-import { fromHex, swatchDistance, swatchOf, toHex, type Rgb, type Rgba, type Swatch } from './palette';
+import { fromHex, toHex, type Rgb, type Rgba } from './palette';
 
 /**
  * Filtering an image against a palette.
@@ -21,10 +21,11 @@ import { fromHex, swatchDistance, swatchOf, toHex, type Rgb, type Rgba, type Swa
  * like any other, to the entry that looks most like nothing: the palette's clear
  * entry, when it has one.
  *
- * Nearness counts opacity as well as color (see `swatchDistance`): an edge pixel
- * of red is nearest red, and becomes red or clear depending on which side of half
- * opacity it is — never a neighbouring color — and a clear pixel is nowhere near
- * black, whatever color numbers it happens to carry.
+ * Nearness is measured by hue, saturation, brightness and opacity (see
+ * `hsbaDistance`), and snapping always takes the absolute nearest entry by that
+ * measure. An edge pixel of red is nearest red, and becomes red or clear
+ * depending on which side of half opacity it is — never a neighbouring color —
+ * and a clear pixel is nowhere near black, whatever color numbers it carries.
  *
  * There used to be a third, which removed the palette's colors instead of
  * keeping them. It is gone. It was the keep mode with the answer inverted, and
@@ -33,6 +34,74 @@ import { fromHex, swatchDistance, swatchOf, toHex, type Rgb, type Rgba, type Swa
  * round it was reading.
  */
 export type FilterMode = 'keep' | 'snap';
+
+/* ------------------------------------------------------------------ *
+ * Nearness: hue, saturation, brightness and opacity
+ * ------------------------------------------------------------------ */
+
+/**
+ * A color placed in the HSB cone, with its opacity.
+ *
+ * Hue is an angle round the cone, saturation how far out from its middle, and
+ * brightness how high up it — with the cone narrowing to a point at black, so the
+ * distance out is saturation times brightness. That makes hue matter exactly as
+ * much as the color has any: two greys are not pushed apart by the hue numbers
+ * their rounding happens to give them, and a dark red is closer to black than a
+ * bright red is.
+ */
+export interface Hsba {
+  /** Across the cone's floor: hue as a direction, saturation × brightness as the distance out. */
+  x: number;
+  y: number;
+  /** Brightness, 0..1. */
+  v: number;
+  /** Opacity, 0..1. */
+  a: number;
+}
+
+export function hsbaOf(color: Rgb & { a?: number }): Hsba {
+  const r = color.r / 255;
+  const g = color.g / 255;
+  const b = color.b / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const chroma = max - min;
+  let hue = 0;
+  if (chroma > 0) {
+    if (max === r) hue = ((g - b) / chroma) % 6;
+    else if (max === g) hue = (b - r) / chroma + 2;
+    else hue = (r - g) / chroma + 4;
+  }
+  const angle = (hue / 6) * Math.PI * 2;
+  return { x: chroma * Math.cos(angle), y: chroma * Math.sin(angle), v: max, a: Math.max(0, Math.min(255, color.a ?? 255)) / 255 };
+}
+
+/** The hue, saturation (0..1) and brightness (0..1) of a color, for showing. */
+export function hsbOf(color: Rgb): { h: number; s: number; b: number } {
+  const point = hsbaOf(color);
+  const chroma = Math.hypot(point.x, point.y);
+  const h = chroma === 0 ? 0 : ((Math.atan2(point.y, point.x) * 180) / Math.PI + 360) % 360;
+  return { h, s: point.v === 0 ? 0 : chroma / point.v, b: point.v };
+}
+
+/**
+ * How far apart two colors are by hue, saturation, brightness and opacity, on a
+ * 0..100-ish scale: 100 is the step from black to white, or from clear to solid,
+ * or from a full red to a full cyan's worth of hue and saturation over again.
+ *
+ * Opacity is measured beside the color, like one more side of a right angle. A
+ * fully clear pixel has no color to compare, so between it and anything only the
+ * opacity counts.
+ */
+export function hsbaDistance(one: Hsba, two: Hsba): number {
+  const opacity = one.a - two.a;
+  if (one.a === 0 || two.a === 0) return 100 * Math.abs(opacity);
+  return 100 * Math.hypot(one.x - two.x, one.y - two.y, one.v - two.v, opacity);
+}
+
+type Swatch = Hsba;
+const swatchOf = hsbaOf;
+const swatchDistance = hsbaDistance;
 
 export const FILTER_MODES: readonly FilterMode[] = ['keep', 'snap'];
 
@@ -50,8 +119,8 @@ export interface PaletteFilterOptions {
   mode: FilterMode;
   /**
    * How far a pixel may be from a palette color and still count as it, in the
-   * same OKLab-times-100 units the palette's own minimum distance uses, opacity
-   * included.
+   * hue, saturation, brightness and opacity (`hsbaDistance`): 100 is black to
+   * white, or clear to solid.
    *
    * 0 means exactly — the same color at the same opacity — which is what flat
    * artwork wants: a drawing made from a palette contains those colors and no
@@ -239,7 +308,7 @@ export function filterImage(
   /*
    * A cache pays for itself many times over: a drawing uses a few thousand
    * distinct values across a million pixels, and each lookup is a trip through
-   * OKLab and a walk over every entry. Every fully transparent pixel is one key,
+   * the HSB cone and a walk over every entry. Every fully transparent pixel is one key,
    * whatever color numbers it carries, because none of them show.
    */
   const cache = new Map<number, Nearest>();

@@ -113,8 +113,17 @@ export function normaliseFlowData(data: FlowData): FlowData {
       const extract = fill(data.extract, DEFAULT_EXTRACT_OPTIONS);
       const derive = fill(data.derive, DEFAULT_DERIVE_OPTIONS);
       const meanings = normaliseMeanings(data.meanings);
+      // Contexts per word used to be held to 12 by default. A word now holds as
+      // many as the slots it grew while being counted, so a project still on
+      // the old default takes the new one along with the context slots.
+      const outgrown = data.extract?.contextSlots === undefined && derive.value.maxContexts === 12;
       if (!extract.filled && !derive.filled && !meanings.changed) return data;
-      return { ...data, extract: extract.value, derive: derive.value, meanings: meanings.meanings };
+      return {
+        ...data,
+        extract: extract.value,
+        derive: outgrown ? { ...derive.value, maxContexts: DEFAULT_DERIVE_OPTIONS.maxContexts } : derive.value,
+        meanings: meanings.meanings,
+      };
     }
     case 'timeline': {
       /*

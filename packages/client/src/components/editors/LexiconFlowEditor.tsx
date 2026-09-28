@@ -33,6 +33,7 @@ import { useStudio } from '../../state/store';
 import { useView } from '../../state/view';
 import { Field } from '../common/Field';
 import { InfoTip } from '../common/InfoTip';
+import { Slider } from '../common/Slider';
 import { formatWhen } from '../common/format';
 import { EditorShell } from './EditorShell';
 
@@ -454,6 +455,62 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
               }
             />
           </Field>
+          <div style={{ marginTop: 10 }}>
+            <strong>The company a word keeps</strong>
+          </div>
+          <div className="vt-hint" style={{ marginBottom: 8 }}>
+            Each word near a word has a chance of being taken as its context, cut for very common words. A
+            context taken again weighs one more.
+          </div>
+          <Slider
+            label="Next to it"
+            tip="lexicon.adjacentChance"
+            range="lexicon.adjacentChance"
+            value={data.extract.adjacentChance}
+            onChange={(value) => patch({ ...data, extract: { ...data.extract, adjacentChance: value } })}
+          />
+          <Slider
+            label="In the same sentence"
+            tip="lexicon.sentenceChance"
+            range="lexicon.sentenceChance"
+            value={data.extract.sentenceChance}
+            onChange={(value) => patch({ ...data, extract: { ...data.extract, sentenceChance: value } })}
+          />
+          <Slider
+            label="In the same paragraph"
+            tip="lexicon.paragraphChance"
+            range="lexicon.paragraphChance"
+            value={data.extract.paragraphChance}
+            onChange={(value) => patch({ ...data, extract: { ...data.extract, paragraphChance: value } })}
+          />
+          <Field label="Context slots" tip="lexicon.contextSlots" hint="How many contexts a word holds to begin with.">
+            <input
+              type="number"
+              min={1}
+              max={128}
+              value={data.extract.contextSlots}
+              onChange={(event) =>
+                patch({
+                  ...data,
+                  extract: { ...data.extract, contextSlots: Math.min(128, Number(event.target.value) || 1) },
+                })
+              }
+            />
+          </Field>
+          <Field
+            label="Slots double at"
+            tip="lexicon.contextGrowAt"
+            hint="Total context weight per slot at which a word's slots double."
+          >
+            <input
+              type="number"
+              min={1}
+              value={data.extract.contextGrowAt}
+              onChange={(event) =>
+                patch({ ...data, extract: { ...data.extract, contextGrowAt: Number(event.target.value) || 1 } })
+              }
+            />
+          </Field>
           <label className="vt-row" style={{ gap: 6 }}>
             <input
               type="checkbox"
@@ -479,7 +536,7 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
           <Field
             label="Lift ceiling"
             tip="lexicon.liftCeiling"
-            hint="How much more often a word must follow another than it appears at all to count as a full-strength link."
+            hint="How much more of a word's company another must be than of the corpus to count as a full-strength link."
           >
             <input
               type="number"
@@ -550,7 +607,8 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
                     <div className="vt-faint" style={{ fontSize: 11 }}>
                       {dataset.tokenCount.toLocaleString()} tokens · {dataset.entries.length.toLocaleString()} words
                       kept of {dataset.distinctCount.toLocaleString()} ·{' '}
-                      {dataset.entries.reduce((sum, entry) => sum + entry.next.length, 0).toLocaleString()} pairs
+                      {dataset.entries.reduce((sum, entry) => sum + entry.next.length, 0).toLocaleString()} pairs ·{' '}
+                      {dataset.entries.reduce((sum, entry) => sum + (entry.near?.length ?? 0), 0).toLocaleString()} contexts
                       {dataset.source.reference ? ` · ${dataset.source.reference}` : ''}
                     </div>
                   </div>
@@ -829,16 +887,23 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
 
                   <div className="vt-section">
                     <h3>
-                      <span>What follows it</span>
-                      <span className="vt-faint">{current.contexts.length} link(s)</span>
+                      <span>{currentEntry?.near ? 'The company it keeps' : 'What follows it'}</span>
+                      <span className="vt-faint">
+                        {current.contexts.length} link(s)
+                        {currentEntry?.capacity ? ` · ${currentEntry.capacity} slots` : ''}
+                      </span>
                     </h3>
                     <div className="vt-hint" style={{ marginBottom: 6 }}>
-                      Counted out of the corpus: how much more often each word follows this one than it turns up
-                      at all. These are derived, so they change when the corpora or the weighting change.
+                      {currentEntry?.near
+                        ? 'Counted out of the corpus, and its definition: how much more of this word’s company each word is than it is of the corpus. The number after is how often it was taken.'
+                        : 'Counted out of the corpus: how much more often each word follows this one than it turns up at all.'}{' '}
+                      These are derived, so they change when the corpora or the weighting change.
                     </div>
                     {current.contexts.map((context) => {
                       const target = byId.get(context.id);
-                      const pairs = currentEntry?.next.find(([spelling]) => spelling === target?.spelling)?.[1];
+                      const pairs = (currentEntry?.near ?? currentEntry?.next)?.find(
+                        ([spelling]) => spelling === target?.spelling,
+                      )?.[1];
                       return (
                         <div className="vt-context-row" key={context.id}>
                           <button
@@ -853,13 +918,13 @@ export function LexiconFlowEditor({ project, node }: { project: Project; node: F
                           </span>
                           <span className="vt-context-weight">{context.weight.toFixed(2)}</span>
                           <span className="vt-faint" style={{ fontSize: 10 }}>
-                            {pairs ? `${pairs}×` : ''}
+                            {pairs ? `${Math.round(pairs * 10) / 10}×` : ''}
                           </span>
                         </div>
                       );
                     })}
                     {current.contexts.length === 0 ? (
-                      <div className="vt-empty">Nothing follows it often enough to be worth keeping.</div>
+                      <div className="vt-empty">Nothing keeps it company often enough to be worth keeping.</div>
                     ) : null}
                   </div>
                 </>

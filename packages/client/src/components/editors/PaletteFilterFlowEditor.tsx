@@ -281,7 +281,7 @@ export function PaletteFilterFlowEditor({
               value={data.options.tolerance}
               tip="paletteFilter.tolerance"
               format={(value) => (value === 0 ? 'exactly, and nothing else' : `within ${value}`)}
-              hint="In OKLab, times 100: under 2 is invisible, 20 is navy against royal blue."
+              hint="By hue, saturation, brightness and opacity: 100 is black against white."
               onChange={(tolerance) => patch({ options: { ...data.options, tolerance } })}
             />
             <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>

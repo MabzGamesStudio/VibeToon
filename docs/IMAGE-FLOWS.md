@@ -307,12 +307,21 @@ matched would throw that shading away again. So keep's result can hold many valu
 everything else is `(0, 0, 0, 0)`. It is a decision, not a fade: there is no soft
 band around the threshold.
 
-**Nearness counts opacity.** Color and opacity are measured apart and put
-together: the distance between the colors on the same OKLab-times-100 scale as the
-palette's own minimum distance (see [COLOR-PALETTE.md](COLOR-PALETTE.md) for why
-plain RGB cannot do this job), and 50 for the whole way from clear to solid. So a
-half-faded red is not the solid red entry at a tolerance of `0`, and a transparent
-pixel is nowhere near black, whatever color numbers it carries.
+**Nearness is by hue, saturation, brightness and opacity.** Each color is placed
+in the HSB cone:
+
+- hue is a direction round it;
+- saturation is how far out from its middle;
+- brightness is how high up it, with the cone narrowing to a point at black.
+
+So hue counts exactly as much as a color has any. Two greys are never pushed
+apart by the hue their rounding gives them, and a dark red is nearer black than a
+bright red is. Opacity is measured beside the color. Black against white is 100,
+and so is clear against solid.
+
+**Snap takes the absolute nearest entry** by that measure. A half-faded red is
+not the solid red entry at a tolerance of `0`, and a transparent pixel is nowhere
+near black, whatever color numbers it carries.
 
 A soft edge is always nearest **its own color**: a red edge pixel snaps to red
 above half opacity and to clear below it, never to the orange beside it. Comparing

@@ -93,10 +93,33 @@ test('switching entries off narrows what is matched against', () => {
 
 /* ---------------- nearest ---------------- */
 
-test('the nearest entry is the one that looks nearest, not the one nearest in RGB', () => {
+test('the nearest entry is the nearest by hue, saturation and brightness', () => {
   const near = nearestEntry({ r: 0xd0, g: 0x30, b: 0x30 }, palette)!;
   assert.equal(palette.hexes[near.index], RED);
-  assert.ok(near.distance < 5, `${near.distance}`);
+  assert.ok(near.distance < 12, `${near.distance}`);
+});
+
+test('distance is by hue, saturation, brightness and opacity, in the HSB cone', async () => {
+  const { hsbaOf, hsbaDistance, hsbOf } = await import('../src/flows/paletteFilter');
+  const d = (a: [number, number, number, number], b: [number, number, number, number]) =>
+    hsbaDistance(hsbaOf({ r: a[0], g: a[1], b: a[2], a: a[3] }), hsbaOf({ r: b[0], g: b[1], b: b[2], a: b[3] }));
+  assert.equal(Math.round(d([0, 0, 0, 255], [255, 255, 255, 255])), 100, 'black to white is 100');
+  assert.equal(Math.round(d([255, 0, 0, 255], [255, 0, 0, 0])), 100, 'solid to clear is 100');
+  assert.equal(d([10, 20, 30, 0], [200, 0, 0, 0]), 0, 'two clear pixels are the same whatever their numbers');
+  // Two greys a step apart differ only by that step, whatever hue their rounding gives them.
+  assert.ok(d([128, 128, 128, 255], [129, 128, 128, 255]) < 1);
+  // Opposite hues at full saturation are further apart than a hue a little round.
+  assert.ok(d([255, 0, 0, 255], [0, 255, 255, 255]) > d([255, 0, 0, 255], [255, 80, 0, 255]) * 3);
+  // A dark red is nearer black than a bright red is.
+  assert.ok(d([80, 0, 0, 255], [0, 0, 0, 255]) < d([255, 0, 0, 255], [0, 0, 0, 255]));
+  const hsb = hsbOf({ r: 0, g: 255, b: 0 });
+  assert.deepEqual([Math.round(hsb.h), hsb.s, hsb.b], [120, 1, 1]);
+});
+
+test('snap takes the absolute nearest entry: a dim red goes to dark red, not to a mid grey', () => {
+  const two = readPalette(['#700000', '#8a8a8a']);
+  const { pixels } = filterImage(image([[0x90, 0x40, 0x40, 255]]), two, options({ mode: 'snap' }));
+  assert.deepEqual(Array.from(pixels), [0x70, 0x00, 0x00, 255]);
 });
 
 test('an empty palette has no nearest, and says so rather than guessing one', () => {
@@ -198,7 +221,7 @@ test('a fainter pixel of a palette color is kept only when the tolerance takes i
   const faint = image([[0xdc, 0x28, 0x28, 100]]);
   assert.deepEqual(Array.from(filterImage(faint, palette, options({ tolerance: 0 })).pixels), [0, 0, 0, 0]);
   assert.deepEqual(
-    Array.from(filterImage(faint, palette, options({ tolerance: 60 })).pixels),
+    Array.from(filterImage(faint, palette, options({ tolerance: 65 })).pixels),
     [0xdc, 0x28, 0x28, 100],
     'kept means "as it was", not "opaque now"',
   );
