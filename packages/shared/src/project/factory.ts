@@ -24,6 +24,10 @@ import { emptyVideoMatchFlowData } from '../flows/videoMatch';
 import { emptyResizeFlowData } from '../flows/resize';
 import { emptyPartsFlowData } from '../flows/rigParts';
 import { emptyFaceFlowData } from '../flows/face';
+import { emptyCropFlowData } from '../flows/crop';
+import { emptyLinesFlowData } from '../flows/lines';
+import { emptyVideoBackgroundFlowData } from '../flows/videoBackground';
+import { emptyShotsFlowData } from '../flows/shots';
 import { newId } from '../ids';
 import { getFlowKind, requireFlowKind } from '../registry/flowKinds';
 import { parseRules, RULE_DIRECTIVES } from '../rules/parseRules';
@@ -101,6 +105,14 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyPartsFlowData();
     case 'face':
       return emptyFaceFlowData();
+    case 'crop':
+      return emptyCropFlowData();
+    case 'lines':
+      return emptyLinesFlowData();
+    case 'videoBackground':
+      return emptyVideoBackgroundFlowData();
+    case 'shots':
+      return emptyShotsFlowData();
     default:
       return emptyBriefData(def);
   }

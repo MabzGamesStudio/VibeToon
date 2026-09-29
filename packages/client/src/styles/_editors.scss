@@ -3000,3 +3000,249 @@ input.is-invalid {
   align-items: center;
   gap: 4px;
 }
+
+/* ---------------- crop, lines and video background: a picture with things over it ---------------- */
+
+// The picture fills the width, letterboxed to fit the height; whatever lies
+// over it is fitted the same way (an SVG's own default), so the two line up.
+.vt-crop-frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  line-height: 0;
+}
+
+.vt-crop-canvas,
+.vt-lines-under {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+// A second canvas laid exactly over the first.
+.vt-crop-canvas.is-over,
+.vt-crop-canvas.is-screen {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+// Black is nothing and red adds: the lines lie over the picture.
+.vt-crop-canvas.is-screen {
+  mix-blend-mode: screen;
+}
+
+.vt-crop-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  touch-action: none;
+
+  &.is-manual {
+    cursor: crosshair;
+  }
+}
+
+.vt-crop-shade {
+  fill: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.vt-crop-box {
+  fill: transparent;
+  stroke: $accent;
+
+  .is-manual & {
+    cursor: move;
+  }
+}
+
+.vt-crop-handle {
+  fill: $bg-0;
+  stroke: $accent;
+}
+
+.vt-crop-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 8px;
+}
+
+.vt-lines-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: $text-faint;
+
+  i {
+    flex: 1;
+    height: 8px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #000, #f00);
+    box-shadow: 0 0 0 1px $line;
+  }
+}
+
+/* ---------------- video background ---------------- */
+
+.vt-bg-mark {
+  stroke: $ok;
+  fill: rgba(60, 200, 120, 0.2);
+
+  &.is-live {
+    stroke-dasharray: 4 3;
+  }
+}
+
+.vt-bg-stroke {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.45;
+
+  &.is-include {
+    stroke: #3cc878;
+  }
+
+  &.is-exclude {
+    stroke: $err;
+  }
+}
+
+.vt-bg-node {
+  fill: $bg-0;
+  stroke: $ok;
+}
+
+.vt-bg-strip {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 2px;
+}
+
+.vt-bg-thumb {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid $line;
+  border-radius: 4px;
+  background: $bg-1;
+  color: $text-dim;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+
+  img {
+    display: block;
+    height: 48px;
+  }
+
+  &.is-background {
+    justify-content: center;
+    min-width: 80px;
+  }
+
+  &.is-marked {
+    border-color: $ok;
+  }
+
+  &.is-on {
+    border-color: $accent;
+    box-shadow: 0 0 0 1px $accent;
+    color: inherit;
+  }
+}
+
+/* ---------------- shot split ---------------- */
+
+.vt-shot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.vt-shot-row {
+  display: grid;
+  grid-template-columns: max-content;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid $line;
+  border-radius: 6px;
+  background: $bg-1;
+
+  &.is-selected {
+    border-color: $accent;
+  }
+}
+
+.vt-shot-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.vt-shot-strip {
+  position: relative;
+  display: flex;
+  overflow: hidden;
+  border-radius: 3px;
+  background: $bg-0;
+  cursor: col-resize;
+}
+
+.vt-shot-tile {
+  flex: none;
+  background: $bg-2;
+  border-right: 1px solid $bg-0;
+
+  img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+  }
+}
+
+.vt-shot-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: $accent;
+  pointer-events: none;
+
+  span {
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+}
+
+.vt-shot-actions {
+  display: flex;
+  gap: 6px;
+}

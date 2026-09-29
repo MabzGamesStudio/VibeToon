@@ -873,6 +873,67 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       'Lanczos — photographs, the sharpest; can leave a faint halo beside a hard edge.',
     ],
   },
+  'crop.threshold': {
+    what: 'How solid a pixel must be to count when boxing the subject. Only pixels with more alpha than this are inside the box.',
+    examples: ['0 — any pixel that is not fully clear, down to the faintest halo.', '32 — ignores faint haze and soft shadows round the edge.', '200 — only the nearly solid core.'],
+  },
+  'crop.padding': {
+    what: 'Clear pixels kept round the subject on every side. It may reach past the picture’s edge; what is outside comes out clear.',
+    examples: ['0 — tight to the solid pixels.', '8 — a little breathing room, for a sprite sheet.', '64 — a wide margin, for a thumbnail.'],
+  },
+  'lines.contrast': {
+    what: 'How different two neighbouring pixels must be for the change between them to count as sharp. A line needs a sharp change into it and another out of it. Black against white is 100.',
+    examples: ['8 — faint pencil lines count.', '18 — a good default for inked drawings.', '40 — only bold, dark lines against light areas.'],
+  },
+  'lines.flatness': {
+    what: 'How far a pixel may drift from the colour of the run it is in and still belong to it. A gradient drifts steadily, so it breaks into runs without ever changing sharply, and is never a line.',
+    examples: ['4 — strict: textured paper breaks into many runs.', '10 — a good default.', '25 — loose: shaded areas count as one colour.'],
+  },
+  'lines.maxWidth': {
+    what: 'The widest a band of colour can be and still be a line, in pixels, measured across it. Anything wider is an area.',
+    examples: ['2 — hairlines only.', '8 — a good default for drawings at screen size.', '20 — thick brush strokes, on a big picture.'],
+  },
+  'lines.ratio': {
+    what: 'How many times longer than wide a band must be to be a line. The band’s pixels are joined up with the ones like them nearby and measured along it.',
+    examples: ['1 — any speck with sharp sides counts.', '3 — a good default: dots and short dashes are left out.', '8 — only long strokes.'],
+  },
+  'lines.chunk': {
+    what: 'The size of the squares the picture is read in. Lines are found, and measured, a chunk at a time, reaching a little past each so a line crossing a border is not cut short.',
+    examples: ['24 — short lines are judged on their own.', '48 — a good default.', '160 — long lines are measured over more of their length.'],
+  },
+  'videoBackground.sampling': {
+    what: 'Which frames the background is worked out from: so many a second, or so many spread over the clip. Every frame is held at once, so many frames of a big video are read smaller.',
+    examples: ['12 in all — quick, for a clip where things move a lot.', '24 in all — a good default.', '2 a second — a long clip, evenly.'],
+  },
+  'videoBackground.tolerance': {
+    what: 'How much a pixel may change between frames and still be background. The change is measured from the middle of all its colours. Black against white is 100.',
+    examples: ['2 — only pixels that do not change at all: a still, clean video.', '8 — a good default: allows for compression noise.', '25 — allows for flicker and slow light changes, but takes in slow-moving things too.'],
+  },
+  'videoBackground.brush': {
+    what: 'The radius of the brush that paints a frame’s pixels into the background, or erases them out of it, in frame pixels.',
+    examples: ['4 — detail round an edge.', '12 — a good default.', '60 — whole areas at once.'],
+  },
+  'shots.frameRate': {
+    what: 'The video’s frame rate. A cut is narrowed down to the frame it falls on, so this is what "the frame" means. A browser cannot read it from the file, so set it if you know it.',
+    examples: ['24 — film and most animation.', '25 — PAL video.', '30 — most phone and web video.'],
+  },
+  'shots.sampling': {
+    what: 'How often frames are compared to look for a cut: so many a second, or so many in all. A cut between two compared frames is then found to the exact frame by halving the gap.',
+    examples: ['2 a second — a good default: a cut is found wherever shots last more than half a second.', '0.5 a second — quick, for long shots.', '6 a second — for fast cutting, where two cuts could fall between samples.'],
+    note: 'Two cuts between the same two compared frames are found as one. Compare more often for fast cutting.',
+  },
+  'shots.threshold': {
+    what: 'How unlike two frames must be for a cut between them. The difference is half where the colours are (an 8 × 8 picture of each frame) and half which colours there are (a histogram).',
+    examples: ['15% — catches cuts between similar shots, but a fast camera move can pass for one.', '30% — a good default.', '60% — only cuts to something completely different.'],
+  },
+  'shots.minShot': {
+    what: 'The shortest a shot can be. A shorter one — a flash, a dissolve’s middle, a false cut — is joined to the neighbour it is least unlike.',
+    examples: ['0 — every cut is kept.', '0.5 s — a good default.', '2 s — only real shots, for slow editing.'],
+  },
+  'shots.scale': {
+    what: 'How long each row is drawn, in pixels for each second of the shot. Every row uses the same scale, so a shot twice as long is twice as wide.',
+    examples: ['30 — a long film on one screen.', '120 — enough frames to find a split point.'],
+  },
   'videoMatch.sampling': {
     what: 'Which frames of the video are matched: so many a second, or so many spread evenly over the whole video. Each is a full Rig Match, so more frames is a smoother animation and a longer wait. At most 600 frames.',
     examples: [

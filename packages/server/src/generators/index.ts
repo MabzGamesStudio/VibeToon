@@ -15,6 +15,10 @@ import { generatePose } from './pose';
 import { generateRigMatch } from './rigMatch';
 import { generateVideoMatch } from './videoMatch';
 import { generateResize } from './resize';
+import { generateCrop } from './crop';
+import { generateLines } from './lines';
+import { generateVideoBackground } from './videoBackground';
+import { generateShots } from './shots';
 import { generateParts } from './parts';
 import { generateFace } from './face';
 import { generatePaletteFilter } from './paletteFilter';
@@ -58,6 +62,10 @@ const GENERATORS: Record<string, Generator> = {
   'art.image': generateImage,
   'art.cutout': generateCutout,
   'art.resize': generateResize,
+  'art.crop': generateCrop,
+  'art.lines': generateLines,
+  'art.video.background': generateVideoBackground,
+  'animation.video.shots': generateShots,
   'art.vectorize': generateVectorize,
   'art.vector.edit': generateVectorEdit,
   'production.edit': generateAssembly,

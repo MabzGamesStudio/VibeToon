@@ -44,6 +44,10 @@ const VECTORIZE = ['art.vectorize'];
 const VECTOR_EDIT = ['art.vector.edit'];
 const VIDEO_MATCH = ['animation.video.match'];
 const RESIZE = ['art.resize'];
+const CROP = ['art.crop'];
+const LINES = ['art.lines'];
+const BACKGROUND = ['art.video.background'];
+const SHOTS = ['animation.video.shots'];
 const FACE = ['animation.face'];
 const RIG = ['animation.rig'];
 const PALETTE = ['art.palette'];
@@ -127,6 +131,30 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('face.offsetY', 'Down', FACE, 'Nudging a feature', -100, 100, 0.5, 'px'),
   def('face.scale', 'Size', FACE, 'Nudging a feature', 0.25, 3, 0.01, '×'),
   def('resize.scale', 'Scale', RESIZE, 'Size', 0.05, 8, 0.05, '×'),
+
+  // Image Crop
+  def('crop.threshold', 'Solid above', CROP, 'Crop', 0, 254, 1, 'alpha'),
+  def('crop.padding', 'Margin', CROP, 'Crop', 0, 256, 1, 'px'),
+
+  // Line Detection
+  def('lines.contrast', 'Sharp change', LINES, 'What a line is', 1, 100, 1),
+  def('lines.flatness', 'Flatness', LINES, 'What a line is', 0, 60, 1),
+  def('lines.maxWidth', 'Widest line', LINES, 'What a line is', 1, 32, 1, 'px'),
+  def('lines.ratio', 'Longer than wide by', LINES, 'What a line is', 0.5, 12, 0.1, '×'),
+  def('lines.chunk', 'Chunk size', LINES, 'What a line is', 8, 256, 8, 'px'),
+
+  // Video Background
+  def('videoBackground.fps', 'Frames a second', BACKGROUND, 'Frames', 0.1, 30, 0.1, 'a second'),
+  def('videoBackground.total', 'Frames in all', BACKGROUND, 'Frames', 2, 300, 1, 'frames'),
+  def('videoBackground.tolerance', 'Tolerance', BACKGROUND, 'What counts as still', 0, 60, 1),
+  def('videoBackground.brush', 'Brush', BACKGROUND, 'Put more in by hand', 1, 120, 1, 'px'),
+
+  // Shot Split
+  def('shots.fps', 'Compare every', SHOTS, 'Finding the cuts', 0.1, 10, 0.05, 'a second'),
+  def('shots.total', 'Frames compared', SHOTS, 'Finding the cuts', 4, 600, 1, 'frames'),
+  def('shots.threshold', 'A cut is a difference of', SHOTS, 'Finding the cuts', 0.05, 0.95, 0.01),
+  def('shots.minShot', 'Shortest shot', SHOTS, 'Finding the cuts', 0, 10, 0.1, 's'),
+  def('shots.scale', 'Row scale', SHOTS, 'Shots', 8, 600, 1, 'px a second'),
   def('videoMatch.fps', 'Frames a second', VIDEO_MATCH, 'Frames', 0.5, 30, 0.5, 'fps'),
   def('videoMatch.total', 'Frames in all', VIDEO_MATCH, 'Frames', 2, 300, 1, 'frames'),
   def('videoMatch.features', 'Features per part', VIDEO_MATCH, 'Finding the body', 2, 40, 1, 'features'),

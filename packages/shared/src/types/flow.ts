@@ -64,6 +64,10 @@ export type EditorId =
   | 'resize'
   | 'parts'
   | 'face'
+  | 'crop'
+  | 'lines'
+  | 'videoBackground'
+  | 'shots'
   | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */

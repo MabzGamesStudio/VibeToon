@@ -28,6 +28,7 @@ import { Field } from '../common/Field';
 import { onScreen } from '../common/handles';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
+import { loadVideo, seek } from '../common/video';
 import { EditorShell } from './EditorShell';
 import type { MatchReply, MatchRequest } from './rigMatch/matchWorker';
 
@@ -44,50 +45,6 @@ function confidenceColor(value: number | null | undefined): string {
 }
 
 const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${(seconds % 60).toFixed(2).padStart(5, '0')}`;
-
-/** A video element ready to be read from, at a URL, its length known. */
-async function loadVideo(url: string): Promise<HTMLVideoElement> {
-  const video = await new Promise<HTMLVideoElement>((resolve, reject) => {
-    const element = document.createElement('video');
-    element.muted = true;
-    element.preload = 'auto';
-    element.playsInline = true;
-    element.crossOrigin = 'anonymous';
-    element.onloadeddata = () => resolve(element);
-    element.onerror = () => reject(new Error('the video could not be read in this browser'));
-    element.src = url;
-  });
-  // A video recorded in a browser often does not say how long it is until it
-  // has been read to the end; seeking past the end makes it find out.
-  if (!Number.isFinite(video.duration)) {
-    await new Promise<void>((resolve) => {
-      const known = () => {
-        if (!Number.isFinite(video.duration)) return;
-        video.removeEventListener('durationchange', known);
-        resolve();
-      };
-      video.addEventListener('durationchange', known);
-      video.currentTime = 1e101;
-    });
-    await seek(video, 0);
-  }
-  return video;
-}
-
-function seek(video: HTMLVideoElement, time: number): Promise<void> {
-  return new Promise((resolve) => {
-    if (Math.abs(video.currentTime - time) < 1e-3 && video.readyState >= 2) {
-      resolve();
-      return;
-    }
-    const done = () => {
-      video.removeEventListener('seeked', done);
-      resolve();
-    };
-    video.addEventListener('seeked', done);
-    video.currentTime = time;
-  });
-}
 
 /**
  * Finding a bound rig through a video.

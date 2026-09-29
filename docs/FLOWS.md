@@ -364,6 +364,20 @@ Finds a bound rig’s body in every sampled frame of a video and turns it into a
   keep: placement, joint angles, part sizes, timing
   ```
 
+### Shot Split
+
+`animation.video.shots` · **bespoke editor**
+
+Splits a video into its shots: frames are compared by a small picture and a colour histogram, and each cut is found to the exact frame by binary search. Join and split shots by hand after.
+
+- **In:** Video
+- **Out:** Shots `shots.json`, Report `shots.md`, Video `video.mp4`
+- **Rules a new wire leaving `shots` starts with:**
+
+  ```
+  keep: shot times, frame numbers
+  ```
+
 ### Animatic
 
 `animation.animatic` · **bespoke editor**
@@ -450,6 +464,43 @@ Makes a picture bigger or smaller, by a factor or to a size, with the resampling
 
 - **In:** Image *(required)*
 - **Out:** Resized image `resized.png`
+- **Rules a new wire leaving `image` starts with:**
+
+  ```
+  keep: transparency
+  ```
+
+### Image Crop
+
+`art.crop` · **bespoke editor**
+
+Cuts a picture down to part of it: a box drawn by hand, or — for a picture with transparency — the smallest box round its solid pixels, so the subject is boxed with nothing round it.
+
+- **In:** Image *(required)*
+- **Out:** Cropped image `cropped.png`, Box `crop.json`
+- **Rules a new wire leaving `image` starts with:**
+
+  ```
+  keep: transparency
+  ```
+
+### Line Detection
+
+`art.lines` · **bespoke editor**
+
+Finds the drawn lines in a picture: a thin band of one colour with a sharp change into it and out of it, longer than it is wide. Edges between two colours and gradients are not lines. Shown black with red lines, redder the surer.
+
+- **In:** Image *(required)*
+- **Out:** Lines `lines.png`, Report `lines.md`
+
+### Video Background
+
+`art.video.background` · **bespoke editor**
+
+Takes the background out of a video clip: every pixel that stays the same in every frame, with whatever moved left clear. Paint or draw round what a frame shows to put more of it back.
+
+- **In:** Video
+- **Out:** Background `background.png`, Report `background.md`, Video `video.mp4`
 - **Rules a new wire leaving `image` starts with:**
 
   ```
@@ -666,4 +717,4 @@ An arrangement of flows saved under a name and used again as one, each use with 
 
 ---
 
-54 flow kinds.
+58 flow kinds.
