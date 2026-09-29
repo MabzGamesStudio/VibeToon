@@ -31,6 +31,10 @@ import {
   type PaletteOptions,
 } from '../flows/palette';
 import { DEFAULT_VECTORIZE_OPTIONS } from '../flows/vectorize';
+import { emptyCropFlowData } from '../flows/crop';
+import { DEFAULT_LINE_OPTIONS } from '../flows/lines';
+import { emptyVideoBackgroundFlowData } from '../flows/videoBackground';
+import { DEFAULT_SHOT_OPTIONS, emptyShotsFlowData } from '../flows/shots';
 import type { BriefFlowData, FlowData, FlowNode, Project } from '../types/project';
 import { DEFAULT_RANDOM_TEXT_OPTIONS, readTextMode } from '../types/text';
 import { defaultDataForKind } from './factory';
@@ -219,6 +223,46 @@ export function normaliseFlowData(data: FlowData): FlowData {
         paint: data.paint ?? null,
         selected: Array.isArray(data.selected) ? data.selected : [],
         edits: typeof data.edits === 'number' ? data.edits : 0,
+      };
+    }
+    case 'crop': {
+      const base = emptyCropFlowData();
+      const whole = typeof data.mode === 'string' && typeof data.threshold === 'number' && typeof data.padding === 'number' && typeof data.square === 'boolean' && data.rect !== undefined;
+      return whole ? data : { ...base, ...data, rect: data.rect ?? null };
+    }
+    case 'lines': {
+      const options = fill(data.options, DEFAULT_LINE_OPTIONS);
+      if (!options.filled && (data.view === 'lines' || data.view === 'original')) return data;
+      return { ...data, options: options.value, view: data.view === 'original' ? 'original' : 'lines' };
+    }
+    case 'videoBackground': {
+      const base = emptyVideoBackgroundFlowData();
+      const sampling = fill(data.sampling, DEFAULT_VIDEO_SAMPLING);
+      const whole = Array.isArray(data.marks) && typeof data.tolerance === 'number' && typeof data.brush === 'number' && typeof data.tool === 'string' && data.current !== undefined;
+      if (!sampling.filled && whole) return data;
+      return {
+        ...base,
+        ...data,
+        sampling: sampling.value,
+        marks: Array.isArray(data.marks) ? data.marks : [],
+        current: data.current ?? null,
+      };
+    }
+    case 'shots': {
+      const base = emptyShotsFlowData();
+      const sampling = fill(data.sampling, base.sampling);
+      const options = fill(data.options, DEFAULT_SHOT_OPTIONS);
+      const whole = Array.isArray(data.cuts) && Array.isArray(data.detected) && typeof data.edits === 'number' && data.selected !== undefined;
+      if (!sampling.filled && !options.filled && whole) return data;
+      return {
+        ...base,
+        ...data,
+        sampling: sampling.value,
+        options: options.value,
+        cuts: Array.isArray(data.cuts) ? data.cuts : [],
+        detected: Array.isArray(data.detected) ? data.detected : [],
+        edits: typeof data.edits === 'number' ? data.edits : 0,
+        selected: data.selected ?? null,
       };
     }
     case 'resize': {

@@ -270,6 +270,108 @@ editor sends its result with the run.
 
 ---
 
+# Image Crop
+
+`art.crop` · takes an **Image** · gives **`cropped.png`** and **`crop.json`**
+
+Cuts a picture down to part of it, in one of two ways.
+
+**To the solid pixels.** For a picture with transparency (a cut-out character,
+a sprite on a clear sheet), the box is the smallest one that holds every solid
+pixel, so the subject is boxed and centred with nothing round it.
+
+- **Solid above** is how much alpha a pixel needs to count. At 0 any pixel that
+  is not fully clear counts, down to the faintest halo; raise it to leave soft
+  shadows and haze outside the box.
+- **Margin** keeps that many clear pixels round the subject on every side. It
+  may reach past the picture's edge, and what is outside comes out clear.
+- A picture with no transparency is solid all over, so its solid box is the
+  whole picture. The editor says so; draw a box instead.
+- **Adjust this box by hand** switches to drawing by hand, starting from the
+  solid box.
+
+**By hand.** Drag on the picture to draw a box. Drag the box to move it, drag
+one of its eight handles to move that side or corner, or type its left, top,
+width and height. Hold **Shift** to draw a new box over the old one. A box drawn
+by hand stays inside the picture. **Whole picture** starts again;
+**Fit to the solid pixels** puts the box round the solid pixels.
+
+**Keep it square** grows the short side about the box's middle.
+
+The editor shows the box over the picture, with everything outside it dimmed.
+**Cropped** shows the result. The handles stay the same size on screen however
+far you zoom in. Every change is one undo step.
+
+`crop.json` says where the box was, so a flow downstream can put the crop back:
+
+```json
+{ "kind": "crop", "version": 1, "mode": "opaque", "source": { "width": 200, "height": 160 }, "box": { "x": 103, "y": 33, "width": 55, "height": 55 } }
+```
+
+A PNG is cropped on the server as well; any other format is cropped in the
+editor and sent with the run.
+
+---
+
+# Line Detection
+
+`art.lines` · takes an **Image** · gives **`lines.png`** and **`lines.md`**
+
+Finds the drawn lines in a picture: the strokes between areas, told apart from
+the edges where one area simply meets another.
+
+```
+colour A │ line colour │ colour B        a line: two sharp changes, a thin band between
+colour A │ colour B                    an edge: one change, not a line
+colour A ░▒▓ colour B                    a gradient: no sharp change, not a line
+```
+
+**Across a line the colour does three things.** It is one colour, then changes
+sharply to the line's colour, then a few pixels on changes sharply again to the
+colour on the far side (which may be the same as the first).
+
+- **An edge**, one colour meeting another directly, is one change, not two.
+- **A gradient** changes a little at every pixel and never sharply.
+- **A soft edge**, a pixel or two part-way between the colours either side of
+  it, is a blend rather than a colour of its own. It is taken as part of the
+  edge, so anti-aliasing does not turn every edge into a thin line.
+
+**How it looks.** The picture is read in square **chunks**. In each one, every
+row, every column and both diagonals are walked and cut into runs of one
+colour:
+
+1. A run ends where a pixel is sharply unlike the one before it
+   (**Sharp change**), or has drifted from the run's colour (**Flatness**).
+   The second is how a gradient becomes many runs with no sharp change between
+   them.
+2. A run with a sharp change on both sides, no wider than **Widest line**, in a
+   colour unlike both neighbours, is a line crossed in that direction.
+3. **Longer than wide.** The line pixels found, joined to the ones of the same
+   colour next to them, must reach along the line at least **Longer than wide
+   by** times the line's width. A speck or a short dash is not a line; a stroke
+   is. The length is measured over the chunk and half a chunk round it, so a
+   line crossing a chunk's border is not cut short.
+
+**Confidence.** Each line pixel gets a confidence from how sharp its two
+changes are and how far past the ratio it reaches. `lines.png` is **black where
+there is no line and red where there is**, the redder the surer.
+
+| Setting | What it does |
+| --- | --- |
+| Sharp change | How different two neighbouring pixels must be for a change to count (black against white is 100). |
+| Flatness | How far a pixel may drift from its run's colour and stay in it. |
+| Widest line | The widest a band can be and still be a line, in pixels. |
+| Longer than wide by | How many times longer than wide a line must be. |
+| Chunk size | The side of the squares the picture is read in. |
+
+The editor works the lines out as the settings change. **Lines** and
+**Original** switch between the line picture and the picture itself; **over the
+picture** lays the red lines over the picture. A PNG is read on the server as
+well; any other format is worked out in the editor and sent with the run. A
+picture a million pixels in size takes well under a second.
+
+---
+
 # Palette Filter
 
 `art.palette.filter` · takes an **Image** and a **Palette** · gives **`filtered.png`** and **`filter.md`**

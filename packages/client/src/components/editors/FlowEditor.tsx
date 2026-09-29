@@ -24,6 +24,10 @@ import { RigMatchFlowEditor } from './RigMatchFlowEditor';
 import { CustomFlowEditor } from './CustomFlowEditor';
 import { VideoMatchFlowEditor } from './VideoMatchFlowEditor';
 import { ResizeFlowEditor } from './ResizeFlowEditor';
+import { CropFlowEditor } from './CropFlowEditor';
+import { LinesFlowEditor } from './LinesFlowEditor';
+import { VideoBackgroundFlowEditor } from './VideoBackgroundFlowEditor';
+import { ShotsFlowEditor } from './ShotsFlowEditor';
 import { PartsFlowEditor } from './PartsFlowEditor';
 import { FaceFlowEditor } from './FaceFlowEditor';
 import { VectorEditFlowEditor } from './VectorEditFlowEditor';
@@ -87,6 +91,14 @@ export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
       return <VideoMatchFlowEditor project={project} node={node} />;
     case 'resize':
       return <ResizeFlowEditor project={project} node={node} />;
+    case 'crop':
+      return <CropFlowEditor project={project} node={node} />;
+    case 'lines':
+      return <LinesFlowEditor project={project} node={node} />;
+    case 'videoBackground':
+      return <VideoBackgroundFlowEditor project={project} node={node} />;
+    case 'shots':
+      return <ShotsFlowEditor project={project} node={node} />;
     case 'parts':
       return <PartsFlowEditor project={project} node={node} />;
     case 'face':

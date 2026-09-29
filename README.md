@@ -142,12 +142,19 @@ Set `VIBETOON_DATA` to keep them somewhere else.
 - **Image resize.** Bigger or smaller, by a factor or to a size: nearest for
   pixel art, bilinear, bicubic or Lanczos for drawings and photos. Shrinking
   counts every source pixel, and transparency never bleeds into edges.
+- **Image crop.** A box drawn and dragged by hand, or, for a picture with
+  transparency, the smallest box round its solid pixels, with a margin if you
+  want one. Writes the crop and where the box was.
+- **Line detection.** Finds the drawn lines in a picture: a thin band with a
+  sharp change into it and out of it, longer than it is wide by a ratio you set.
+  An edge between two colours and a gradient are not lines. Writes a black
+  picture with the lines in red, redder the surer.
 - **Palette filter.** A palette and an image in, a filtered image out: keep only
   those colors, drop them, or snap every pixel to the nearest one. Keep and
   remove are exact mirrors; snap has no threshold, because every pixel has a
   nearest. A pixel that was already transparent is left alone in every mode, so
   cutting a subject out first and filtering it second does not undo the cutting.
-  See [docs/IMAGE-FLOWS.md](docs/IMAGE-FLOWS.md) for all four.
+  See [docs/IMAGE-FLOWS.md](docs/IMAGE-FLOWS.md) for all six.
 - **Polygon decomposition.** A picture back into shapes: strokes become lines and
   areas become convex polygons. A line is a region that is *thin* **and** has
   different things either side of it — two blocks meeting is not a line, a stroke
@@ -205,6 +212,15 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   threshold are dropped and split the animation into segments. It plays back as
   the body and skeleton alone, and writes a rig animation.
   See [docs/VIDEO-RIG-MATCH.md](docs/VIDEO-RIG-MATCH.md).
+- **Video background.** A clip in, its background out: every pixel that stays
+  the same in every sampled frame, within a tolerance, and clear where something
+  moved. Pick a frame and paint, erase or draw round what it shows to put more
+  back. See [docs/VIDEO-BACKGROUND.md](docs/VIDEO-BACKGROUND.md).
+- **Shot split.** A video in, its shots out as time segments. Frames are
+  compared by a small picture and a colour histogram, and each cut is found to
+  the exact frame by binary search. Each shot is a row of frames as long as the
+  shot: click to split one, join it to the next.
+  See [docs/SHOT-SPLIT.md](docs/SHOT-SPLIT.md).
 - **Custom flows.** Build an arrangement of flows on a graph of its own, or save
   one already on the graph, and use it again as one named flow in the palette. Each use has its own copies of the flows inside, so its
   settings are edited independently. See

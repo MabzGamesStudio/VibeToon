@@ -105,6 +105,10 @@ test('the flows that write files are tested against a running server too', async
     'resize',
     'parts',
     'face',
+    'crop',
+    'lines',
+    'videoBackground',
+    'shots',
   ];
   const missing = withGenerators.filter(
     (editor) => !candidates(editor).some((name) => present.includes(name)),
