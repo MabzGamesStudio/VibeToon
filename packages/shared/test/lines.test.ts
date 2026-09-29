@@ -8,6 +8,8 @@ import {
   isBlend,
   lineImage,
   linesReport,
+  readLineImage,
+  widthShade,
   normaliseLineOptions,
   summariseLines,
 } from '../src/flows/lines';
@@ -109,15 +111,48 @@ test('a sharper line is a surer one', () => {
   assert.ok(at(strong, 30, 20) > at(faint, 30, 20));
 });
 
-test('the line picture is black with red lines, redder the surer', () => {
-  const result = detectLines(paint(60, 40, (x) => (x >= 30 && x < 33 ? BLACK : WHITE)));
+test('the line picture is black, with thin lines red and brighter the surer', () => {
+  const result = detectLines(paint(60, 40, (x) => (x >= 30 && x < 31 ? BLACK : WHITE)));
   const image = lineImage(result);
   assert.deepEqual([...image.data.subarray(0, 4)], [0, 0, 0, 255]);
-  const on = (20 * 60 + 31) * 4;
-  assert.ok(image.data[on]! > 0);
+  const on = (20 * 60 + 30) * 4;
+  assert.equal(image.data[on]!, Math.round(at(result, 30, 20) * 255), 'a one-pixel line is all red');
   assert.equal(image.data[on + 1], 0);
   assert.equal(image.data[on + 2], 0);
-  assert.equal(image.data[on]!, Math.round(at(result, 31, 20) * 255));
+});
+
+test('each line pixel knows how wide its line is, straight across', () => {
+  const upright = detectLines(paint(60, 40, (x) => (x >= 30 && x < 34 ? BLACK : WHITE)));
+  assert.equal(upright.lineWidth[20 * 60 + 31], 4);
+  assert.equal(upright.lineWidth[20 * 60 + 10], 0, 'no line, no width');
+  // A 45° band three pixels thick along the diagonal.
+  const slanted = detectLines(paint(60, 60, (x, y) => (Math.abs(x - y) <= 1 ? BLACK : WHITE)));
+  const across = slanted.lineWidth[30 * 60 + 30]!;
+  // Straight across it is 3/√2 ≈ 2.1; a diagonal walk steps over every other pixel, so it reads 1.4 or 2.8.
+  assert.ok(across > 1.2 && across < 3.5, `${across}`);
+});
+
+test('the wider the line, the bluer', () => {
+  const thin = lineImage(detectLines(paint(60, 40, (x) => (x >= 30 && x < 32 ? BLACK : WHITE))));
+  const wide = lineImage(detectLines(paint(60, 40, (x) => (x >= 26 && x < 36 ? BLACK : WHITE)), { maxWidth: 16 }));
+  const blueShare = (image: typeof thin, x: number) => {
+    const at = (20 * 60 + x) * 4;
+    return image.data[at + 2]! / (image.data[at]! + image.data[at + 2]!);
+  };
+  assert.ok(blueShare(wide, 30) > blueShare(thin, 30) + 0.4);
+  assert.equal(widthShade(1), 0);
+  assert.equal(widthShade(99), 1);
+});
+
+test('a line picture reads back as the confidence and width it was drawn from', () => {
+  const result = detectLines(paint(60, 40, (x) => (x >= 20 && x < 26 ? BLACK : x === 40 ? BLACK : WHITE)));
+  const read = readLineImage(lineImage(result));
+  for (const x of [22, 40]) {
+    const i = 20 * 60 + x;
+    assert.ok(Math.abs(read.confidence[i]! - result.confidence[i]!) < 0.01);
+    assert.ok(Math.abs(read.lineWidth[i]! - result.lineWidth[i]!) < 0.1, `${read.lineWidth[i]} against ${result.lineWidth[i]}`);
+  }
+  assert.equal(read.confidence[20 * 60 + 5], 0);
 });
 
 test('settings are kept in range, and the report says what was found', () => {

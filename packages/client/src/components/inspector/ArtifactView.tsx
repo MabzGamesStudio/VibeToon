@@ -99,6 +99,18 @@ export function ArtifactView({ projectId, artifact, defaultOpen = false }: Artif
               ))}
             </div>
           ) : null}
+          {artifact.kind === 'videoSet' ? (
+            <div style={{ display: 'grid', gap: 6 }}>
+              {(artifact.entries ?? []).map((entry) => (
+                <div key={entry}>
+                  <div className="vt-faint" style={{ fontSize: 11 }}>
+                    {entry}
+                  </div>
+                  <video src={`${url}/${entry}`} controls style={{ width: '100%' }} />
+                </div>
+              ))}
+            </div>
+          ) : null}
           {isTextualArtifact(artifact.kind) ? <pre>{text ?? 'Loading…'}</pre> : null}
         </div>
       ) : null}

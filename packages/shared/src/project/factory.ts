@@ -28,6 +28,9 @@ import { emptyCropFlowData } from '../flows/crop';
 import { emptyLinesFlowData } from '../flows/lines';
 import { emptyVideoBackgroundFlowData } from '../flows/videoBackground';
 import { emptyShotsFlowData } from '../flows/shots';
+import { emptyVideoSourceFlowData } from '../flows/videoSource';
+import { emptyVideoEditFlowData } from '../flows/videoEdit';
+import { emptyLineGraphFlowData } from '../flows/lineGraph';
 import { newId } from '../ids';
 import { getFlowKind, requireFlowKind } from '../registry/flowKinds';
 import { parseRules, RULE_DIRECTIVES } from '../rules/parseRules';
@@ -113,6 +116,12 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyVideoBackgroundFlowData();
     case 'shots':
       return emptyShotsFlowData();
+    case 'videoSource':
+      return emptyVideoSourceFlowData();
+    case 'videoEdit':
+      return emptyVideoEditFlowData();
+    case 'lineGraph':
+      return emptyLineGraphFlowData();
     default:
       return emptyBriefData(def);
   }

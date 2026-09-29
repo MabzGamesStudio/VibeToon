@@ -24,6 +24,9 @@ import type { CropFlowData } from '../flows/crop';
 import type { LinesFlowData } from '../flows/lines';
 import type { VideoBackgroundFlowData } from '../flows/videoBackground';
 import type { ShotsFlowData } from '../flows/shots';
+import type { VideoSourceFlowData } from '../flows/videoSource';
+import type { VideoEditFlowData } from '../flows/videoEdit';
+import type { LineGraphFlowData } from '../flows/lineGraph';
 import type { RigFlowData } from '../flows/rig';
 import type { TextFlowData } from './text';
 
@@ -220,7 +223,10 @@ export type FlowData =
   | CropFlowData
   | LinesFlowData
   | VideoBackgroundFlowData
-  | ShotsFlowData;
+  | ShotsFlowData
+  | VideoSourceFlowData
+  | VideoEditFlowData
+  | LineGraphFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph

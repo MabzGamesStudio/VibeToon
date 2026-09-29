@@ -364,6 +364,24 @@ Finds a bound rig’s body in every sampled frame of a video and turns it into a
   keep: placement, joint angles, part sizes, timing
   ```
 
+### Video Source
+
+`animation.video.source` · **bespoke editor**
+
+A video from this machine or from a link, stored with the project so it keeps working when the link stops.
+
+- **In:** —
+- **Out:** Video `video.mp4`, Source notes `source.md`
+
+### Video Edit
+
+`animation.video.edit` · **bespoke editor**
+
+Crops a video, splits it into segments and deletes the ones not wanted. Writes the kept segments as one video or as a clip each, and the edit beside them.
+
+- **In:** Video
+- **Out:** Edited video `edited.webm`, Clips `clips`, Edit `edit.json`, Video `video.mp4`
+
 ### Shot Split
 
 `animation.video.shots` · **bespoke editor**
@@ -488,10 +506,24 @@ Cuts a picture down to part of it: a box drawn by hand, or — for a picture wit
 
 `art.lines` · **bespoke editor**
 
-Finds the drawn lines in a picture: a thin band of one colour with a sharp change into it and out of it, longer than it is wide. Edges between two colours and gradients are not lines. Shown black with red lines, redder the surer.
+Finds the drawn lines in a picture: a thin band of one colour with a sharp change into it and out of it, longer than it is wide. Edges between two colours and gradients are not lines. Shown on black: thin lines red, wide lines blue, brighter the surer.
 
 - **In:** Image *(required)*
 - **Out:** Lines `lines.png`, Report `lines.md`
+
+### Line Graph
+
+`art.lines.graph` · **bespoke editor**
+
+Turns found lines into vector lines: each area of line pixels is filled, thinned to its middle, and traced into lines joined where they meet. Keep only the lines of a width range; take lines out and move their joins by hand.
+
+- **In:** Lines *(required)*
+- **Out:** Graph `graph.json`, Vector `vector.json`, Drawing `lines.svg`, Report `graph.md`
+- **Rules a new wire leaving `vector` starts with:**
+
+  ```
+  keep: line widths, joins
+  ```
 
 ### Video Background
 
@@ -717,4 +749,4 @@ An arrangement of flows saved under a name and used again as one, each use with 
 
 ---
 
-58 flow kinds.
+61 flow kinds.

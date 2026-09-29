@@ -48,6 +48,7 @@ const CROP = ['art.crop'];
 const LINES = ['art.lines'];
 const BACKGROUND = ['art.video.background'];
 const SHOTS = ['animation.video.shots'];
+const LINE_GRAPH = ['art.lines.graph'];
 const FACE = ['animation.face'];
 const RIG = ['animation.rig'];
 const PALETTE = ['art.palette'];
@@ -142,6 +143,13 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('lines.maxWidth', 'Widest line', LINES, 'What a line is', 1, 32, 1, 'px'),
   def('lines.ratio', 'Longer than wide by', LINES, 'What a line is', 0.5, 12, 0.1, '×'),
   def('lines.chunk', 'Chunk size', LINES, 'What a line is', 8, 256, 8, 'px'),
+
+  // Line Graph
+  def('lineGraph.minConfidence', 'Surest pixels only', LINE_GRAPH, 'Tracing', 0.05, 1, 0.05),
+  def('lineGraph.simplify', 'Simplify', LINE_GRAPH, 'Tracing', 0, 6, 0.1, 'px'),
+  def('lineGraph.spur', 'Drop spurs shorter than', LINE_GRAPH, 'Tracing', 0, 40, 1, 'px'),
+  def('lineGraph.widthMin', 'Width from', LINE_GRAPH, 'Keep lines of width', 0, 16, 0.5, 'px'),
+  def('lineGraph.widthMax', 'Width to', LINE_GRAPH, 'Keep lines of width', 0, 16, 0.5, 'px'),
 
   // Video Background
   def('videoBackground.fps', 'Frames a second', BACKGROUND, 'Frames', 0.1, 30, 0.1, 'a second'),

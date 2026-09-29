@@ -68,6 +68,9 @@ export type EditorId =
   | 'lines'
   | 'videoBackground'
   | 'shots'
+  | 'videoSource'
+  | 'videoEdit'
+  | 'lineGraph'
   | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */

@@ -19,6 +19,7 @@ import {
   validateSliderOverrides,
 } from '@vibetoon/shared';
 import { fetchImage } from './net/fetchImage';
+import { fetchVideo } from './net/fetchVideo';
 import { fetchCorpus } from './text/corpusFetch';
 import {
   DEFAULT_LOOKUP_OPTIONS,
@@ -163,16 +164,17 @@ export function createApp(): express.Express {
       const def = requireFlowKind(node.kind);
       const port = def.outputs.find((candidate) => candidate.id === param(req, 'portId'));
       if (!port) throw new HttpError(404, `No output port ${param(req, 'portId')} on ${def.label}`);
-      if (!port.kinds.includes('image')) {
-        throw new HttpError(400, `${port.label} does not carry an image.`);
+      const video = port.kinds.includes('video');
+      if (!port.kinds.includes('image') && !video) {
+        throw new HttpError(400, `${port.label} does not carry an image or a video.`);
       }
 
-      const fetched = await fetchImage(body.url);
+      const fetched = video ? await fetchVideo(body.url) : await fetchImage(body.url);
       const artifact = await writeArtifact({
         projectId: project.id,
         flowId: node.id,
         port: port.id,
-        kind: 'image',
+        kind: video ? 'video' : 'image',
         fileName: fetched.fileName,
         content: fetched.bytes,
       });

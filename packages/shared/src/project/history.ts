@@ -87,12 +87,15 @@ const PASSIVE: { keep: Record<string, string[]>; restore: Record<string, string[
     parts: ['current', 'showOthers', 'brush'],
     face: ['current', 'isolate', 'paint'],
     videoBackground: ['current', 'tool', 'brush'],
+    lineGraph: ['showFill'],
     // Facts about a file on the server, which undo does not reach: winding
     // them back would describe a picture that is not the one there, and the
     // editor would only measure it again.
     image: ['source'],
     crop: ['source'],
-    lines: ['source'],
+    lines: ['source', 'live'],
+    videoEdit: ['rendered'],
+    videoSource: ['source'],
     cutout: ['imageWidth', 'imageHeight', 'imageHash'],
   },
   restore: {

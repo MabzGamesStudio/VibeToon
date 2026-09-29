@@ -14,6 +14,7 @@ export type ArtifactKind =
   | 'audioSet' // a folder of audio files, e.g. vo/*.wav
   | 'midi' // .mid
   | 'video' // .mp4/.webm
+  | 'videoSet' // a folder of clips, e.g. clips/*.webm
   | 'timeline'; // edit decision list / timing data
 
 export const ARTIFACT_KINDS: readonly ArtifactKind[] = [
@@ -27,6 +28,7 @@ export const ARTIFACT_KINDS: readonly ArtifactKind[] = [
   'audioSet',
   'midi',
   'video',
+  'videoSet',
   'timeline',
 ];
 
@@ -46,6 +48,7 @@ export const ARTIFACT_KIND_LABEL: Record<ArtifactKind, string> = {
   audioSet: 'Audio (folder)',
   midi: 'MIDI',
   video: 'Video',
+  videoSet: 'Videos (folder)',
   timeline: 'Timeline',
 };
 
@@ -61,6 +64,7 @@ export const ARTIFACT_EXTENSION: Record<ArtifactKind, string> = {
   audioSet: '',
   midi: 'mid',
   video: 'mp4',
+  videoSet: '',
   timeline: 'json',
 };
 

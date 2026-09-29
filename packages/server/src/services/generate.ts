@@ -63,7 +63,7 @@ async function runOne(
     readUpstream: async (input: ResolvedInput, limit = UPSTREAM_READ_LIMIT) => {
       const artifact = input.artifact;
       if (!artifact) return undefined;
-      if (artifact.kind === 'imageSet' || artifact.kind === 'audioSet') {
+      if (artifact.kind === 'imageSet' || artifact.kind === 'audioSet' || artifact.kind === 'videoSet') {
         return `[${artifact.entries?.length ?? 0} file(s) in ${artifact.path}]`;
       }
       try {
