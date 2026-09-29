@@ -73,9 +73,7 @@ export function DesignEditor({ project, node }: { project: Project; node: FlowNo
     const portId = pendingPort.current;
     pendingPort.current = null;
     if (!file || !portId) return;
-    const reader = new FileReader();
-    reader.onload = () => void uploadOutput(node.id, portId, file.name, String(reader.result));
-    reader.readAsDataURL(file);
+    void uploadOutput(node.id, portId, file.name, file);
   };
 
   const textPorts = (def?.outputs ?? []).filter((port) => isTextualArtifact(port.kinds[0]!));

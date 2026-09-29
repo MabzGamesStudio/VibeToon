@@ -154,7 +154,8 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   // Video Background
   def('videoBackground.fps', 'Frames a second', BACKGROUND, 'Frames', 0.1, 30, 0.1, 'a second'),
   def('videoBackground.total', 'Frames in all', BACKGROUND, 'Frames', 2, 300, 1, 'frames'),
-  def('videoBackground.tolerance', 'Tolerance', BACKGROUND, 'What counts as still', 0, 60, 1),
+  def('videoBackground.tolerance', 'Tolerance', BACKGROUND, 'What counts as the background', 0, 60, 1),
+  def('videoBackground.agreement', 'Agreement', BACKGROUND, 'What counts as the background', 5, 100, 1, '%'),
   def('videoBackground.brush', 'Brush', BACKGROUND, 'Put more in by hand', 1, 120, 1, 'px'),
 
   // Shot Split

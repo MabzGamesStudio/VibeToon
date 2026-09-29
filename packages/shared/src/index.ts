@@ -15,6 +15,7 @@ export * from './registry/settingTips';
 export * from './registry/sliderRanges';
 export * from './rules/parseRules';
 export * from './graph/graph';
+export * from './graph/batch';
 
 export * from './flows/dialog';
 export * from './flows/storyboard';

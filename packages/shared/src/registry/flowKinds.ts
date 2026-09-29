@@ -524,6 +524,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
       output('bound', 'Bound rig', ['json'], 'bound.json', 'The skeleton, the drawing, and which bone each point of each shape follows.'),
       output('preview', 'Preview', ['image'], 'bound.svg', 'The drawing with its skeleton over it.'),
       output('report', 'Report', ['markdown'], 'bound.md', 'What is bound to what, and what is not.'),
+      output('bones', 'Bone drawings', ['imageSet'], 'bones', 'One drawing per bone: the shapes that follow it most, each the whole drawing’s size. Wired into a flow that takes one picture, a batch: a bone at a time.'),
     ],
     editor: 'bind',
     maturity: 'editor',
@@ -608,6 +609,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     outputs: [
       output('animation', 'Rig animation', ['json'], 'animation.json', 'Each segment the body was found in: for every sampled frame, where the body is, each joint’s angle, each part’s size and how sure the match was.'),
       output('report', 'Report', ['markdown'], 'animation.md', 'The segments, how long each is, and which frames were dropped.'),
+      output('frames', 'Frames', ['imageSet'], 'frames', 'The frames that were matched, as pictures, in order. Wired into a flow that takes one picture, a batch: a frame at a time.'),
       output('source', 'Video', ['video'], 'video.mp4', 'The video, when it was uploaded here rather than wired in.'),
     ],
     editor: 'videoMatch',
@@ -651,6 +653,7 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     outputs: [
       output('shots', 'Shots', ['json'], 'shots.json', 'Each shot: where it starts and ends, in seconds and in frames.'),
       output('report', 'Report', ['markdown'], 'shots.md', 'The shots, how long each is, and how sharp each cut was.'),
+      output('clips', 'Shot clips', ['videoSet'], 'shots', 'Each shot as a video of its own, when the editor is set to write them. Wired into a flow that takes one video, it is a batch: each shot goes through that flow on its own.'),
       output('source', 'Video', ['video'], 'video.mp4', 'The video, when it was uploaded here rather than wired in.'),
     ],
     editor: 'shots',
@@ -833,11 +836,11 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     kind: 'art.video.background',
     category: 'art',
     label: 'Video Background',
-    summary: 'Takes the background out of a video clip: every pixel that stays the same in every frame, with whatever moved left clear. Paint or draw round what a frame shows to put more of it back.',
+    summary: 'Takes the background out of a video clip: each pixel\'s most common colour across the frames, left clear where no colour is in enough of them. Paint or draw round what a frame shows to put more of it back.',
     inputs: [input('video', 'Video', ['video'], 'The clip to take the background from. Or upload one in the editor.')],
     outputs: [
       output('image', 'Background', ['image'], 'background.png', 'The background, clear wherever something moved and nothing was put back.'),
-      output('report', 'Report', ['markdown'], 'background.md', 'How much of the picture held still, and how much was marked by hand.'),
+      output('report', 'Report', ['markdown'], 'background.md', 'How much of the picture had one colour in enough of the frames, and how much was marked by hand.'),
       output('source', 'Video', ['video'], 'video.mp4', 'The video, when it was uploaded here rather than wired in.'),
     ],
     editor: 'videoBackground',

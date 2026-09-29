@@ -99,6 +99,37 @@ export interface ArtifactRef {
   generatedAt: string;
   /** Files inside an `imageSet` artifact, relative to `path`. */
   entries?: string[];
+  /** A set's files by name, each with the hash of its own bytes. */
+  entryHashes?: Record<string, string>;
+  /**
+   * A batch: this port carries one artifact for each item of a batch flow, in
+   * order. The ref stands for them all — its hash changes when any does — and
+   * `entries` lists them relative to `path`, so it can also be read as a set.
+   */
+  items?: BatchItemRef[];
   /** Inline preview for small textual artifacts, so the UI can render without a second fetch. */
   preview?: string;
 }
+
+/** One item of a batch, as it arrives over a wire. */
+export interface BatchItemRef {
+  /** Stable across runs: the file name it came from, e.g. `shot-03.webm`. */
+  key: string;
+  label: string;
+  /** Missing while that item has made nothing on this port. */
+  artifact?: ArtifactRef;
+}
+
+/** What each kind of folder holds one of. */
+export const SET_ITEM_KIND: Partial<Record<ArtifactKind, ArtifactKind>> = {
+  imageSet: 'image',
+  videoSet: 'video',
+  audioSet: 'audio',
+};
+
+/** The folder kind for a kind of file, if there is one. */
+export const ITEM_SET_KIND: Partial<Record<ArtifactKind, ArtifactKind>> = {
+  image: 'imageSet',
+  video: 'videoSet',
+  audio: 'audioSet',
+};

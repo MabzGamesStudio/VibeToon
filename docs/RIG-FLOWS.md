@@ -13,7 +13,12 @@ Vector ────────┘
 
 # Rig Binding
 
-`animation.bind` · takes a **Rig** and a **Vector** · gives **`bound.json`**, **`bound.svg`** and **`bound.md`**
+`animation.bind` · takes a **Rig** and a **Vector** · gives **`bound.json`**, **`bound.svg`** and **`bound.md`**, and **`bones/`**
+
+`bones/` is a drawing for each bone — the shapes that follow it most, each the
+size of the whole drawing, and the shapes bound to nothing on their own — as
+`hips.svg`, `left-upper-arm.svg`, …. Wired into a flow that takes one picture it
+is a batch, a bone at a time (see [BATCHES.md](BATCHES.md)).
 
 ## Bound by node, not by shape
 

@@ -41,6 +41,15 @@ text and settings (enabled, mode, weight, notes). Modes:
 style note) and the canvas view, with a revision counter for optimistic saves.
 It also holds the project's **custom flows**: saved arrangements of flows.
 
+**Batch** — a folder output (a set of images, videos or sounds) split into one
+item per file, going over one wire; the flow it goes into runs once per item and
+makes a batch of its own. Each item's settings, files and run are kept on the
+flow (`node.batch.items`), and editors and generators see one item at a time
+through a view of the project (`itemView`), so no flow has to know about
+batches. On the server, an item's files go into `artifacts/<flow>/items/<item>/`
+through an async-context scope around `writeArtifact`. See
+[BATCHES.md](BATCHES.md).
+
 **Custom flow** — one card standing for several flows. The flows behind it are
 ordinary flows marked with the card's id (`group`) and not drawn. Its ports are
 theirs, and wires to it are stored as wires to them. See

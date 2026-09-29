@@ -38,6 +38,8 @@ export interface VideoEditFlowData {
   selected: number | null;
   /** The edit the files on the ports were rendered from, to tell when they are behind. */
   rendered?: string;
+  /** The shot cuts found in the video, by time, and which video they were found in. */
+  shots?: { hash?: string; cuts: number[] };
 }
 
 export const DEFAULT_EDIT_FPS = 30;
@@ -67,6 +69,17 @@ export function editSegments(data: Pick<VideoEditFlowData, 'segments'>, duration
 export function snapToFrame(time: number, fps: number): number {
   const rate = Math.max(1, fps);
   return round(Math.round(time * rate) / rate);
+}
+
+/**
+ * The start of the frame `by` frames on from the one `time` is in, kept
+ * inside the video: stepping frame by frame.
+ */
+export function stepFrame(time: number, fps: number, by: number, duration: number): number {
+  const rate = Math.max(1, fps);
+  const last = Math.max(0, Math.ceil(duration * rate - 1e-6) - 1);
+  const frame = Math.max(0, Math.min(last, Math.floor(time * rate + 1e-6) + by));
+  return round(frame / rate);
 }
 
 /** Split the segment under `time` at the frame nearest it. A split on an edge does nothing. */
@@ -184,4 +197,105 @@ export function summariseEdit(data: VideoEditFlowData): string {
   const crop = videoCropRect(data);
   const cropped = crop && (crop.width !== data.video.width || crop.height !== data.video.height) ? ` · cropped to ${crop.width} × ${crop.height}` : '';
   return `${clock(data.video.duration)} → ${clock(editedDuration(data))} · ${kept} of ${segments.length} segment(s) kept${cropped} · ${data.output === 'joined' ? 'one video' : `${kept} clip(s)`}`;
+}
+
+/** Split at every shot cut, as found in the video. Cuts on an edge already change nothing. */
+export function splitAtCuts(data: VideoEditFlowData, cuts: readonly number[]): VideoEditFlowData {
+  let next = data;
+  for (const cut of cuts) next = splitSegmentAt(next, cut);
+  return next === data ? data : { ...next, selected: null };
+}
+
+/** The shot cuts found in this edit's video, if they were found in the video it has now. */
+export function editShotCuts(data: VideoEditFlowData): number[] {
+  if (!data.shots || !data.video || data.shots.hash !== data.video.hash) return [];
+  return data.shots.cuts.filter((cut) => cut > 0 && cut < data.video!.duration);
+}
+
+/* ---------------- the timeline's view ---------------- */
+
+/** The stretch of the video the timeline shows, in seconds. */
+export interface EditView {
+  from: number;
+  to: number;
+}
+
+/** The shortest stretch the timeline zooms in to: a few frames. */
+export function minEditSpan(duration: number, fps: number): number {
+  return Math.min(Math.max(duration, 1e-3), 12 / Math.max(1, fps));
+}
+
+/** A view kept inside the video and no shorter than the least span, its length kept where it can be. */
+export function clampEditView(view: EditView, duration: number, fps: number): EditView {
+  if (!(duration > 0)) return { from: 0, to: 0 };
+  const span = Math.min(duration, Math.max(minEditSpan(duration, fps), view.to - view.from));
+  const from = Math.max(0, Math.min(duration - span, view.from));
+  return { from, to: from + span };
+}
+
+/**
+ * Zoom by `factor` (more than 1 zooms in) about a time, which stays where it
+ * is on the timeline.
+ */
+export function zoomEditView(view: EditView, duration: number, fps: number, about: number, factor: number): EditView {
+  const span = view.to - view.from;
+  if (!(span > 0) || !(factor > 0)) return clampEditView(view, duration, fps);
+  const next = Math.min(duration, Math.max(minEditSpan(duration, fps), span / factor));
+  const at = Math.max(view.from, Math.min(view.to, about));
+  const from = at - ((at - view.from) / span) * next;
+  return clampEditView({ from, to: from + next }, duration, fps);
+}
+
+/** Slide the view along by `by` seconds, keeping it inside the video. */
+export function panEditView(view: EditView, duration: number, fps: number, by: number): EditView {
+  return clampEditView({ from: view.from + by, to: view.to + by }, duration, fps);
+}
+
+/** A view that has the time in it: the same one if it does, else moved just enough, with a margin. */
+export function editViewShowing(view: EditView, duration: number, fps: number, time: number): EditView {
+  const span = view.to - view.from;
+  if (time >= view.from && time <= view.to) return view;
+  const margin = span * 0.1;
+  return clampEditView(time < view.from ? { from: time - margin, to: time - margin + span } : { from: time + margin - span, to: time + margin }, duration, fps);
+}
+
+/**
+ * Where the ruler's marks go: a round step (1, 2 or 5 of a power of ten
+ * seconds, or whole frames when zoomed right in) that leaves at least `gap`
+ * pixels between marks.
+ */
+export function rulerTicks(view: EditView, pixels: number, fps: number, gap = 70): { step: number; ticks: number[] } {
+  const span = view.to - view.from;
+  if (!(span > 0) || !(pixels > 0)) return { step: 0, ticks: [] };
+  const wanted = (span * gap) / pixels;
+  const frame = 1 / Math.max(1, fps);
+  let step: number;
+  if (wanted <= frame) step = frame;
+  else {
+    const power = 10 ** Math.floor(Math.log10(wanted));
+    step = [1, 2, 5, 10].map((unit) => unit * power).find((candidate) => candidate >= wanted) ?? 10 * power;
+    // Below a second, keep marks on whole frames.
+    if (step < 1) step = Math.max(frame, Math.round(step / frame) * frame);
+  }
+  const ticks: number[] = [];
+  for (let k = Math.ceil(view.from / step - 1e-9); k * step <= view.to + 1e-9 && ticks.length < 1000; k += 1) ticks.push(round(k * step) + 0);
+  return { step, ticks };
+}
+
+/**
+ * The frames the filmstrip shows: one tile every so many frames — a power of
+ * two, so the tiles of one zoom are among the next's and are not read again —
+ * about `tile` pixels apart across the view.
+ */
+export function filmstripFrames(view: EditView, pixels: number, tile: number, fps: number, duration: number): { every: number; frames: number[] } {
+  const span = view.to - view.from;
+  if (!(span > 0) || !(pixels > 0) || !(tile > 0)) return { every: 1, frames: [] };
+  const rate = Math.max(1, fps);
+  const perTile = (span * tile * rate) / pixels;
+  const every = 2 ** Math.max(0, Math.ceil(Math.log2(Math.max(1, perTile))));
+  const last = Math.max(0, Math.ceil(duration * rate - 1e-6) - 1);
+  const frames: number[] = [];
+  const first = Math.max(0, Math.floor((view.from * rate) / every) * every);
+  for (let frame = first; frame <= last && frame / rate < view.to && frames.length < 500; frame += every) frames.push(frame);
+  return { every, frames };
 }

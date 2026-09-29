@@ -241,7 +241,8 @@ export function normaliseFlowData(data: FlowData): FlowData {
     case 'videoBackground': {
       const base = emptyVideoBackgroundFlowData();
       const sampling = fill(data.sampling, DEFAULT_VIDEO_SAMPLING);
-      const whole = Array.isArray(data.marks) && typeof data.tolerance === 'number' && typeof data.brush === 'number' && typeof data.tool === 'string' && data.current !== undefined;
+      const whole =
+        Array.isArray(data.marks) && typeof data.tolerance === 'number' && typeof data.agreement === 'number' && typeof data.brush === 'number' && typeof data.tool === 'string' && data.current !== undefined;
       if (!sampling.filled && whole) return data;
       return {
         ...base,
@@ -289,7 +290,8 @@ export function normaliseFlowData(data: FlowData): FlowData {
       const base = emptyShotsFlowData();
       const sampling = fill(data.sampling, base.sampling);
       const options = fill(data.options, DEFAULT_SHOT_OPTIONS);
-      const whole = Array.isArray(data.cuts) && Array.isArray(data.detected) && typeof data.edits === 'number' && data.selected !== undefined;
+      const whole =
+        Array.isArray(data.cuts) && Array.isArray(data.detected) && typeof data.edits === 'number' && data.selected !== undefined && typeof data.clips === 'boolean';
       if (!sampling.filled && !options.filled && whole) return data;
       return {
         ...base,
@@ -509,7 +511,27 @@ function paletteEdits(data: PaletteFlowData, options: PaletteOptions): PaletteEd
 
 export function migrateNode(node: FlowNode): FlowNode {
   const data = normaliseFlowData(migrateFlowData(node.kind, node.data));
-  return data === node.data ? node : { ...node, data };
+  let out = data === node.data ? node : { ...node, data };
+  // An item's own settings are a flow's settings like any other.
+  if (node.batch) {
+    let moved = false;
+    const items = Object.fromEntries(
+      Object.entries(node.batch.items).map(([key, state]) => {
+        if (state.data === undefined) return [key, state];
+        const own = normaliseFlowData(migrateFlowData(node.kind, state.data));
+        if (own === state.data) return [key, state];
+        moved = true;
+        return [key, { ...state, data: own }];
+      }),
+    );
+    if (moved) out = { ...out, batch: { items } };
+  }
+  // A view of one item is never meant to be kept.
+  if (out.itemOf !== undefined) {
+    const { itemOf: _view, ...rest } = out;
+    out = rest;
+  }
+  return out;
 }
 
 /** Run every node through the migration; returns the same object when nothing moved. */

@@ -3,7 +3,7 @@ import {
   applyMarks,
   backgroundFrameSize,
   backgroundReport,
-  consistentBackground,
+  commonestBackground,
   emptyVideoBackgroundFlowData,
   frameTimes,
   nearestFrame,
@@ -18,6 +18,7 @@ import {
   type VideoSampling,
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
+import { useBatchRun, waitUntil } from '../../state/batchRun';
 import { useStudio } from '../../state/store';
 import { pngDataUrl } from '../common/pixels';
 import { Slider } from '../common/Slider';
@@ -56,8 +57,9 @@ const flat = (points: number[]) => Array.from({ length: points.length / 2 }, (_,
 /**
  * Taking the background out of a video.
  *
- * The frames are read here and kept while the editor is open. What held still
- * in all of them is the background; pick a frame to paint, erase or draw round
+ * The frames are read here and kept while the editor is open. Each pixel's
+ * most common colour across them is the background, where it is common
+ * enough; pick a frame to paint, erase or draw round
  * what it shows, and it is put in (or taken out) from that frame.
  */
 export function VideoBackgroundFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
@@ -79,8 +81,8 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
   const [frames, setFrames] = useState<ReadFrame[]>([]);
   const [running, setRunning] = useState<{ done: number; total: number } | null>(null);
   const stopping = useRef(false);
-  const read = useCallback(async () => {
-    if (!videoUrl || !meta || !source) return;
+  const read = useCallback(async (): Promise<ReadFrame[]> => {
+    if (!videoUrl || !meta || !source) return [];
     stopping.current = false;
     const size = backgroundFrameSize(meta, times.length);
     setRunning({ done: 0, total: times.length });
@@ -90,7 +92,7 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
     } catch (reason) {
       setRunning(null);
       notify('error', `Could not read the video: ${(reason as Error).message}`);
-      return;
+      return [];
     }
     const reader = new FrameReader(video, size.width, size.height);
     const thumbs = new FrameReader(video, 96, Math.max(1, Math.round((96 * size.height) / size.width)));
@@ -108,7 +110,7 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
       releaseVideo(video);
       setRunning(null);
     }
-    if (got.length === 0) return;
+    if (got.length === 0) return [];
     setFrames(got);
     const was = dataRef.current;
     const sameVideo = was.video?.hash === source.artifact.hash && was.frameSize?.width === size.width && was.frameSize?.height === size.height;
@@ -118,11 +120,12 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
       // Marks are in frame pixels, so they only carry over at the same size.
       ...(sameVideo ? {} : { marks: [], current: null }),
     });
+    return got;
   }, [meta, notify, patch, source, times, videoUrl]);
 
   /* ---------------- the background ---------------- */
 
-  // What held still: redone when the frames or the tolerance change.
+  // Each pixel's commonest colour: redone when the frames, the tolerance or the agreement change.
   const [base, setBase] = useState<BackgroundResult | null>(null);
   const [working, setWorking] = useState(false);
   useEffect(() => {
@@ -132,11 +135,11 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
     }
     setWorking(true);
     const timer = window.setTimeout(() => {
-      setBase(consistentBackground(frames.map((frame) => frame.bitmap), data.tolerance));
+      setBase(commonestBackground(frames.map((frame) => frame.bitmap), data.tolerance, data.agreement));
       setWorking(false);
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [frames, data.tolerance]);
+  }, [frames, data.tolerance, data.agreement]);
 
   // And the marks laid over it.
   const result = useMemo(
@@ -242,6 +245,30 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
     }
   };
 
+  // Generate all, for one item of a batch: read its frames, work out its
+  // background with the settings it has, and send it.
+  const readRef = useRef(read);
+  readRef.current = read;
+  const metaRef = useRef({ meta, videoError, framesNow: frames });
+  metaRef.current = { meta, videoError, framesNow: frames };
+  useBatchRun(node, async () => {
+    await waitUntil(() => metaRef.current.meta ?? (metaRef.current.videoError ? 'failed' : null), 'Reading the video');
+    if (!metaRef.current.meta) throw new Error(`the video could not be read: ${metaRef.current.videoError}`);
+    // Both refs are set in the same render, so `read` is now the one made for this video.
+    const got = metaRef.current.framesNow.length > 0 ? metaRef.current.framesNow : await readRef.current();
+    if (got.length === 0) throw new Error('no frames could be read');
+    const settings = dataRef.current;
+    const made = applyMarks(
+      commonestBackground(got.map((frame) => frame.bitmap), settings.tolerance, settings.agreement),
+      settings.marks,
+      (time) => nearestFrame(got, time)?.bitmap,
+    );
+    await generateFlow(node.id, [
+      { name: 'background.png', data: await pngDataUrl(made.image) },
+      { name: 'background.md', data: `data:text/markdown;base64,${utf8Base64(backgroundReport(dataRef.current, made.stats))}` },
+    ]);
+  });
+
   const blocked = !source ? 'Wire a video into the Video input, or upload one here.' : videoError ? `The video could not be read: ${videoError}.` : null;
   const share = (count: number) => (result ? `${((count / Math.max(1, result.stats.total)) * 100).toFixed(1)}%` : '—');
 
@@ -291,7 +318,8 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
         </div>
 
         <div className="vt-section">
-          <h3>What counts as still</h3>
+          <h3>What counts as the background</h3>
+          <p className="vt-hint">Each pixel takes the colour it has most often. If that colour is in fewer of the frames than the agreement, the pixel is left clear.</p>
           <Slider
             range="videoBackground.tolerance"
             label="Tolerance"
@@ -300,9 +328,17 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
             format={(value) => `${Math.round(value)}`}
             onChange={(tolerance) => patch({ tolerance: Math.round(tolerance) })}
           />
+          <Slider
+            range="videoBackground.agreement"
+            label="Agreement"
+            tip="videoBackground.agreement"
+            value={data.agreement}
+            format={(value) => `${Math.round(value)}% of frames`}
+            onChange={(agreement) => patch({ agreement: Math.round(agreement) })}
+          />
           <dl className="vt-kv">
-            <dt>Still in every frame</dt>
-            <dd>{working ? '…' : result ? share(result.stats.consistent) : '—'}</dd>
+            <dt>Common enough</dt>
+            <dd>{working ? '…' : result ? share(result.stats.kept) : '—'}</dd>
             <dt>Marked by hand</dt>
             <dd>{result ? share(result.stats.marked) : '—'}</dd>
             <dt>Marks</dt>

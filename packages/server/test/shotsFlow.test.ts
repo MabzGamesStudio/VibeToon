@@ -97,3 +97,20 @@ test('a changed video is noted, and the shots written as they are', async () => 
   const run = (await generate()).runs[0]!;
   assert.ok(run.warnings.some((line) => /video has changed/.test(line)), run.warnings.join('; '));
 });
+
+test('each shot as a video: the clips recorded in the editor go on the Shot clips port, a folder for a batch', async () => {
+  await setData({ video: { hash: videoHash, duration: 8, width: 640, height: 360 }, cuts: [2, 5], clips: true });
+  let run = (await generate()).runs[0]!;
+  assert.ok(run.warnings.some((line) => /recorded as a video in the editor/.test(line)), run.warnings.join('; '));
+  const webm = (text: string) => `data:video/webm;base64,${Buffer.from(text).toString('base64')}`;
+  const result = await api<GenerateResponse>('POST', `/api/projects/${project.id}/flows/${SHOTS}/generate`, {
+    attachments: ['one', 'two', 'three'].map((text, index) => ({ name: `shots/shot-0${index + 1}.webm`, data: webm(text) })),
+  });
+  project = result.project;
+  run = result.runs[0]!;
+  const clips = run.outputs.find((ref) => ref.port === 'clips')!;
+  assert.equal(clips.kind, 'videoSet');
+  assert.deepEqual(clips.entries, ['shot-01.webm', 'shot-02.webm', 'shot-03.webm']);
+  assert.equal(Object.keys(clips.entryHashes ?? {}).length, 3, 'each clip with its own hash, to go on alone');
+  assert.ok(run.log.some((line) => /3 shot clip\(s\) written/.test(line)), run.log.join('; '));
+});

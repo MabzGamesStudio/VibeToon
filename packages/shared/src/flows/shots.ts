@@ -223,6 +223,13 @@ export interface ShotsFlowData {
   edits: number;
   /** The shot selected in the editor. */
   selected: number | null;
+  /**
+   * Write each shot as a video of its own, on the Shot clips port: a folder
+   * that goes into a flow taking one video as a batch, a shot at a time.
+   */
+  clips: boolean;
+  /** The shots the clips on the port were recorded from, to tell when they are behind. */
+  recorded?: string;
 }
 
 export function emptyShotsFlowData(): ShotsFlowData {
@@ -234,7 +241,18 @@ export function emptyShotsFlowData(): ShotsFlowData {
     detected: [],
     edits: 0,
     selected: null,
+    clips: false,
   };
+}
+
+/** A shot's clip file: `shot-01.webm`, `shot-02.webm`, … */
+export function shotClipName(index: number, extension = 'webm'): string {
+  return `shot-${String(index + 1).padStart(2, '0')}.${extension}`;
+}
+
+/** A key for the shots as cut: when it changes, the clips recorded from them are behind. */
+export function shotsKey(data: ShotsFlowData): string {
+  return JSON.stringify({ video: data.video?.hash, cuts: data.cuts });
 }
 
 export function normaliseShotOptions(input: Partial<ShotOptions>): ShotOptions {

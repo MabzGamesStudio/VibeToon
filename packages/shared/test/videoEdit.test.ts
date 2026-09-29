@@ -16,6 +16,15 @@ import {
   summariseEdit,
   toggleSegment,
   videoCropRect,
+  clampEditView,
+  editShotCuts,
+  editViewShowing,
+  filmstripFrames,
+  panEditView,
+  rulerTicks,
+  splitAtCuts,
+  stepFrame,
+  zoomEditView,
   type VideoEditFlowData,
 } from '../src/flows/videoEdit';
 
@@ -114,4 +123,61 @@ test('the edit file lists what was kept, what went, and the clip each became', (
   assert.equal(file.duration, 6);
   assert.equal(clipName(9), 'clip-10.webm');
   assert.match(summariseEdit(cut), /0:10\.00 → 0:06\.00 · 2 of 3 segment\(s\) kept · 2 clip\(s\)/);
+});
+
+test('left and right step a frame at a time, and stop at the ends', () => {
+  assert.equal(stepFrame(1, 25, 1, 10), 1.04);
+  assert.equal(stepFrame(1.03, 25, 1, 10), 1.04, 'from inside a frame, to the start of the next');
+  assert.equal(stepFrame(1.03, 25, -1, 10), 0.96, 'and back to the start of the one before');
+  assert.equal(stepFrame(0, 25, -1, 10), 0);
+  assert.equal(stepFrame(9.99, 25, 1, 10), 9.96, 'the last frame starts a frame before the end');
+  assert.equal(stepFrame(5, 25, 25, 10), 6, 'a second on');
+});
+
+test('shot cuts found in the video split it, and only for that video', () => {
+  const found = edit({ shots: { hash: 'v1', cuts: [2.5, 4.2, 0, 11] } });
+  assert.deepEqual(editShotCuts(found), [2.5, 4.2], 'inside the video only');
+  assert.deepEqual(editShotCuts({ ...found, shots: { hash: 'old', cuts: [2.5] } }), [], 'cuts from another video are not shown');
+  const split = splitAtCuts(found, editShotCuts(found));
+  assert.deepEqual(
+    editSegments(split, 10).map((segment) => [segment.start, segment.end]),
+    [
+      [0, 2.52],
+      [2.52, 4.2],
+      [4.2, 10],
+    ],
+    'on the frame nearest each cut',
+  );
+  assert.equal(splitAtCuts(split, [4.2]), split, 'splitting on an edge again changes nothing');
+});
+
+test('the timeline zooms about a time, which stays put, and pans inside the video', () => {
+  const whole = { from: 0, to: 10 };
+  const zoomed = zoomEditView(whole, 10, 25, 5, 2);
+  assert.deepEqual(zoomed, { from: 2.5, to: 7.5 }, 'about the middle');
+  const aboutTwo = zoomEditView(whole, 10, 25, 2, 4);
+  assert.ok(Math.abs((2 - aboutTwo.from) / (aboutTwo.to - aboutTwo.from) - 0.2) < 1e-9, 'the time is as far across as before');
+  assert.deepEqual(zoomEditView(zoomed, 10, 25, 5, 0.1), whole, 'out no further than the whole video');
+  const tight = zoomEditView(whole, 10, 25, 5, 1000);
+  assert.ok(Math.abs(tight.to - tight.from - 12 / 25) < 1e-9, 'in no further than a few frames');
+  assert.deepEqual(panEditView(zoomed, 10, 25, 4), { from: 5, to: 10 }, 'not past the end');
+  assert.deepEqual(panEditView(zoomed, 10, 25, -4), { from: 0, to: 5 }, 'nor before the start');
+  assert.deepEqual(clampEditView({ from: -3, to: 20 }, 10, 25), whole);
+  assert.deepEqual(editViewShowing(zoomed, 10, 25, 6), zoomed, 'a time in view leaves it alone');
+  const followed = editViewShowing(zoomed, 10, 25, 8);
+  assert.ok(followed.from < 8 && followed.to > 8 && Math.abs(followed.to - followed.from - 5) < 1e-9, 'a time out of view brings it in, the same length');
+});
+
+test('ruler marks and filmstrip frames fit the zoom', () => {
+  const ruler = rulerTicks({ from: 0, to: 10 }, 700, 25);
+  assert.equal(ruler.step, 1);
+  assert.deepEqual(ruler.ticks.slice(0, 3), [0, 1, 2]);
+  const close = rulerTicks({ from: 1, to: 1.4 }, 700, 25);
+  assert.ok(Math.abs(close.step - 0.04) < 1e-9, 'zoomed right in, every frame');
+  const strip = filmstripFrames({ from: 0, to: 10 }, 800, 80, 25, 10);
+  assert.equal(strip.every, 32, '25 frames a tile, rounded up to a power of two');
+  assert.deepEqual(strip.frames.slice(0, 3), [0, 32, 64]);
+  const closer = filmstripFrames({ from: 2, to: 4 }, 800, 80, 25, 10);
+  assert.ok(closer.frames.every((frame) => frame % closer.every === 0));
+  assert.ok(strip.every % closer.every === 0, 'the tiles zoomed out are among those zoomed in');
 });

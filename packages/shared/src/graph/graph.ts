@@ -3,6 +3,7 @@ import { findPort, getFlowKind, portsCompatible } from '../registry/flowKinds';
 import type { ArtifactRef } from '../types/artifacts';
 import type { PortSpec } from '../types/flow';
 import type { Connection, FlowNode, FlowStatus, PortRef, Project } from '../types/project';
+import { batchStatus, canSplit, connectionBatchMode, gatheredKind, gathersBatch, isBatchNode } from './batch';
 
 /** `CUSTOM_FLOW_KIND`, repeated here so the graph does not import the custom flow module that imports it. */
 const CUSTOM_KIND = 'custom.flow';
@@ -39,12 +40,17 @@ export function resolveInputs(project: Project, nodeId: string): ResolvedInput[]
     .map((connection) => {
       const sourceNode = nodeById(project, connection.from.nodeId);
       if (!sourceNode) return undefined;
+      let artifact = artifactForPort(sourceNode, connection.from.portId);
+      // A batch gathered into an input that takes a folder arrives as one.
+      if (artifact?.items && connectionBatchMode(project, connection) === 'gather') {
+        artifact = { ...artifact, kind: gatheredKind(artifact.kind), items: undefined };
+      }
       return {
         connection,
         sourceNode,
         sourcePort: findPort(sourceNode.kind, connection.from.portId, 'outputs'),
         targetPort: findPort(target.kind, connection.to.portId, 'inputs'),
-        artifact: artifactForPort(sourceNode, connection.from.portId),
+        artifact,
       } satisfies ResolvedInput;
     })
     .filter((x): x is ResolvedInput => x !== undefined);
@@ -74,7 +80,8 @@ export function validateConnection(project: Project, from: PortRef, to: PortRef)
   if (!sourcePort) return { ok: false, reason: `No output \`${from.portId}\` on ${sourceNode.name}.` };
   if (!targetPort) return { ok: false, reason: `No input \`${to.portId}\` on ${targetNode.name}.` };
 
-  if (!portsCompatible(sourcePort, targetPort)) {
+  const batchWire = canSplit(sourcePort, targetPort) || (isBatchNode(project, sourceNode) && gathersBatch(sourcePort, targetPort));
+  if (!portsCompatible(sourcePort, targetPort) && !batchWire) {
     return {
       ok: false,
       reason: `${sourcePort.label} carries ${sourcePort.kinds.join('/')} but ${targetPort.label} accepts ${targetPort.kinds.join('/')}.`,
@@ -258,6 +265,8 @@ export function flowStatus(project: Project, node: FlowNode): FlowStatus {
     for (const worst of ['error', 'empty', 'stale'] as const) if (statuses.includes(worst)) return worst;
     return statuses.length > 0 ? 'ready' : 'empty';
   }
+  // A batch flow is as up to date as its items.
+  if (isBatchNode(project, node)) return batchStatus(project, node);
   if (node.lastRun?.error) return 'error';
   if (!node.lastRun || node.outputs.length === 0) return 'empty';
   return node.lastRun.signature === computeSignature(project, node) ? 'ready' : 'stale';

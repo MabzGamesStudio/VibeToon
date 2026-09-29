@@ -7,7 +7,7 @@ import {
   videoSourceOf,
   type VideoMatchFlowData,
 } from '@vibetoon/shared';
-import { writeArtifact } from '../storage';
+import { writeArtifact, writeArtifactSet } from '../storage';
 import type { GenerationContext, GenerationResult } from './types';
 
 /**
@@ -59,8 +59,25 @@ export async function generateVideoMatch(ctx: GenerationContext): Promise<Genera
   }
   ctx.log(summariseVideoMatch(data));
 
+  // The frames themselves are read in the editor and sent with the run.
+  const frames = ctx.attachments.filter((attachment) => attachment.name.startsWith('frames/')).sort((a, b) => (a.name < b.name ? -1 : 1));
+  const framesOut =
+    frames.length > 0
+      ? [
+          await writeArtifactSet({
+            projectId: ctx.project.id,
+            flowId: ctx.node.id,
+            port: 'frames',
+            kind: 'imageSet',
+            dirName: 'frames',
+            files: frames.map((frame) => ({ name: frame.name.slice('frames/'.length), content: frame.bytes })),
+          }),
+        ]
+      : [];
+
   return {
     outputs: [
+      ...framesOut,
       await writeArtifact({
         projectId: ctx.project.id,
         flowId: ctx.node.id,

@@ -105,6 +105,9 @@ function describeProviders(): DictionaryProviders {
   };
 }
 
+/** The largest file that can be uploaded onto a port. */
+export const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+
 export function createApp(): express.Express {
   const app = express();
   // Panel images are posted as base64 with the generate request, so the JSON
@@ -434,9 +437,11 @@ export function createApp(): express.Express {
   app.post(
     '/api/projects/:id/flows/:flowId/generate',
     asyncRoute(async (req, res) => {
-      const body = (req.body ?? {}) as { attachments?: AttachmentInput[] };
+      const body = (req.body ?? {}) as { attachments?: AttachmentInput[]; item?: string };
       const attachments = decodeAttachments(body.attachments);
-      res.json(await generateFlow(param(req, 'id'), param(req, 'flowId'), attachments));
+      // For a batch flow: one item, which the files sent (if any) are for.
+      const item = typeof body.item === 'string' ? body.item : undefined;
+      res.json(await generateFlow(param(req, 'id'), param(req, 'flowId'), attachments, { item }));
     }),
   );
 
@@ -513,53 +518,70 @@ export function createApp(): express.Express {
     }),
   );
 
+  /** Write uploaded bytes onto a flow's output port, and record them on the flow. */
+  const storeUpload = async (req: Request, requestedName: string | undefined, bytes: Uint8Array) => {
+    const project = await loadProject(param(req, 'id'));
+    const node = nodeById(project, param(req, 'flowId'));
+    if (!node) throw new HttpError(404, `No flow ${param(req, 'flowId')}`);
+    const def = requireFlowKind(node.kind);
+    const port = def.outputs.find((candidate) => candidate.id === param(req, 'portId'));
+    if (!port) throw new HttpError(404, `No output port ${param(req, 'portId')} on ${def.label}`);
+
+    const kind: ArtifactKind = port.kinds[0]!;
+    const fileName = path.basename(requestedName || port.fileName || `${port.id}.bin`);
+    if (fileName.startsWith('.')) throw new HttpError(400, 'Invalid file name.');
+
+    const artifact = await writeArtifact({
+      projectId: project.id,
+      flowId: node.id,
+      port: port.id,
+      kind,
+      fileName,
+      content: bytes,
+    });
+
+    const updated: Project = {
+      ...project,
+      nodes: project.nodes.map((candidate) =>
+        candidate.id === node.id
+          ? {
+              ...candidate,
+              outputs: [...candidate.outputs.filter((ref) => ref.port !== port.id), artifact],
+            }
+          : candidate,
+      ),
+    };
+    return { project: await saveProjectUnchecked(updated), artifact };
+  };
+
   /**
    * Upload a real file onto an output port. This is how image and audio ports
    * get filled on a machine with no model attached: make the file in any tool,
    * drop it on the port, and every downstream flow sees it with a hash.
+   *
+   * The file is the request body, as it is: a video can be far bigger than a
+   * browser can turn into one base64 string, let alone JSON.
    */
+  app.put(
+    '/api/projects/:id/flows/:flowId/outputs/:portId',
+    express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES }),
+    asyncRoute(async (req, res) => {
+      const body = req.body as unknown;
+      if (!Buffer.isBuffer(body) || body.byteLength === 0) throw new HttpError(400, 'Nothing uploaded.');
+      const name = typeof req.query.name === 'string' ? req.query.name : undefined;
+      res.json(await storeUpload(req, name, body));
+    }),
+  );
+
+  /** The same, with the file as a base64 data URL in JSON: for small files made in the page. */
   app.post(
     '/api/projects/:id/flows/:flowId/outputs/:portId',
     asyncRoute(async (req, res) => {
       const body = (req.body ?? {}) as { fileName?: string; data?: string };
       if (!body.data) throw new HttpError(400, 'Nothing uploaded.');
-
-      const project = await loadProject(param(req, 'id'));
-      const node = nodeById(project, param(req, 'flowId'));
-      if (!node) throw new HttpError(404, `No flow ${param(req, 'flowId')}`);
-      const def = requireFlowKind(node.kind);
-      const port = def.outputs.find((candidate) => candidate.id === param(req, 'portId'));
-      if (!port) throw new HttpError(404, `No output port ${param(req, 'portId')} on ${def.label}`);
-
-      const kind: ArtifactKind = port.kinds[0]!;
-      const fileName = path.basename(body.fileName ?? port.fileName ?? `${port.id}.bin`);
-      if (fileName.startsWith('.')) throw new HttpError(400, 'Invalid file name.');
-
       const comma = body.data.indexOf(',');
       const base64 = body.data.startsWith('data:') && comma >= 0 ? body.data.slice(comma + 1) : body.data;
-      const bytes = new Uint8Array(Buffer.from(base64, 'base64'));
-
-      const artifact = await writeArtifact({
-        projectId: project.id,
-        flowId: node.id,
-        port: port.id,
-        kind,
-        fileName,
-        content: bytes,
-      });
-
-      const updated: Project = {
-        ...project,
-        nodes: project.nodes.map((candidate) =>
-          candidate.id === node.id
-            ? {
-                ...candidate,
-                outputs: [...candidate.outputs.filter((ref) => ref.port !== port.id), artifact],
-              }
-            : candidate,
-        ),
-      };
-      res.json({ project: await saveProjectUnchecked(updated), artifact });
+      res.json(await storeUpload(req, body.fileName, new Uint8Array(Buffer.from(base64, 'base64'))));
     }),
   );
 
@@ -573,7 +595,23 @@ export function createApp(): express.Express {
       const updated: Project = {
         ...project,
         nodes: project.nodes.map((candidate) =>
-          candidate.id === node.id ? { ...candidate, outputs: [], lastRun: undefined } : candidate,
+          candidate.id === node.id
+            ? {
+                ...candidate,
+                outputs: [],
+                lastRun: undefined,
+                // A batch flow's items lose their files too, but keep their own settings.
+                ...(candidate.batch
+                  ? {
+                      batch: {
+                        items: Object.fromEntries(
+                          Object.entries(candidate.batch.items).map(([key, state]) => [key, { ...(state.data !== undefined ? { data: state.data } : {}), outputs: [] }]),
+                        ),
+                      },
+                    }
+                  : {}),
+              }
+            : candidate,
         ),
       };
       res.json(await saveProjectUnchecked(updated));
@@ -607,6 +645,12 @@ export function createApp(): express.Express {
   app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof HttpError) {
       res.status(error.status).json({ error: error.message, details: error.extra });
+      return;
+    }
+    // A body too big for its route, from the body parsers.
+    if ((error as { type?: string }).type === 'entity.too.large') {
+      const limit = (error as { limit?: number }).limit;
+      res.status(413).json({ error: `That is too big to upload${limit ? `: the most is ${Math.round(limit / (1024 * 1024))} MB` : ''}.` });
       return;
     }
     const message = error instanceof Error ? error.message : String(error);

@@ -95,6 +95,7 @@ const PASSIVE: { keep: Record<string, string[]>; restore: Record<string, string[
     crop: ['source'],
     lines: ['source', 'live'],
     videoEdit: ['rendered'],
+    shots: ['recorded'],
     videoSource: ['source'],
     cutout: ['imageWidth', 'imageHeight', 'imageHash'],
   },

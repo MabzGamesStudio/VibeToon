@@ -39,11 +39,7 @@ export function BriefEditor({ project, node }: { project: Project; node: FlowNod
     const portId = pendingPort.current;
     pendingPort.current = null;
     if (!file || !portId) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      void uploadOutput(node.id, portId, file.name, String(reader.result));
-    };
-    reader.readAsDataURL(file);
+    void uploadOutput(node.id, portId, file.name, file);
   };
 
   const uploadable = (def?.outputs ?? []).filter((port) => !isTextualArtifact(port.kinds[0]!));

@@ -1,5 +1,6 @@
-import type { FlowNode } from '@vibetoon/shared';
+import { batchItems, isBatchNode, itemView, type FlowNode, type Project } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
+import { BatchBar } from './BatchBar';
 import { AnimaticEditor } from './AnimaticEditor';
 import { BindFlowEditor } from './BindFlowEditor';
 import { BriefEditor } from './BriefEditor';
@@ -36,11 +37,43 @@ import { FaceFlowEditor } from './FaceFlowEditor';
 import { VectorEditFlowEditor } from './VectorEditFlowEditor';
 import { VectorizeFlowEditor } from './VectorizeFlowEditor';
 
-/** Picks the editor a flow's data asks for. */
+/**
+ * Picks the editor a flow's data asks for.
+ *
+ * A batch flow's editor shows one item at a time: it is given the project as
+ * that item sees it (`itemView`), so it works exactly as it does for a single
+ * flow, and is made afresh for each item. The batch bar above it chooses the
+ * item and where edits go.
+ */
 export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
-  const { project } = useStudio();
+  const { project, batchFocus } = useStudio();
   if (!project) return <></>;
+  if (!isBatchNode(project, node)) return editorFor(project, node);
+  const items = batchItems(project, node);
+  const chosen = batchFocus[node.id];
+  const key = items.some((item) => item.key === chosen?.key) ? chosen!.key : items[0]?.key;
+  if (key === undefined) {
+    return (
+      <div className="vt-batch-frame">
+        <BatchBar nodeId={node.id} />
+        {editorFor(project, node)}
+      </div>
+    );
+  }
+  const view = itemView(project, node, key);
+  return (
+    <div className="vt-batch-frame">
+      <BatchBar nodeId={node.id} />
+      <ItemEditor key={key} project={view.project} node={view.node} />
+    </div>
+  );
+}
 
+function ItemEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
+  return editorFor(project, node);
+}
+
+function editorFor(project: Project, node: FlowNode): JSX.Element {
   switch (node.data.editor) {
     case 'dialog':
       return (

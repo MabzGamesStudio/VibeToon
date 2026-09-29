@@ -1,12 +1,13 @@
-import { shotsFile, shotsOf, shotsReport, summariseShots, videoSourceOf, type ShotsFlowData } from '@vibetoon/shared';
-import { writeArtifact } from '../storage';
+import { shotsFile, shotsKey, shotsOf, shotsReport, summariseShots, videoSourceOf, type ShotsFlowData } from '@vibetoon/shared';
+import { writeArtifact, writeArtifactSet } from '../storage';
 import type { GenerationContext, GenerationResult } from './types';
 
 /**
  * A video's shots, as time segments.
  *
  * The cuts are found in the editor, where the video can be decoded, and edited
- * there; they are stored on the flow, and this writes them out.
+ * there; they are stored on the flow, and this writes them out. Each shot as a
+ * video of its own is recorded in the editor too, and sent with the run.
  */
 export async function generateShots(ctx: GenerationContext): Promise<GenerationResult> {
   const data = ctx.node.data as ShotsFlowData;
@@ -24,10 +25,28 @@ export async function generateShots(ctx: GenerationContext): Promise<GenerationR
   }
   const spans = shotsOf(data.cuts, data.video.duration).map((shot) => `${shot.start.toFixed(2)}–${shot.end.toFixed(2)}s`);
   ctx.log(`${summariseShots(data)}: ${spans.join(', ')}.`);
-  return {
-    outputs: [
-      await writeArtifact({ projectId: ctx.project.id, flowId: ctx.node.id, port: 'shots', kind: 'json', fileName: 'shots.json', content: shotsFile(data) }),
-      await writeArtifact({ projectId: ctx.project.id, flowId: ctx.node.id, port: 'report', kind: 'markdown', fileName: 'shots.md', content: shotsReport(data) }),
-    ],
-  };
+  const outputs = [
+    await writeArtifact({ projectId: ctx.project.id, flowId: ctx.node.id, port: 'shots', kind: 'json', fileName: 'shots.json', content: shotsFile(data) }),
+    await writeArtifact({ projectId: ctx.project.id, flowId: ctx.node.id, port: 'report', kind: 'markdown', fileName: 'shots.md', content: shotsReport(data) }),
+  ];
+  const clips = ctx.attachments.filter((attachment) => attachment.name.startsWith('shots/')).sort((a, b) => (a.name < b.name ? -1 : 1));
+  if (data.clips && clips.length > 0) {
+    outputs.push(
+      await writeArtifactSet({
+        projectId: ctx.project.id,
+        flowId: ctx.node.id,
+        port: 'clips',
+        kind: 'videoSet',
+        dirName: 'shots',
+        files: clips.map((clip) => ({ name: clip.name.slice('shots/'.length), content: clip.bytes })),
+      }),
+    );
+    ctx.log(`${clips.length} shot clip(s) written.`);
+  } else if (data.clips) {
+    ctx.warn('Each shot is recorded as a video in the editor, where the video can be played: open this flow and press Generate there. The shots have been written.');
+  }
+  if (data.clips && data.recorded && data.recorded !== shotsKey(data) && clips.length === 0) {
+    ctx.warn('The shots have changed since their clips were recorded.');
+  }
+  return { outputs };
 }

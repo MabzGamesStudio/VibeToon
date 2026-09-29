@@ -5,6 +5,8 @@ import {
   embedFrame,
   emptyShotsFlowData,
   joinShots,
+  shotClipName,
+  shotsKey,
   shotsOf,
   splitShotAt,
   summariseShots,
@@ -16,11 +18,13 @@ import {
   type VideoSampling,
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
+import { useBatchRun, waitUntil } from '../../state/batchRun';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
 import { Slider } from '../common/Slider';
 import { FrameReader, VideoUpload, clock, loadVideo, releaseVideo, useFileUpload, useVideoMeta } from '../common/video';
 import { EditorShell } from './EditorShell';
+import { blobDataUrl, recordingType, renderEdit, type RenderProgress } from './renderVideo';
 
 /** Frames are compared this small: enough for an 8 × 8 picture and a colour histogram. */
 const EMBED_WIDTH = 96;
@@ -34,7 +38,7 @@ const THUMB_HEIGHT = 54;
  * it at that frame; join a shot to the next with the button beside it.
  */
 export function ShotsFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
-  const { setFlowData, notify, uploadOutput } = useStudio();
+  const { setFlowData, notify, uploadOutput, generateFlow } = useStudio();
   const data = node.data.editor === 'shots' ? (node.data as ShotsFlowData) : emptyShotsFlowData();
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -51,8 +55,8 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
 
   const [running, setRunning] = useState<{ stage: string; fraction: number } | null>(null);
   const stopping = useRef(false);
-  const find = useCallback(async () => {
-    if (!videoUrl || !meta || !source) return;
+  const find = useCallback(async (): Promise<boolean> => {
+    if (!videoUrl || !meta || !source) return false;
     stopping.current = false;
     setRunning({ stage: 'Reading the video', fraction: 0 });
     let video: HTMLVideoElement;
@@ -61,7 +65,7 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
     } catch (reason) {
       setRunning(null);
       notify('error', `Could not read the video: ${(reason as Error).message}`);
-      return;
+      return false;
     }
     const width = Math.min(EMBED_WIDTH, meta.width);
     const reader = new FrameReader(video, width, Math.max(1, Math.round((meta.height * width) / meta.width)));
@@ -79,13 +83,74 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
       );
       patch(adoptDetection(dataRef.current, found, { hash: source.artifact.hash, duration: meta.duration, width: meta.width, height: meta.height }));
       notify('success', `${found.cuts.length + 1} shot(s), from ${found.looks} frame(s) looked at.`);
+      return true;
     } catch (reason) {
       if ((reason as Error).message !== 'stopped') notify('error', `Could not split the video: ${(reason as Error).message}`);
+      return false;
     } finally {
       releaseVideo(video);
       setRunning(null);
     }
   }, [meta, notify, patch, source, videoUrl]);
+
+  /* ---------------- writing ---------------- */
+
+  // With "each shot as a video" on, Generate plays each shot through and
+  // records it: a clip per shot, in a folder that goes on as a batch.
+  const [recording, setRecording] = useState<RenderProgress | null>(null);
+  const stopRecording = useRef(false);
+  const onGenerate = async () => {
+    const current = dataRef.current;
+    if (!current.clips || !current.video || !videoUrl) {
+      await generateFlow(node.id);
+      return;
+    }
+    if (!recordingType()) {
+      notify('error', 'This browser cannot record video, so only the shots are written.');
+      await generateFlow(node.id);
+      return;
+    }
+    const cut = shotsOf(current.cuts, current.video.duration);
+    stopRecording.current = false;
+    setRecording({ done: 0, total: current.video.duration, clip: 0 });
+    try {
+      const blobs = await renderEdit({
+        url: videoUrl,
+        segments: cut.map((shot) => ({ ...shot, deleted: false })),
+        crop: { x: 0, y: 0, width: current.video.width - (current.video.width % 2), height: current.video.height - (current.video.height % 2) },
+        fps: current.options.fps,
+        mode: 'clips',
+        onProgress: setRecording,
+        stopped: () => stopRecording.current,
+      });
+      if (stopRecording.current) {
+        notify('info', 'Stopped. Nothing was written.');
+        return;
+      }
+      const attachments = await Promise.all(blobs.map(async (blob, index) => ({ name: `shots/${shotClipName(index)}`, data: await blobDataUrl(blob) })));
+      patch({ recorded: shotsKey(current) });
+      await generateFlow(node.id, attachments);
+    } catch (reason) {
+      notify('error', `Could not record the shots: ${(reason as Error).message}`);
+    } finally {
+      setRecording(null);
+    }
+  };
+
+  // Generate all, for one video of a batch: find its shots if they are not
+  // found yet, then write them.
+  const ready = useRef({ meta, videoError, find, found: Boolean(data.video && data.video.hash === source?.artifact.hash) });
+  ready.current = { meta, videoError, find, found: Boolean(data.video && data.video.hash === source?.artifact.hash) };
+  useBatchRun(node, async () => {
+    await waitUntil(() => ready.current.meta ?? (ready.current.videoError ? 'failed' : null), 'Reading the video');
+    if (!ready.current.meta) throw new Error(`the video could not be read: ${ready.current.videoError}`);
+    if (!ready.current.found && !(await ready.current.find())) throw new Error('its shots could not be found');
+    // The shots found are in the settings by the next render.
+    await waitUntil(() => dataRef.current.video !== undefined, 'Finding the shots');
+    await onGenerateRef.current();
+  });
+  const onGenerateRef = useRef(onGenerate);
+  onGenerateRef.current = onGenerate;
 
   /* ---------------- the rows ---------------- */
 
@@ -161,7 +226,24 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
     <EditorShell
       project={project}
       node={node}
-      banner={blocked ? <div className="vt-sync-banner"><span>{blocked}</span></div> : undefined}
+      onGenerate={onGenerate}
+      banner={
+        blocked ? (
+          <div className="vt-sync-banner"><span>{blocked}</span></div>
+        ) : recording ? (
+          <div className="vt-sync-banner">
+            <span>
+              Recording shot {recording.clip + 1}, {clock(recording.done)} of {clock(recording.total)}…
+            </span>
+            <progress max={recording.total} value={recording.done} style={{ flex: 1, maxWidth: 240 }} />
+            <button type="button" className="vt-btn is-small" onClick={() => (stopRecording.current = true)}>
+              Stop
+            </button>
+          </div>
+        ) : data.clips && data.recorded && data.recorded !== shotsKey(data) ? (
+          <div className="vt-sync-banner"><span>The shots have changed since their clips were recorded. Generate to record them again.</span></div>
+        ) : undefined
+      }
       actions={source?.wired ? undefined : <VideoUpload replace={Boolean(source)} onFile={upload} />}
     >
       <aside className="vt-editor-side">
@@ -234,6 +316,19 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
           )}
           {running ? <p className="vt-faint" style={{ fontSize: 11 }}>{running.stage}</p> : null}
           {data.video && data.edits > 0 ? <p className="vt-hint">Finding them again replaces the {data.edits} change(s) made by hand.</p> : null}
+        </div>
+
+        <div className="vt-section">
+          <h3>What comes out</h3>
+          <label className="vt-row" style={{ gap: 6 }}>
+            <input type="checkbox" checked={data.clips} onChange={(event) => patch({ clips: event.target.checked })} />
+            Each shot as a video of its own
+          </label>
+          <p className="vt-hint">
+            {data.clips
+              ? 'Generate records each shot onto the Shot clips port, as a folder of videos. Wire it into a flow that takes one video — Video Background, say — and each shot goes through it on its own, as a batch. Recording takes as long as the video.'
+              : 'The shots are written as times, in shots.json. Tick this to have each one as a video too, to send them on as a batch.'}
+          </p>
         </div>
 
         <div className="vt-section">

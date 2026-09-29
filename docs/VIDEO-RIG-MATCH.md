@@ -105,6 +105,11 @@ can turn on **the video underneath** to compare them.
 `animation.md` lists the segments and the frames dropped, with each one's
 confidence.
 
+**Frames** is the frames that were matched, as pictures at the size they were
+matched at — `frame-001.png`, `frame-002.png`, … in order. Generate in the editor
+reads them from the video and sends them with the run. Wired into a flow that
+takes one picture it is a batch, a frame at a time (see [BATCHES.md](BATCHES.md)).
+
 On a test video of the character walking across a painted background, with a
 stretch where the character is gone, all 12 sampled frames were matched in
 about 30 seconds. The two frames without the character were dropped at 1%

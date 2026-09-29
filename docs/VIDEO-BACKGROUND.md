@@ -2,8 +2,8 @@
 
 `art.video.background` · takes a **Video** · gives **`background.png`** and **`background.md`**
 
-Takes the background out of a video clip: what stays put while everything else
-moves.
+Takes the background out of a video clip: the colour each pixel has most often,
+where it has it often enough.
 
 ```
 Video ──▶ Video Background ──▶ background.png
@@ -15,26 +15,40 @@ Video ──▶ Video Background ──▶ background.png
 1. **The frames.** The clip is sampled **so many in all** (spread evenly over
    it) or **so many a second**. The first is at the start, and none is at the
    very end, which is so often black.
-2. **Every pixel, across every frame.** A pixel's colour is the middle of the
-   colours it had (the median, channel by channel, so one odd frame does not
-   tint it). If every frame is within the **tolerance** of that colour, the
-   pixel is background. If not, something passed in front of it, and it is left
-   **clear**.
+2. **Every pixel, across every frame.** The colours a pixel has are gathered
+   into groups of the same colour, within the **tolerance**. The biggest group
+   is the colour it has **most often**, and the pixel takes that colour (the
+   average of the group, so the frames where something stood in front are
+   left out of it).
+3. **Common enough?** If that colour is in fewer of the frames than the
+   **agreement**, no one colour is common enough to be the background, and the
+   pixel is left **clear**.
 
 The tolerance is measured over red, green, blue and opacity, with black against
-white at 100. At 2 only pixels that never change count; about 8 allows for
-compression noise; 25 allows for flicker and slow changes of light, and takes in
-slow-moving things too.
+white at 100. At 2 only colours that never change count as one; about 8 allows
+for compression noise; 25 allows for flicker and slow changes of light, and
+joins similar colours of things passing in front too.
 
-All the frames are held at once to take medians, so they are read at the
-video's own size only while that fits: at most 1,280 pixels across, and 40
-million pixels over all the frames together. More frames of a bigger video are
-read smaller. The editor says what size it read them at.
+The agreement is a share of the frames. At 50% (the default) a pixel keeps the
+colour it has more often than not, so a character walking past, in front of any
+one spot for less than half the clip, is left out without marking anything. At
+100% only pixels that are the same in every frame are kept. Lower it for a
+character that lingers; raise it when something moving is taken for the
+background.
+
+A colour joins the first group it is within the tolerance of, and the winning
+group is counted again against its average, so the order of the frames matters
+little. On a tie the group seen first wins.
+
+All the frames are held at once to find each pixel's commonest colour, so they
+are read at the video's own size only while that fits: at most 1,280 pixels
+across, and 40 million pixels over all the frames together. More frames of a
+bigger video are read smaller. The editor says what size it read them at.
 
 ## Putting more in by hand
 
-A moving character covers some of the background in every frame, but not the
-same part in all of them. What one frame shows can be put back from that frame:
+A character that stays in one place for most of the clip is the most common
+colour there, and one that moves covers some of the background in every frame. What one frame shows can be put back from that frame:
 
 1. Choose the frame in the strip under the picture.
 2. Mark what it shows:
@@ -42,7 +56,7 @@ same part in all of them. What one frame shows can be put back from that frame:
    - **Draw round**: click round it, then double-click or press Enter to close
      the shape. Escape drops it.
    - **Erase**: brush over pixels to take them out of the background, even ones
-     that held still.
+     common enough to be kept.
 3. **Tint what is background already** shades, in green, what is in the
    background so far, so you can see what is missing.
 
@@ -59,10 +73,10 @@ since they are in the frames' pixels.
 
 ## What comes out
 
-- `background.png`, the size the frames were read at, clear wherever something
-  moved and nothing was marked.
-- `background.md`: how many frames, how much of the picture held still, and how
-  much was marked by hand.
+- `background.png`, the size the frames were read at, clear wherever no colour
+  was common enough and nothing was marked.
+- `background.md`: how many frames, how much of the picture had one colour in
+  enough of them, and how much was marked by hand.
 
 The frames are read in the editor, where the video can be decoded, so the
 background is worked out there and sent with **Generate** in the editor. An

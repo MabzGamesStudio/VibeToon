@@ -3269,14 +3269,90 @@ input.is-invalid {
   font-size: 12px;
 }
 
+.vt-edit-zoom {
+  gap: 4px;
+  margin-bottom: 4px;
+  font-size: 11px;
+
+  .vt-btn {
+    min-width: 26px;
+  }
+}
+
 .vt-edit-timeline {
   position: relative;
-  height: 40px;
+  overflow: hidden;
   border-radius: 4px;
   background: $bg-0;
   box-shadow: 0 0 0 1px $line;
-  cursor: pointer;
+  cursor: text;
   touch-action: none;
+  user-select: none;
+
+  &:focus-visible {
+    outline: 2px solid $accent;
+    outline-offset: 2px;
+  }
+}
+
+.vt-edit-ruler {
+  position: relative;
+  height: 30px;
+  border-bottom: 1px solid $line;
+  font-size: 10px;
+  color: $text-faint;
+}
+
+.vt-edit-shot {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  overflow: hidden;
+  background: rgba(232, 176, 75, 0.14);
+  white-space: nowrap;
+  pointer-events: none;
+
+  &.is-odd {
+    background: rgba(232, 176, 75, 0.26);
+  }
+
+  span {
+    position: absolute;
+    left: 5px;
+    bottom: 1px;
+    color: $warn;
+  }
+}
+
+.vt-edit-tick {
+  position: absolute;
+  top: 0;
+  height: 15px;
+  padding: 1px 0 0 3px;
+  border-left: 1px solid $line-strong;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.vt-edit-strip {
+  position: relative;
+  height: 40px;
+  background: #000;
+}
+
+.vt-edit-thumb {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background-color: #111;
+  background-repeat: repeat-x;
+  border-right: 1px solid rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.vt-edit-bar {
+  position: relative;
+  height: 24px;
 }
 
 .vt-edit-block {
@@ -3286,6 +3362,7 @@ input.is-invalid {
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   border-left: 2px solid $bg-0;
   background: rgba(110, 168, 254, 0.35);
   font-size: 11px;
@@ -3302,10 +3379,79 @@ input.is-invalid {
   }
 }
 
+.vt-edit-cut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px dashed $warn;
+  margin-left: -1px;
+  pointer-events: none;
+}
+
 .vt-edit-playhead {
   position: absolute;
-  top: -3px;
-  bottom: -3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -4px;
+    border: 5px solid transparent;
+    border-top-color: #fff;
+  }
+}
+
+.vt-edit-overview {
+  position: relative;
+  height: 14px;
+  margin-top: 4px;
+  border-radius: 3px;
+  background: rgba(110, 168, 254, 0.18);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.vt-edit-overview-gone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(240, 80, 80, 0.35);
+  pointer-events: none;
+}
+
+.vt-edit-overview-cut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: $warn;
+  pointer-events: none;
+}
+
+.vt-edit-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 4px;
+  border: 1px solid $accent;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+}
+
+.vt-edit-overview-head {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
   width: 2px;
   margin-left: -1px;
   background: #fff;
@@ -3402,5 +3548,90 @@ input.is-invalid {
     &.is-in {
       opacity: 1;
     }
+  }
+}
+
+/* ---------------- batch flows ---------------- */
+
+.vt-batch-frame {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  > .vt-editor {
+    min-height: 0;
+  }
+}
+
+.vt-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: rgba(232, 176, 75, 0.08);
+  border-bottom: 1px solid rgba(232, 176, 75, 0.35);
+  font-size: 12px;
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.vt-batch-items {
+  @include scroll;
+  display: flex;
+  gap: 4px;
+  max-width: min(640px, 50vw);
+  overflow-x: auto;
+  padding: 2px 0;
+}
+
+.vt-batch-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid $line;
+  border-radius: 10px;
+  background: $bg-1;
+  color: $text-dim;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+
+  i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: $line-strong;
+  }
+
+  &.is-ready i {
+    background: $ok;
+  }
+
+  &.is-stale i {
+    background: $warn;
+  }
+
+  &.is-error i {
+    background: $err;
+  }
+
+  // An item with settings of its own.
+  &.is-own {
+    border-style: dashed;
+  }
+
+  &.is-on {
+    border-color: $accent;
+    color: $text;
+    background: $accent-soft;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 }

@@ -287,7 +287,7 @@ A skeleton for the character: what bones it has, and how far each joint may move
 Assigns the nodes of a vectorized drawing to the bones of a skeleton, so shapes bend at the joints.
 
 - **In:** Rig *(required)*, Vector *(required)*
-- **Out:** Bound rig `bound.json`, Preview `bound.svg`, Report `bound.md`
+- **Out:** Bound rig `bound.json`, Preview `bound.svg`, Report `bound.md`, Bone drawings `bones`
 - **Rules a new wire leaving `bound` starts with:**
 
   ```
@@ -357,7 +357,7 @@ Finds a bound rig’s body in a picture: places, sizes and turns it, then each p
 Finds a bound rig’s body in every sampled frame of a video and turns it into a rig animation, split wherever the character is not found.
 
 - **In:** Bound rig *(required)*, Video
-- **Out:** Rig animation `animation.json`, Report `animation.md`, Video `video.mp4`
+- **Out:** Rig animation `animation.json`, Report `animation.md`, Frames `frames`, Video `video.mp4`
 - **Rules a new wire leaving `animation` starts with:**
 
   ```
@@ -389,7 +389,7 @@ Crops a video, splits it into segments and deletes the ones not wanted. Writes t
 Splits a video into its shots: frames are compared by a small picture and a colour histogram, and each cut is found to the exact frame by binary search. Join and split shots by hand after.
 
 - **In:** Video
-- **Out:** Shots `shots.json`, Report `shots.md`, Video `video.mp4`
+- **Out:** Shots `shots.json`, Report `shots.md`, Shot clips `shots`, Video `video.mp4`
 - **Rules a new wire leaving `shots` starts with:**
 
   ```
@@ -529,7 +529,7 @@ Turns found lines into vector lines: each area of line pixels is filled, thinned
 
 `art.video.background` · **bespoke editor**
 
-Takes the background out of a video clip: every pixel that stays the same in every frame, with whatever moved left clear. Paint or draw round what a frame shows to put more of it back.
+Takes the background out of a video clip: each pixel's most common colour across the frames, left clear where no colour is in enough of them. Paint or draw round what a frame shows to put more of it back.
 
 - **In:** Video
 - **Out:** Background `background.png`, Report `background.md`, Video `video.mp4`

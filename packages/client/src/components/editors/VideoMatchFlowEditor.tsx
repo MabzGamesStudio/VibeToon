@@ -13,6 +13,7 @@ import {
   shapePath,
   summariseVideoMatch,
   videoMatchState,
+  matchFrameName,
   videoSourceOf,
   type FlowNode,
   type Project,
@@ -28,7 +29,8 @@ import { Field } from '../common/Field';
 import { onScreen } from '../common/handles';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
-import { loadVideo, seek } from '../common/video';
+import { pngDataUrl } from '../common/pixels';
+import { FrameReader, loadVideo, releaseVideo, seek } from '../common/video';
 import { EditorShell } from './EditorShell';
 import type { MatchReply, MatchRequest } from './rigMatch/matchWorker';
 
@@ -56,7 +58,7 @@ const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${(seconds % 60)
  * as the body and its skeleton alone, or over the video.
  */
 export function VideoMatchFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
-  const { setFlowData, notify, uploadOutput } = useStudio();
+  const { setFlowData, notify, uploadOutput, generateFlow } = useStudio();
   const data = node.data.editor === 'videoMatch' ? (node.data as VideoMatchFlowData) : emptyVideoMatchFlowData();
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -116,15 +118,8 @@ export function VideoMatchFlowEditor({ project, node }: { project: Project; node
   }, [boundArtifact, notify, patch, project.id]);
 
   const upload = useCallback(
-    (file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        void uploadOutput(node.id, 'source', file.name, String(reader.result));
-      };
-      reader.onerror = () => notify('error', 'That file could not be read.');
-      reader.readAsDataURL(file);
-    },
-    [node.id, notify, uploadOutput],
+    (file: File) => void uploadOutput(node.id, 'source', file.name, file),
+    [node.id, uploadOutput],
   );
 
   /* ---------------- matching every frame ---------------- */
@@ -335,8 +330,36 @@ export function VideoMatchFlowEditor({ project, node }: { project: Project; node
     </label>
   );
 
+  // Generate also writes the frames that were matched, as pictures: a folder
+  // that goes on as a batch, a frame at a time.
+  const [writingFrames, setWritingFrames] = useState<number | null>(null);
+  const onGenerate = async () => {
+    const current = dataRef.current;
+    if (!videoUrl || !current.frameSize || current.frames.length === 0) {
+      await generateFlow(node.id);
+      return;
+    }
+    let video: HTMLVideoElement | null = null;
+    const attachments: Array<{ name: string; data: string }> = [];
+    try {
+      video = await loadVideo(videoUrl);
+      const reader = new FrameReader(video, current.frameSize.width, current.frameSize.height);
+      for (const [index, frame] of current.frames.entries()) {
+        setWritingFrames(index);
+        attachments.push({ name: `frames/${matchFrameName(index)}`, data: await pngDataUrl(await reader.read(frame.time)) });
+      }
+    } catch (reason) {
+      notify('error', `Could not read the frames: ${(reason as Error).message}. The animation is written without them.`);
+    } finally {
+      if (video) releaseVideo(video);
+      setWritingFrames(null);
+    }
+    await generateFlow(node.id, attachments);
+  };
+
   return (
     <EditorShell
+      onGenerate={onGenerate}
       project={project}
       node={node}
       actions={source?.wired ? undefined : uploadButton}
@@ -345,6 +368,12 @@ export function VideoMatchFlowEditor({ project, node }: { project: Project; node
           <div className="vt-sync-banner">
             <span>{blocked}</span>
             {!source ? uploadButton : null}
+          </div>
+        ) : writingFrames !== null ? (
+          <div className="vt-sync-banner">
+            <span>
+              Writing the frames: {writingFrames + 1} of {data.frames.length}…
+            </span>
           </div>
         ) : state === 'none' ? (
           <div className="vt-sync-banner">

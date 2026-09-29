@@ -1,7 +1,9 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   hashString,
+  hashStringParts,
   isTextualArtifact,
   migrateProject,
   type ArtifactKind,
@@ -171,31 +173,67 @@ export interface WriteArtifactInput {
 
 const PREVIEW_LIMIT = 4000;
 
+/**
+ * Where one item of a batch flow writes. While an item runs, its flow's files
+ * go into `artifacts/<flow>/items/<item>/` instead of beside the flow's own,
+ * so a generator writes as it always does and knows nothing of batches.
+ */
+const artifactScope = new AsyncLocalStorage<{ flowId: string; folder: string }>();
+
+export function inItemFolder<T>(flowId: string, folder: string, run: () => Promise<T>): Promise<T> {
+  return artifactScope.run({ flowId, folder: path.posix.join('items', folder) }, run);
+}
+
+/** The folder under the flow's own that a write goes to: none, or an item's. */
+function scopedFolder(flowId: string): string {
+  const scope = artifactScope.getStore();
+  return scope && scope.flowId === flowId ? scope.folder : '';
+}
+
+/** The bytes as a Buffer, sharing their memory rather than copying it. */
+function asBuffer(content: Uint8Array): Buffer {
+  return Buffer.isBuffer(content) ? content : Buffer.from(content.buffer, content.byteOffset, content.byteLength);
+}
+
+/**
+ * A file's hash: `hashString` of its base64, as it always has been, but read
+ * in pieces — a video's base64 can be longer than a string may be.
+ */
+export function hashBytes(content: Uint8Array): string {
+  const buffer = asBuffer(content);
+  // A multiple of 3 bytes, so the pieces' base64 joins up into the whole's.
+  const piece = 3 * 1024 * 1024;
+  function* parts(): Generator<string> {
+    for (let at = 0; at < buffer.byteLength; at += piece) yield buffer.subarray(at, at + piece).toString('base64');
+  }
+  return hashStringParts(parts());
+}
+
 export async function writeArtifact(input: WriteArtifactInput): Promise<ArtifactRef> {
   assertSafeId(input.projectId, 'project id');
   assertSafeId(input.flowId, 'flow id');
   const dir = flowArtifactsDir(input.projectId, input.flowId);
   await ensureDir(dir);
 
+  const folder = scopedFolder(input.flowId);
   const target = resolveInProject(
     input.projectId,
-    path.join('artifacts', input.flowId, input.fileName),
+    path.join('artifacts', input.flowId, folder, input.fileName),
   );
   await ensureDir(path.dirname(target));
 
   const isText = typeof input.content === 'string';
-  await writeFile(target, isText ? (input.content as string) : Buffer.from(input.content as Uint8Array));
+  const binary = isText ? null : asBuffer(input.content as Uint8Array);
+  await writeFile(target, binary ?? (input.content as string));
 
-  const bytes = isText ? Buffer.byteLength(input.content as string) : (input.content as Uint8Array).byteLength;
-  const hash = isText
-    ? hashString(input.content as string)
-    : hashString(Buffer.from(input.content as Uint8Array).toString('base64'));
+  const bytes = binary ? binary.byteLength : Buffer.byteLength(input.content as string);
+  const hash = binary ? hashBytes(binary) : hashString(input.content as string);
 
   const ref: ArtifactRef = {
     port: input.port,
     kind: input.kind,
     fileName: input.fileName,
-    path: path.posix.join('artifacts', input.flowId, ...input.fileName.split(path.sep)),
+    path: path.posix.join('artifacts', input.flowId, folder, ...input.fileName.split(path.sep)),
     hash,
     bytes,
     generatedAt: new Date().toISOString(),
@@ -218,24 +256,25 @@ export async function writeArtifactSet(input: {
 }): Promise<ArtifactRef> {
   assertSafeId(input.projectId, 'project id');
   assertSafeId(input.flowId, 'flow id');
-  const relativeDir = path.posix.join('artifacts', input.flowId, input.dirName);
+  const relativeDir = path.posix.join('artifacts', input.flowId, scopedFolder(input.flowId), input.dirName);
   const absoluteDir = resolveInProject(input.projectId, relativeDir);
   await rm(absoluteDir, { recursive: true, force: true });
   await ensureDir(absoluteDir);
 
   let bytes = 0;
-  const parts: string[] = [];
   const entries: string[] = [];
+  const entryHashes: Record<string, string> = {};
   for (const file of input.files) {
     if (path.basename(file.name) !== file.name) {
       throw new HttpError(400, `Artifact set entries cannot contain paths: ${file.name}`);
     }
     const buffer =
-      typeof file.content === 'string' ? Buffer.from(file.content, 'utf8') : Buffer.from(file.content);
+      typeof file.content === 'string' ? Buffer.from(file.content, 'utf8') : asBuffer(file.content);
     await writeFile(path.join(absoluteDir, file.name), buffer);
     bytes += buffer.byteLength;
-    parts.push(`${file.name}:${buffer.byteLength}`);
     entries.push(file.name);
+    // Each file's own hash, so one file of the set can go on alone, in a batch.
+    entryHashes[file.name] = hashBytes(buffer);
   }
 
   return {
@@ -243,10 +282,11 @@ export async function writeArtifactSet(input: {
     kind: input.kind,
     fileName: input.dirName,
     path: relativeDir,
-    hash: hashString(parts.join('|')),
+    hash: hashString(entries.map((entry) => `${entry}:${entryHashes[entry]}`).join('|')),
     bytes,
     generatedAt: new Date().toISOString(),
     entries,
+    entryHashes,
   };
 }
 

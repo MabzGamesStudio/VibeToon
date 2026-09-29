@@ -446,3 +446,55 @@ label {
   font-size: 11.5px;
   line-height: 1.5;
 }
+
+/* ---------------- a switch ---------------- */
+
+.vt-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+
+  input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .vt-switch-track {
+    position: relative;
+    width: 28px;
+    height: 16px;
+    border-radius: 8px;
+    background: $line-strong;
+    transition: background 0.15s;
+
+    &::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: $text;
+      transition: transform 0.15s;
+    }
+  }
+
+  &.is-on .vt-switch-track {
+    background: $accent;
+
+    &::after {
+      transform: translateX(12px);
+    }
+  }
+
+  input:focus-visible + .vt-switch-track {
+    outline: 2px solid $accent;
+    outline-offset: 2px;
+  }
+}

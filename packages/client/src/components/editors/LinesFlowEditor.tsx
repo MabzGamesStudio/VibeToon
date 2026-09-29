@@ -36,7 +36,7 @@ function utf8Base64(text: string): string {
  * settings change, and shown in place of the picture or under it.
  */
 export function LinesFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
-  const { setFlowData, generateFlow, notify } = useStudio();
+  const { setFlowData, generateFlow, notify, busyFlows } = useStudio();
   const data = node.data.editor === 'lines' ? (node.data as LinesFlowData) : emptyLinesFlowData();
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -120,7 +120,14 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
 
   const onGenerate = async () => {
     // What is written is always for the settings as they are, shown or not.
-    const current = result && !behind ? result : find(data.options);
+    let current = result && !behind ? result : null;
+    if (!current && source) {
+      setWorking(true);
+      // A frame to paint "Generating…" before the work holds the page up.
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+      current = find(dataRef.current.options);
+      setWorking(false);
+    }
     if (!current) {
       await generateFlow(node.id);
       return;
@@ -134,6 +141,26 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
       notify('error', `Could not write the lines: ${(reason as Error).message}`);
     }
   };
+
+  const generating = working || busyFlows.includes(node.id);
+  const generateButton = (
+    <button
+      type="button"
+      className={`vt-btn is-small${!result || (behind && !data.live) ? ' is-primary' : ''}`}
+      disabled={!source || generating}
+      title="Find the lines for these settings and write them to the outputs"
+      onClick={() => void onGenerate()}
+    >
+      {generating ? 'Generating…' : 'Generate'}
+    </button>
+  );
+  const liveToggle = (
+    <label className={`vt-switch${data.live ? ' is-on' : ''}`} title="Find the lines again whenever a setting changes">
+      <input type="checkbox" role="switch" checked={data.live} aria-checked={data.live} onChange={(event) => patch({ live: event.target.checked })} />
+      <span className="vt-switch-track" aria-hidden="true" />
+      Live
+    </label>
+  );
 
   const blocked = !input
     ? 'Wire an image into the Image input.'
@@ -198,26 +225,20 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
             onChange={(chunk) => setOptions({ chunk: Math.round(chunk) })}
           />
           <div className="vt-row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-            <button
-              type="button"
-              className={`vt-btn is-small${behind && !data.live ? ' is-primary' : ''}`}
-              disabled={!source || working}
-              onClick={run}
-            >
-              Find the lines
-            </button>
-            <label className="vt-row" style={{ gap: 5 }} title="Find the lines again whenever a setting changes">
-              <input type="checkbox" checked={data.live} onChange={(event) => patch({ live: event.target.checked })} />
-              live
-            </label>
+            {generateButton}
+            {liveToggle}
             <span className="vt-spacer" />
             <button type="button" className="vt-btn is-ghost is-small" onClick={() => patch({ options: { ...DEFAULT_LINE_OPTIONS } })}>
               Defaults
             </button>
           </div>
-          {behind && !data.live ? (
-            <p className="vt-hint">The settings have changed since these lines were found. Press Find the lines to see them.</p>
-          ) : null}
+          <p className="vt-hint">
+            {data.live
+              ? 'Live: the lines are found again as each setting changes. Generate writes them to the outputs.'
+              : behind
+                ? 'The settings have changed since these lines were found. Generate to find them again and write them, or turn on Live.'
+                : 'Generate finds the lines for these settings and writes them to the outputs. Turn on Live to see them change as you move a setting.'}
+          </p>
         </div>
 
         <div className="vt-section">
@@ -240,6 +261,8 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
           title={showing === 'lines' ? 'Lines' : 'The original'}
           tools={
             <>
+              {generateButton}
+              {liveToggle}
               {showing === 'lines' ? (
                 <label className="vt-row" style={{ gap: 4, fontSize: 11 }}>
                   <input type="checkbox" checked={overlay} onChange={(event) => setOverlay(event.target.checked)} />

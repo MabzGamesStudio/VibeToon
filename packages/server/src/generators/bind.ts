@@ -1,12 +1,15 @@
 import {
   allPoints,
   boundRigOf,
+  fileNameOf,
   restPose,
+  splitIntoParts,
   summariseBinding,
   toSvg,
   type BindFlowData,
 } from '@vibetoon/shared';
-import { writeArtifact } from '../storage';
+import { writeArtifact, writeArtifactSet } from '../storage';
+import { uniqueNames } from './parts';
 import type { GenerationContext, GenerationResult } from './types';
 
 /**
@@ -159,6 +162,23 @@ export async function generateBind(ctx: GenerationContext): Promise<GenerationRe
       content: `${lines.join('\n')}\n`,
     }),
   ];
+
+  // One drawing per bone — the shapes that follow it most — each the whole
+  // drawing's size: a folder that goes on as a batch, a bone at a time.
+  const parts = splitIntoParts(bound).filter((part) => part.image.shapes.length > 0);
+  if (parts.length > 0) {
+    const names = uniqueNames(parts.map((part) => fileNameOf(part.name, part.id)));
+    outputs.push(
+      await writeArtifactSet({
+        projectId: ctx.project.id,
+        flowId: ctx.node.id,
+        port: 'bones',
+        kind: 'imageSet',
+        dirName: 'bones',
+        files: parts.map((part, index) => ({ name: `${names[index]}.svg`, content: toSvg(part.image) })),
+      }),
+    );
+  }
 
   ctx.log(
     `${summary.bound} of ${summary.nodes} node(s) bound across ${summary.bones} bone(s), after ${data.edits} edit(s).`,

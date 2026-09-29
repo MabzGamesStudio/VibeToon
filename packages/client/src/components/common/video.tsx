@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Bitmap } from '@vibetoon/shared';
 
 /** A video element ready to be read from, at a URL, its length known. */
@@ -116,6 +116,73 @@ export function useVideoMeta(url: string | null): { meta: VideoMeta | null; erro
   return { meta, error };
 }
 
+/**
+ * Small pictures of a video's frames, read on their own video element as they
+ * are asked for. `want` replaces what is waiting to be read with the frames
+ * wanted now — the ones in view — so a zoom or pan does not wait on frames no
+ * longer shown. What was read is kept, by frame, until the URL or size changes.
+ */
+export function useFrameThumbnails(
+  url: string | null,
+  width: number,
+  height: number,
+  fps: number,
+): { thumbs: Record<number, string>; want: (frames: readonly number[]) => void } {
+  const [thumbs, setThumbs] = useState<Record<number, string>>({});
+  const known = useRef<Record<number, string>>({});
+  const queue = useRef<number[]>([]);
+  const wake = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    known.current = {};
+    queue.current = [];
+    setThumbs({});
+    if (!url || !(width > 0) || !(height > 0)) return undefined;
+    let stopped = false;
+    let video: HTMLVideoElement | null = null;
+    void (async () => {
+      try {
+        video = await loadVideo(url);
+        const reader = new FrameReader(video, Math.round(width), Math.round(height));
+        let batch: Record<number, string> = {};
+        const flush = () => {
+          const add = batch;
+          batch = {};
+          if (!stopped && Object.keys(add).length > 0) setThumbs((current) => ({ ...current, ...add }));
+        };
+        while (!stopped) {
+          const frame = queue.current.shift();
+          if (frame === undefined) {
+            flush();
+            await new Promise<void>((resolve) => (wake.current = resolve));
+            wake.current = null;
+            continue;
+          }
+          if (known.current[frame]) continue;
+          // A little into the frame, so the frame shown is that one and not the one before.
+          const picture = await reader.thumbnail((frame + 0.25) / Math.max(1, fps));
+          known.current[frame] = picture;
+          batch[frame] = picture;
+          if (Object.keys(batch).length >= 6) flush();
+        }
+      } catch {
+        // Pictures are a nicety: the timeline works without them.
+      }
+    })();
+    return () => {
+      stopped = true;
+      wake.current?.();
+      if (video) releaseVideo(video);
+    };
+  }, [url, width, height, fps]);
+
+  const want = useCallback((frames: readonly number[]) => {
+    queue.current = frames.filter((frame) => !known.current[frame]);
+    if (queue.current.length > 0) wake.current?.();
+  }, []);
+  return { thumbs, want };
+}
+
 /** A button that uploads a video onto a flow's own Video port. */
 export function VideoUpload({
   replace,
@@ -141,14 +208,18 @@ export function VideoUpload({
   );
 }
 
-/** Read a file as a data URL and hand it to `send`. */
-export function useFileUpload(send: (fileName: string, data: string) => Promise<void> | void, onError: (message: string) => void): (file: File) => void {
+/**
+ * Hand a chosen file to `send` as it is. It is not read into the page first: a
+ * video turned into a data URL can be longer than a browser can hold.
+ */
+export function useFileUpload(send: (fileName: string, data: Blob) => Promise<unknown> | void, onError: (message: string) => void): (file: File) => void {
   return useCallback(
     (file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => void send(file.name, String(reader.result));
-      reader.onerror = () => onError('That file could not be read.');
-      reader.readAsDataURL(file);
+      if (file.size === 0) {
+        onError('That file is empty.');
+        return;
+      }
+      void send(file.name, file);
     },
     [onError, send],
   );
