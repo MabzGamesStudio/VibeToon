@@ -15,7 +15,9 @@ Video Source ──▶ Video Edit ──▶ edited.webm ──▶ Shot Split, Vi
 
 A video from this machine or from a link.
 
-- **From this machine.** Choose a file. It is copied into the project.
+- **From this machine.** Choose a file, up to 1 GB. It is copied into the
+  project, sent as it is rather than read into the page first, so a long video
+  uploads as easily as a short one.
 - **From a link.** Paste the address of the video *file* and press **Fetch**. The
   server downloads it once and keeps it with the project, so the flow keeps
   working when the address stops.

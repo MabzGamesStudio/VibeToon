@@ -86,18 +86,16 @@ export function ImageFlowEditor({ project, node }: { project: Project; node: Flo
       notify('error', `${chosen.type} is not an image this studio can read.`);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = async () => {
-      await uploadOutput(node.id, 'image', chosen.name, String(reader.result));
+    // The file goes as it is: no need to read it into the page first.
+    void uploadOutput(node.id, 'image', chosen.name, chosen).then((done) => {
+      if (!done) return;
       record({
         origin: 'upload',
         fileName: chosen.name,
         contentType: chosen.type || 'image/png',
         bytes: chosen.size,
       });
-    };
-    reader.onerror = () => notify('error', 'Could not read that file.');
-    reader.readAsDataURL(chosen);
+    });
   };
 
   const onFetch = async () => {

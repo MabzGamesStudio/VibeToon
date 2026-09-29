@@ -2,6 +2,7 @@ import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises
 import path from 'node:path';
 import {
   hashString,
+  hashStringParts,
   isTextualArtifact,
   migrateProject,
   type ArtifactKind,
@@ -171,6 +172,25 @@ export interface WriteArtifactInput {
 
 const PREVIEW_LIMIT = 4000;
 
+/** The bytes as a Buffer, sharing their memory rather than copying it. */
+function asBuffer(content: Uint8Array): Buffer {
+  return Buffer.isBuffer(content) ? content : Buffer.from(content.buffer, content.byteOffset, content.byteLength);
+}
+
+/**
+ * A file's hash: `hashString` of its base64, as it always has been, but read
+ * in pieces — a video's base64 can be longer than a string may be.
+ */
+export function hashBytes(content: Uint8Array): string {
+  const buffer = asBuffer(content);
+  // A multiple of 3 bytes, so the pieces' base64 joins up into the whole's.
+  const piece = 3 * 1024 * 1024;
+  function* parts(): Generator<string> {
+    for (let at = 0; at < buffer.byteLength; at += piece) yield buffer.subarray(at, at + piece).toString('base64');
+  }
+  return hashStringParts(parts());
+}
+
 export async function writeArtifact(input: WriteArtifactInput): Promise<ArtifactRef> {
   assertSafeId(input.projectId, 'project id');
   assertSafeId(input.flowId, 'flow id');
@@ -184,12 +204,11 @@ export async function writeArtifact(input: WriteArtifactInput): Promise<Artifact
   await ensureDir(path.dirname(target));
 
   const isText = typeof input.content === 'string';
-  await writeFile(target, isText ? (input.content as string) : Buffer.from(input.content as Uint8Array));
+  const binary = isText ? null : asBuffer(input.content as Uint8Array);
+  await writeFile(target, binary ?? (input.content as string));
 
-  const bytes = isText ? Buffer.byteLength(input.content as string) : (input.content as Uint8Array).byteLength;
-  const hash = isText
-    ? hashString(input.content as string)
-    : hashString(Buffer.from(input.content as Uint8Array).toString('base64'));
+  const bytes = binary ? binary.byteLength : Buffer.byteLength(input.content as string);
+  const hash = binary ? hashBytes(binary) : hashString(input.content as string);
 
   const ref: ArtifactRef = {
     port: input.port,

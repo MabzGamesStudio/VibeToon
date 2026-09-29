@@ -52,13 +52,10 @@ export function VideoSourceFlowEditor({ project, node }: { project: Project; nod
       notify('error', `${chosen.type} is not a video.`);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = async () => {
-      await uploadOutput(node.id, 'video', chosen.name, String(reader.result));
-      record({ origin: 'upload', fileName: chosen.name, contentType: chosen.type || 'video/mp4', bytes: chosen.size });
-    };
-    reader.onerror = () => notify('error', 'Could not read that file.');
-    reader.readAsDataURL(chosen);
+    // The file goes as it is: a video can be far too big to read into the page as text.
+    void uploadOutput(node.id, 'video', chosen.name, chosen).then((done) => {
+      if (done) record({ origin: 'upload', fileName: chosen.name, contentType: chosen.type || 'video/mp4', bytes: chosen.size });
+    });
   };
 
   const onFetch = async () => {

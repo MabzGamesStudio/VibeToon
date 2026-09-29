@@ -135,3 +135,38 @@ test('the fetch route refuses a link on this machine for a video port', async ()
   assert.equal(response.ok, false);
   assert.match(await response.text(), /this machine/);
 });
+
+/* ---------------- a big file ---------------- */
+
+test('a video sent as its own bytes is kept, bigger than a JSON upload can carry', async () => {
+  // Past the JSON body limit, and far past what a browser can make into one base64 string.
+  const big = new Uint8Array(100 * 1024 * 1024 + 7);
+  big.set(MP4);
+  for (let i = MP4.byteLength; i < big.byteLength; i += 4099) big[i] = i % 251;
+  const response = await fetch(`${base}/api/projects/${project.id}/flows/${SOURCE}/outputs/video?name=${encodeURIComponent('long walk.mp4')}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/octet-stream' },
+    body: big,
+  });
+  assert.equal(response.status, 200, await response.clone().text());
+  const uploaded = (await response.json()) as { project: Project; artifact: ArtifactRef };
+  project = uploaded.project;
+  assert.equal(uploaded.artifact.fileName, 'long walk.mp4');
+  assert.equal(uploaded.artifact.bytes, big.byteLength);
+  const back = new Uint8Array(await (await fetch(`${base}/api/projects/${project.id}/files/${uploaded.artifact.path}`)).arrayBuffer());
+  assert.equal(back.byteLength, big.byteLength);
+  assert.deepEqual(back.subarray(0, 64), big.subarray(0, 64));
+  assert.equal(back[big.byteLength - 4], big[big.byteLength - 4]);
+});
+
+test('a raw upload with no bytes, or a path for a name, is refused', async () => {
+  const empty = await fetch(`${base}/api/projects/${project.id}/flows/${SOURCE}/outputs/video?name=x.mp4`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: new Uint8Array(0) });
+  assert.equal(empty.status, 400);
+  const sneaky = await fetch(`${base}/api/projects/${project.id}/flows/${SOURCE}/outputs/video?name=${encodeURIComponent('../../settings.json')}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/octet-stream' },
+    body: MP4,
+  });
+  assert.equal(sneaky.status, 200, 'the name is cut to its last part');
+  assert.equal(((await sneaky.json()) as { artifact: ArtifactRef }).artifact.fileName, 'settings.json');
+});

@@ -117,7 +117,8 @@ interface StudioValue {
   generateFlow(nodeId: string, attachments?: AttachmentPayload[]): Promise<GenerationRun | null>;
   generateAll(): Promise<void>;
   acceptSync(nodeId: string, connectionId?: string): Promise<void>;
-  uploadOutput(nodeId: string, portId: string, fileName: string, data: string): Promise<void>;
+  /** Resolves true once the file is on the port; a failure is shown, and resolves false. */
+  uploadOutput(nodeId: string, portId: string, fileName: string, data: string | Blob): Promise<boolean>;
   /** Fetch an image onto a port; resolves with what arrived, or undefined on failure. */
   fetchOutput(
     nodeId: string,
@@ -725,9 +726,10 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
   );
 
   const uploadOutput = useCallback(
-    async (nodeId: string, portId: string, fileName: string, data: string) => {
+    async (nodeId: string, portId: string, fileName: string, data: string | Blob) => {
       const current = projectRef.current;
-      if (!current) return;
+      if (!current) return false;
+      let done = false;
       await withBusy([nodeId], async () => {
         try {
           await flushSave();
@@ -735,10 +737,12 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
           adopt(result.project, `Upload to ${flowName(current, nodeId)}`);
           setSaveState('clean');
           notify('success', `Uploaded ${result.artifact.fileName}.`);
+          done = true;
         } catch (error) {
           notify('error', `Upload failed: ${(error as Error).message}`);
         }
       });
+      return done;
     },
     [adopt, flushSave, notify, withBusy],
   );

@@ -116,15 +116,8 @@ export function VideoMatchFlowEditor({ project, node }: { project: Project; node
   }, [boundArtifact, notify, patch, project.id]);
 
   const upload = useCallback(
-    (file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        void uploadOutput(node.id, 'source', file.name, String(reader.result));
-      };
-      reader.onerror = () => notify('error', 'That file could not be read.');
-      reader.readAsDataURL(file);
-    },
-    [node.id, notify, uploadOutput],
+    (file: File) => void uploadOutput(node.id, 'source', file.name, file),
+    [node.id, uploadOutput],
   );
 
   /* ---------------- matching every frame ---------------- */

@@ -208,14 +208,18 @@ export function VideoUpload({
   );
 }
 
-/** Read a file as a data URL and hand it to `send`. */
-export function useFileUpload(send: (fileName: string, data: string) => Promise<void> | void, onError: (message: string) => void): (file: File) => void {
+/**
+ * Hand a chosen file to `send` as it is. It is not read into the page first: a
+ * video turned into a data URL can be longer than a browser can hold.
+ */
+export function useFileUpload(send: (fileName: string, data: Blob) => Promise<unknown> | void, onError: (message: string) => void): (file: File) => void {
   return useCallback(
     (file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => void send(file.name, String(reader.result));
-      reader.onerror = () => onError('That file could not be read.');
-      reader.readAsDataURL(file);
+      if (file.size === 0) {
+        onError('That file is empty.');
+        return;
+      }
+      void send(file.name, file);
     },
     [onError, send],
   );

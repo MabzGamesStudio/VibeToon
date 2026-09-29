@@ -14,10 +14,20 @@ export function newId(prefix: string): string {
  * browser with no dependency, which is all we need for change detection.
  */
 export function hashString(value: string): string {
+  return hashStringParts([value]);
+}
+
+/**
+ * `hashString` of the pieces joined, without joining them: for text too long
+ * to hold as one string, such as a big file's base64.
+ */
+export function hashStringParts(parts: Iterable<string>): string {
   let h = 0x811c9dc5;
-  for (let i = 0; i < value.length; i += 1) {
-    h ^= value.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
+  for (const value of parts) {
+    for (let i = 0; i < value.length; i += 1) {
+      h ^= value.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
   }
   return (h >>> 0).toString(16).padStart(8, '0');
 }

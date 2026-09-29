@@ -24,10 +24,12 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+  // A file goes as its own bytes; anything else as JSON.
+  const raw = body instanceof Blob;
   const response = await fetch(url, {
     method,
-    headers: body === undefined ? undefined : { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: body === undefined ? undefined : { 'content-type': raw ? 'application/octet-stream' : 'application/json' },
+    body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
   });
   if (!response.ok) {
     let message = `${method} ${url} failed (${response.status})`;
@@ -78,12 +80,19 @@ export const api = {
       `/api/projects/${id}/flows/${flowId}/sync-sources`,
     ),
 
-  uploadOutput: (id: string, flowId: string, portId: string, fileName: string, data: string) =>
-    request<{ project: Project; artifact: ArtifactRef }>(
-      'POST',
-      `/api/projects/${id}/flows/${flowId}/outputs/${portId}`,
-      { fileName, data },
-    ),
+  /**
+   * Put a file onto an output port. A file (or any Blob) is sent as its bytes,
+   * which is what a big one needs: turned into a base64 string it can be
+   * longer than a browser can hold. A data URL made in the page goes as JSON.
+   */
+  uploadOutput: (id: string, flowId: string, portId: string, fileName: string, data: string | Blob) =>
+    typeof data === 'string'
+      ? request<{ project: Project; artifact: ArtifactRef }>('POST', `/api/projects/${id}/flows/${flowId}/outputs/${portId}`, { fileName, data })
+      : request<{ project: Project; artifact: ArtifactRef }>(
+          'PUT',
+          `/api/projects/${id}/flows/${flowId}/outputs/${portId}?name=${encodeURIComponent(fileName)}`,
+          data,
+        ),
   /**
    * Fetch an image onto an output port. The server does the download because a
    * site that serves an image usually refuses a cross-origin read of its bytes,
