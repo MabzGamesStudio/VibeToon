@@ -529,7 +529,7 @@ Turns found lines into vector lines: each area of line pixels is filled, thinned
 
 `art.video.background` · **bespoke editor**
 
-Takes the background out of a video clip: every pixel that stays the same in every frame, with whatever moved left clear. Paint or draw round what a frame shows to put more of it back.
+Takes the background out of a video clip: each pixel's most common colour across the frames, left clear where no colour is in enough of them. Paint or draw round what a frame shows to put more of it back.
 
 - **In:** Video
 - **Out:** Background `background.png`, Report `background.md`, Video `video.mp4`

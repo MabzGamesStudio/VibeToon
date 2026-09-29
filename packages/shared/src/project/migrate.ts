@@ -241,7 +241,8 @@ export function normaliseFlowData(data: FlowData): FlowData {
     case 'videoBackground': {
       const base = emptyVideoBackgroundFlowData();
       const sampling = fill(data.sampling, DEFAULT_VIDEO_SAMPLING);
-      const whole = Array.isArray(data.marks) && typeof data.tolerance === 'number' && typeof data.brush === 'number' && typeof data.tool === 'string' && data.current !== undefined;
+      const whole =
+        Array.isArray(data.marks) && typeof data.tolerance === 'number' && typeof data.agreement === 'number' && typeof data.brush === 'number' && typeof data.tool === 'string' && data.current !== undefined;
       if (!sampling.filled && whole) return data;
       return {
         ...base,

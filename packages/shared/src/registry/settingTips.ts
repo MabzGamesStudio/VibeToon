@@ -939,8 +939,13 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     examples: ['12 in all — quick, for a clip where things move a lot.', '24 in all — a good default.', '2 a second — a long clip, evenly.'],
   },
   'videoBackground.tolerance': {
-    what: 'How much a pixel may change between frames and still be background. The change is measured from the middle of all its colours. Black against white is 100.',
-    examples: ['2 — only pixels that do not change at all: a still, clean video.', '8 — a good default: allows for compression noise.', '25 — allows for flicker and slow light changes, but takes in slow-moving things too.'],
+    what: 'How far apart two colours a pixel has in different frames may be and still count as the same colour. Each pixel’s colours are grouped by it, and the biggest group is its most common colour. Black against white is 100.',
+    examples: ['2 — only colours that do not change at all: a still, clean video.', '8 — a good default: allows for compression noise.', '25 — allows for flicker and slow light changes, but joins similar colours of things passing in front too.'],
+  },
+  'videoBackground.agreement': {
+    what: 'How many of the frames a pixel’s most common colour must be in for it to be kept as the background. Below this, no one colour is common enough, and the pixel is left clear.',
+    examples: ['30% — keeps the background wherever it shows in a third of the frames, even behind something that stood in front most of the time.', '50% — a good default: the colour it has more often than not.', '100% — only pixels the same in every frame: nothing ever passed in front.'],
+    note: 'Lower it for a character that lingers; raise it when a moving thing is being taken for the background.',
   },
   'videoBackground.brush': {
     what: 'The radius of the brush that paints a frame’s pixels into the background, or erases them out of it, in frame pixels.',

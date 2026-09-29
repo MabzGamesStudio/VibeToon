@@ -149,7 +149,8 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   sharp change into it and out of it, longer than it is wide by a ratio you set.
   An edge between two colours and a gradient are not lines. Writes a black
   picture with the lines red when thin and blue when wide, brighter the surer.
-  Found on a button, or live as the settings change.
+  A Generate button finds and writes them; a Live switch redoes them as the
+  settings change.
 - **Line graph.** Those lines as vector lines: each area of line pixels is
   filled, thinned to its middle and traced, and the lines are joined where they
   meet. Keep only a range of widths, take lines out, move the joins; writes the
@@ -216,9 +217,9 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   with the project; then crop it, split it into segments and delete the ones
   not wanted, and write the rest as one video or a clip each.
   See [docs/VIDEO-EDIT.md](docs/VIDEO-EDIT.md).
-- **Video background.** A clip in, its background out: every pixel that stays
-  the same in every sampled frame, within a tolerance, and clear where something
-  moved. Pick a frame and paint, erase or draw round what it shows to put more
+- **Video background.** A clip in, its background out: each pixel's most
+  common colour over the sampled frames (colours within a tolerance counting as
+  one), and clear where that colour is in fewer of them than an agreement share. Pick a frame and paint, erase or draw round what it shows to put more
   back. See [docs/VIDEO-BACKGROUND.md](docs/VIDEO-BACKGROUND.md).
 - **Shot split.** A video in, its shots out as time segments. Frames are
   compared by a small picture and a colour histogram, and each cut is found to

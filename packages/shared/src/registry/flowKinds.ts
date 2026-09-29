@@ -833,11 +833,11 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     kind: 'art.video.background',
     category: 'art',
     label: 'Video Background',
-    summary: 'Takes the background out of a video clip: every pixel that stays the same in every frame, with whatever moved left clear. Paint or draw round what a frame shows to put more of it back.',
+    summary: 'Takes the background out of a video clip: each pixel\'s most common colour across the frames, left clear where no colour is in enough of them. Paint or draw round what a frame shows to put more of it back.',
     inputs: [input('video', 'Video', ['video'], 'The clip to take the background from. Or upload one in the editor.')],
     outputs: [
       output('image', 'Background', ['image'], 'background.png', 'The background, clear wherever something moved and nothing was put back.'),
-      output('report', 'Report', ['markdown'], 'background.md', 'How much of the picture held still, and how much was marked by hand.'),
+      output('report', 'Report', ['markdown'], 'background.md', 'How much of the picture had one colour in enough of the frames, and how much was marked by hand.'),
       output('source', 'Video', ['video'], 'video.mp4', 'The video, when it was uploaded here rather than wired in.'),
     ],
     editor: 'videoBackground',

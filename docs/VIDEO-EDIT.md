@@ -44,14 +44,48 @@ Wire its *Video* into any flow that takes one.
 
 Crops a video, splits it into segments, and deletes the ones not wanted.
 
-## Segments
+## The timeline
 
-The video is a row of **segments** end to end, shown as a bar under the
-picture. At first there is one, the whole video.
+Under the picture is the **timeline**, three rows deep:
+
+- a **ruler** of times, with the **shots** behind it once they have been found
+  (see below), each shot a band of its own and its cut a dashed orange line down
+  the timeline;
+- a **filmstrip** of the video's frames, read as they come into view;
+- the **segments** (below).
+
+A bar under it is the whole video: the part the timeline shows is the lighter
+window on it, deleted stretches are red and shot cuts orange.
 
 | To | Do |
 | --- | --- |
-| Move the playhead | Click the bar. |
+| Scrub | Drag along the timeline. The video follows, a frame at a time, and the playhead stays in view. |
+| Step a frame | ← and → (Shift: a second). Home and End go to the first and last frame. Stepping pauses the video. |
+| Zoom | The mouse wheel over the timeline zooms about the pointer, **+** and **−** (on the keyboard or the buttons) about the playhead, in as far as a few frames across. **Whole video** zooms right out. |
+| Pan | Drag with Shift (or Alt, or the middle button) held, scroll sideways, or drag the window on the bar underneath (click the bar to go straight there). |
+
+The filmstrip shows a frame every so many frames, fewer the further out it is
+zoomed; zoomed in far enough, every frame. A frame is repeated along its tile
+when there is room, so a tile is as long as the frames it stands for.
+
+## Shots
+
+**Find the shots** looks for the cuts in the video the way Shot Split does:
+frames twice a second are compared by a small picture and a colour histogram,
+and each cut is narrowed down to the frame by halving. Shots shorter than half
+a second are joined to a neighbour. The shots are listed under the button (click
+one to go to it) and shown on the timeline, and kept with the flow for this
+video. **Split at the shots** splits the segments at every cut, so each shot can
+be kept or deleted, or written as a clip of its own.
+
+## Segments
+
+The video is a row of **segments** end to end, shown on the timeline under the
+filmstrip. At first there is one, the whole video.
+
+| To | Do |
+| --- | --- |
+| Move the playhead | Click or drag along the timeline. |
 | Split | **Split at …**, or press **S**: the segment under the playhead is cut in two at the frame nearest it. |
 | Delete a segment | Select it (click it on the bar or in the list) and press **Delete**, or **Delete** beside it in the list. Deleted segments are hatched red. |
 | Keep it again | The same again: **Keep**. |
@@ -59,7 +93,9 @@ picture. At first there is one, the whole video.
 
 **Play** plays the video. With **play the edit** ticked (the default) it skips
 what is deleted, so what you see is what will be written. Space plays and
-pauses. A split snaps to the **frame rate**.
+pauses. A split, scrubbing and stepping all snap to the **frame rate**, which is
+what "a frame" means here: a browser cannot read a video's own frame rate, so
+set it to the video's.
 
 ## Crop
 

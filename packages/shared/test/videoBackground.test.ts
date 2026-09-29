@@ -5,7 +5,7 @@ import {
   applyMarks,
   backgroundFrameSize,
   backgroundReport,
-  consistentBackground,
+  commonestBackground,
   emptyVideoBackgroundFlowData,
   markMask,
   nearestFrame,
@@ -30,34 +30,60 @@ function frame(x: number | null, noise = 0): Bitmap {
 
 const alphaAt = (image: Bitmap, x: number, y: number) => image.data[(y * W + x) * 4 + 3]!;
 
-test('what stays put in every frame is the background, and what moved is clear', () => {
+test('each pixel takes its most common colour, and what never settles is clear', () => {
+  // The box passes each spot in one frame of three: the wall is there two thirds of the time.
   const frames = [frame(2), frame(8), frame(14)];
-  const { image, consistent, stats } = consistentBackground(frames, 8);
+  const { image, kept, agreement, stats } = commonestBackground(frames, 8, 50);
   assert.equal(alphaAt(image, 0, 0), 255);
   assert.equal(image.data[0], 120, 'the wall’s own grey');
-  for (const x of [2, 3, 4, 8, 9, 10, 14, 15, 16]) assert.equal(alphaAt(image, x, 5), 0, `(${x}, 5) had the box in a frame`);
-  assert.equal(alphaAt(image, 6, 5), 255, 'a gap the box never passed');
-  assert.equal(stats.consistent, W * H - 9 * 4);
-  assert.equal(consistent[0], 1);
+  for (const x of [2, 3, 9, 15]) {
+    assert.equal(alphaAt(image, x, 5), 255, `(${x}, 5) had the box in only one frame`);
+    assert.equal(image.data[(5 * W + x) * 4], 120, `and is the wall at (${x}, 5), not the box`);
+  }
+  assert.equal(stats.kept, W * H);
+  assert.equal(kept[0], 1);
+  assert.equal(agreement[5 * W + 3], Math.round((2 / 3) * 255), 'two frames in three agree there');
+  assert.equal(agreement[0], 255);
 });
 
-test('the tolerance decides how much change still counts as the same', () => {
+test('below the agreement share, the pixel is clear', () => {
+  const frames = [frame(2), frame(8), frame(14)];
+  const strict = commonestBackground(frames, 8, 100);
+  for (const x of [2, 3, 4, 8, 9, 10, 14, 15, 16]) assert.equal(alphaAt(strict.image, x, 5), 0, `(${x}, 5) had the box in a frame`);
+  assert.equal(alphaAt(strict.image, 6, 5), 255, 'a gap the box never passed');
+  assert.equal(strict.stats.kept, W * H - 9 * 4);
+  // Where the box stood still for two frames of three, it is the commonest colour.
+  const lingering = commonestBackground([frame(2), frame(2), frame(14)], 8, 50);
+  assert.deepEqual([...lingering.image.data.slice((5 * W + 3) * 4, (5 * W + 3) * 4 + 4)], [220, 30, 30, 255]);
+  // And with four frames, two of wall, one black and one white, the wall has half.
+  const black = frame(null);
+  black.data.set([0, 0, 0, 255], 0);
+  const white = frame(null);
+  white.data.set([255, 255, 255, 255], 0);
+  const split = [black, frame(null), white, frame(null)];
+  assert.deepEqual([...commonestBackground(split, 8, 50).image.data.slice(0, 4)], [120, 120, 120, 255]);
+  assert.equal(alphaAt(commonestBackground(split, 8, 60).image, 0, 0), 0);
+});
+
+test('the tolerance decides how much change still counts as the same colour', () => {
   // The wall flickers by ±6 between frames.
   const frames = [frame(null, 0), frame(null, 6), frame(null, -6)];
-  assert.equal(consistentBackground(frames, 2).stats.consistent, 0, 'too strict: nothing agrees');
-  assert.equal(consistentBackground(frames, 8).stats.consistent, W * H, 'loose enough: all of it does');
+  assert.equal(commonestBackground(frames, 2, 50).stats.kept, 0, 'too strict: three different colours, none in half the frames');
+  assert.equal(commonestBackground(frames, 8, 50).stats.kept, W * H, 'loose enough: one colour in all of them');
 });
 
-test('the colour kept is the middle one, so one odd frame does not tint it', () => {
+test('the colour kept is the average of its group, so an odd frame does not tint it', () => {
   const odd = frame(null);
-  odd.data[0] = 150; // one pixel brighter in one frame, within tolerance
-  const { image } = consistentBackground([frame(null), odd, frame(null)], 20);
-  assert.equal(image.data[0], 120);
+  odd.data[0] = 250; // far off in one frame: its own group, left out
+  const near = frame(null);
+  near.data[0] = 126; // close: in the group
+  const { image } = commonestBackground([frame(null), odd, near, frame(null)], 8, 50);
+  assert.equal(image.data[0], 122);
 });
 
 test('a region marked on a frame puts that frame’s pixels into the background', () => {
   const frames = [frame(2), frame(8), frame(14)];
-  const base = consistentBackground(frames, 8);
+  const base = commonestBackground(frames, 8, 100);
   // In the first frame the box is at 2..4; draw round 8..10 — clear wall there.
   const marked = applyMarks(base, [{ id: 'r', kind: 'region', time: 0, mode: 'include', points: [8, 3, 11, 3, 11, 7, 8, 7] }], () => frames[0]);
   for (const x of [8, 9, 10]) assert.equal(alphaAt(marked.image, x, 5), 255, `(${x}, 5) is back`);
@@ -69,7 +95,7 @@ test('a region marked on a frame puts that frame’s pixels into the background'
 
 test('a painted stroke includes, and the eraser takes out', () => {
   const frames = [frame(2), frame(14)];
-  const base = consistentBackground(frames, 8);
+  const base = commonestBackground(frames, 8, 100);
   const painted = applyMarks(
     base,
     [
@@ -104,7 +130,7 @@ test('the nearest frame read is used for a mark, and the report says what was ke
   const frames = [{ time: 0 }, { time: 0.5 }, { time: 1 }];
   assert.equal(nearestFrame(frames, 0.7)?.time, 0.5);
   const data = { ...emptyVideoBackgroundFlowData(), video: { duration: 2, width: 20, height: 10 }, frameSize: { width: 20, height: 10 } };
-  const stats = consistentBackground([frame(2), frame(8)], 8).stats;
-  assert.match(backgroundReport(data, stats), /The same in every frame, within 8: 176 pixels \(88\.0%\)/);
+  const stats = commonestBackground([frame(2), frame(8)], 8, 100).stats;
+  assert.match(backgroundReport({ ...data, agreement: 100 }, stats), /One colour in at least 100% of the frames, within 8: 176 pixels \(88\.0%\)/);
   assert.match(backgroundReport(emptyVideoBackgroundFlowData(), null), /Not worked out yet/);
 });

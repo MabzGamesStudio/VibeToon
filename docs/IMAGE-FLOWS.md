@@ -370,11 +370,16 @@ in.
 | Longer than wide by | How many times longer than wide a line must be. |
 | Chunk size | The side of the squares the picture is read in. |
 
-The editor finds the lines when the picture arrives, and again when you press
-**Find the lines**. Changing a setting does not redo it straight away: the
-editor says the settings have changed since, and the button is highlighted.
-Tick **live** to find them again each time a setting stops moving, which suits a
-small picture. Generate always writes the lines for the settings as they are.
+The editor finds the lines when the picture arrives. After that, two controls
+sit both under the settings and over the picture:
+
+- **Generate** finds the lines for the settings as they are and writes
+  `lines.png` and `lines.md` to the outputs (as Generate at the top of the
+  editor does). With Live off, changing a setting does not redo anything: the
+  editor says the settings have changed since, and Generate is highlighted.
+- **Live** is a switch. On, the lines are found again each time a setting stops
+  moving, so you see them change as you drag, which suits a small picture. Live
+  only shows them; Generate still writes them. It is kept with the flow.
 
 **Lines** and **Original** switch between the line picture and the picture
 itself; **over the picture** lays the lines over it. A PNG is read on the server
