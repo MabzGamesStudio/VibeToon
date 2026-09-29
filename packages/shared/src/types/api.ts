@@ -15,6 +15,8 @@ export interface GenerationRun {
   error?: string;
   startedAt: string;
   ms: number;
+  /** For one item of a batch flow: its key. */
+  item?: string;
 }
 
 export interface GenerateResponse {

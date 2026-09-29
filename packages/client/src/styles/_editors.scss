@@ -3550,3 +3550,88 @@ input.is-invalid {
     }
   }
 }
+
+/* ---------------- batch flows ---------------- */
+
+.vt-batch-frame {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  > .vt-editor {
+    min-height: 0;
+  }
+}
+
+.vt-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: rgba(232, 176, 75, 0.08);
+  border-bottom: 1px solid rgba(232, 176, 75, 0.35);
+  font-size: 12px;
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.vt-batch-items {
+  @include scroll;
+  display: flex;
+  gap: 4px;
+  max-width: min(640px, 50vw);
+  overflow-x: auto;
+  padding: 2px 0;
+}
+
+.vt-batch-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid $line;
+  border-radius: 10px;
+  background: $bg-1;
+  color: $text-dim;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+
+  i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: $line-strong;
+  }
+
+  &.is-ready i {
+    background: $ok;
+  }
+
+  &.is-stale i {
+    background: $warn;
+  }
+
+  &.is-error i {
+    background: $err;
+  }
+
+  // An item with settings of its own.
+  &.is-own {
+    border-style: dashed;
+  }
+
+  &.is-on {
+    border-color: $accent;
+    color: $text;
+    background: $accent-soft;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}

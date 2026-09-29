@@ -9,8 +9,11 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  batchItems,
   createConnection,
   createNode,
+  editBatchData,
+  isBatchNode,
   defaultRulesForConnection,
   emptyHistory,
   isCustomNode,
@@ -114,7 +117,20 @@ interface StudioValue {
   redo(): void;
   undoState: UndoState;
 
-  generateFlow(nodeId: string, attachments?: AttachmentPayload[]): Promise<GenerationRun | null>;
+  /**
+   * Generate a flow. For a batch flow: files sent are for the item shown; with
+   * none, every item runs — or only the item shown, when edits go to it alone,
+   * or `scope` says which.
+   */
+  generateFlow(nodeId: string, attachments?: AttachmentPayload[], scope?: { item?: string; all?: boolean }): Promise<GenerationRun | null>;
+  /**
+   * For each batch flow: the item its editor shows, and whether edits go to
+   * that item only or to every item.
+   */
+  batchFocus: Record<string, BatchFocus>;
+  setBatchFocus(nodeId: string, focus: BatchFocus): void;
+  /** A batch flow's focus as it stands, the first item when none is chosen; undefined when it has no items. */
+  batchFocusOf(nodeId: string): BatchFocus | undefined;
   generateAll(): Promise<void>;
   acceptSync(nodeId: string, connectionId?: string): Promise<void>;
   /** Resolves true once the file is on the port; a failure is shown, and resolves false. */
@@ -130,6 +146,14 @@ interface StudioValue {
   >;
   clearArtifacts(nodeId: string): Promise<void>;
   flushSave(): Promise<void>;
+}
+
+export interface BatchFocus {
+  key: string;
+  /** Edits go to this item alone (its own settings), rather than to every item. */
+  only: boolean;
+  /** Set while Generate all runs: what the run writes is the item's, but not an edit by hand. */
+  quiet?: boolean;
 }
 
 const flowName = (project: Project, nodeId: string) => project.nodes.find((node) => node.id === nodeId)?.name ?? 'a flow';
@@ -159,6 +183,13 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [selection, setSelection] = useState<Selection>({ type: 'none' });
   const [focusedFlowId, setFocusedFlowId] = useState<string | null>(null);
+  const [batchFocus, setBatchFocusState] = useState<Record<string, BatchFocus>>({});
+  // Read by edits and runs, which must see a change of item made a moment before.
+  const batchFocusRef = useRef(batchFocus);
+  const setBatchFocus = useCallback((nodeId: string, focus: BatchFocus) => {
+    batchFocusRef.current = { ...batchFocusRef.current, [nodeId]: focus };
+    setBatchFocusState(batchFocusRef.current);
+  }, []);
 
   // The live project is kept in a ref as well, so save and generate always read
   // the newest state without being re-created on every keystroke.
@@ -324,16 +355,38 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
     [commit],
   );
 
+  /** A batch flow's item in focus, or undefined when it is not a batch or has no items. */
+  const focusIn = useCallback((current: Project, nodeId: string): BatchFocus | undefined => {
+    const node = current.nodes.find((candidate) => candidate.id === nodeId);
+    if (!node || !isBatchNode(current, node)) return undefined;
+    const items = batchItems(current, node);
+    if (items.length === 0) return undefined;
+    const chosen = batchFocusRef.current[nodeId];
+    const key = chosen && items.some((item) => item.key === chosen.key) ? chosen.key : items[0]!.key;
+    return { key, only: chosen?.only ?? false, ...(chosen?.quiet ? { quiet: true } : {}) };
+  }, []);
+
+  const batchFocusOf = useCallback((nodeId: string) => (projectRef.current ? focusIn(projectRef.current, nodeId) : undefined), [focusIn]);
+
   const patchNode = useCallback(
     (nodeId: string, patch: Partial<FlowNode>) => {
       const current = projectRef.current;
       if (!current) return;
+      // A batch flow's editor shows one item: a change to its settings goes to
+      // that item alone, or what changed goes to every item.
+      const focus = patch.data !== undefined ? focusIn(current, nodeId) : undefined;
       commit({
         ...current,
-        nodes: current.nodes.map((node) => (node.id === nodeId ? { ...node, ...patch } : node)),
+        nodes: current.nodes.map((node) => {
+          if (node.id !== nodeId) return node;
+          if (!focus) return { ...node, ...patch };
+          const { data, ...rest } = patch;
+          const shown = node.batch?.items[focus.key]?.data ?? node.data;
+          return { ...editBatchData(node, shown, data!, focus), ...rest };
+        }),
       });
     },
-    [commit],
+    [commit, focusIn],
   );
 
   const setFlowData = useCallback(
@@ -637,17 +690,31 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
   }, []);
 
   const generateFlow = useCallback(
-    async (nodeId: string, attachments: AttachmentPayload[] = []): Promise<GenerationRun | null> => {
+    async (nodeId: string, attachments: AttachmentPayload[] = [], scope: { item?: string; all?: boolean } = {}): Promise<GenerationRun | null> => {
       const current = projectRef.current;
       if (!current) return null;
+      // A batch flow: files an editor made are for the item it shows.
+      const focus = focusIn(current, nodeId);
+      const item = scope.item ?? (focus && !scope.all && (attachments.length > 0 || focus.only) ? focus.key : undefined);
       return withBusy([nodeId], async () => {
         try {
           await flushSave();
-          const result = await api.generateFlow(current.id, nodeId, attachments);
+          const result = await api.generateFlow(current.id, nodeId, attachments, item);
           adopt(result.project, `Generate ${flowName(current, nodeId)}`);
           setSaveState('clean');
           recordRuns(result.runs);
           const run = result.runs[0];
+          if (result.runs.length > 1 && result.runs.every((one) => one.item !== undefined)) {
+            const failed = result.runs.filter((one) => !one.ok);
+            const warned = result.runs.filter((one) => one.warnings.length > 0);
+            notify(
+              failed.length > 0 ? 'error' : warned.length > 0 ? 'warn' : 'success',
+              `${flowName(current, nodeId)}: ${result.runs.length} item(s) generated${failed.length > 0 ? `, ${failed.length} failed` : ''}${
+                warned.length > 0 ? `, ${warned.length} with warnings` : ''
+              }.`,
+            );
+            return run ?? null;
+          }
           if (result.runs.length > 1) {
             // A custom flow: every flow behind it ran.
             const failed = result.runs.filter((one) => !one.ok);
@@ -676,7 +743,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
         }
       });
     },
-    [adopt, flushSave, notify, recordRuns, withBusy],
+    [adopt, flushSave, focusIn, notify, recordRuns, withBusy],
   );
 
   const generateAll = useCallback(async () => {
@@ -849,6 +916,9 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
       undoState,
       generateFlow,
       generateAll,
+      batchFocus,
+      setBatchFocus,
+      batchFocusOf,
       acceptSync,
       uploadOutput,
       fetchOutput,
@@ -887,6 +957,9 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
       undoState,
       generateFlow,
       generateAll,
+      batchFocus,
+      setBatchFocus,
+      batchFocusOf,
       acceptSync,
       uploadOutput,
       fetchOutput,

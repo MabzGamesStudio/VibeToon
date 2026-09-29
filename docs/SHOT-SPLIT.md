@@ -1,6 +1,6 @@
 # Shot Split
 
-`animation.video.shots` · takes a **Video** · gives **`shots.json`** and **`shots.md`**
+`animation.video.shots` · takes a **Video** · gives **`shots.json`** and **`shots.md`**, and each shot as a video on **Shot clips**
 
 Splits a video into its shots, finds each cut to the exact frame, and lets you
 put them right by hand.
@@ -78,3 +78,18 @@ how sharp each cut was, or *by hand* for a cut you made.
 The cuts are found in the editor, where the video can be decoded, and stored with
 the flow; **Generate** writes them out from there. An uploaded video stays on the
 flow's own *Video* port.
+
+### Each shot as a video
+
+Tick **Each shot as a video of its own** (under *What comes out*) and Generate
+also records every shot as a clip — `shots/shot-01.webm`, `shot-02.webm`, … — on
+the **Shot clips** port. Wire that into a flow that takes one video, such as
+Video Background, and it is a **batch**: each shot goes through that flow on its
+own, and you get a background for each. See [BATCHES.md](BATCHES.md).
+
+- The shots are played through and recorded as WebM, as Video Edit does, so it
+  takes as long as the video. A progress bar shows the shot being recorded, and
+  **Stop** stops without writing anything.
+- The sound is not kept.
+- When the shots change after they were recorded, the editor says so until they
+  are recorded again.

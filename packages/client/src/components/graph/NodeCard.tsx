@@ -32,6 +32,8 @@ export interface NodeChrome {
   connected: readonly string[];
   /** A custom flow's output ports whose member has made its file. */
   produced?: readonly string[];
+  /** A batch flow: each item's status, in order. */
+  batch?: readonly string[];
 }
 
 export interface NodeCardProps {
@@ -93,6 +95,7 @@ export const NodeCard = memo(function NodeCard({
         'vt-node',
         `cat-${def?.category ?? 'story'}`,
         custom ? 'is-custom' : '',
+        chrome.batch ? 'is-batch' : '',
         selected ? 'is-selected' : '',
         busy ? 'is-busy' : '',
       ]
@@ -110,6 +113,11 @@ export const NodeCard = memo(function NodeCard({
       <div className="vt-node-head" onPointerDown={(event) => onHeaderPointerDown(event, node.id)}>
         <div className="vt-node-kind">
           {custom ? `Custom · ${customDataOf(node).templateName || 'flow'}` : (def?.label ?? node.kind)}
+          {chrome.batch ? (
+            <span className="vt-batch-count" title={`A batch: runs once for each of ${chrome.batch.length} item(s)`}>
+              ×{chrome.batch.length}
+            </span>
+          ) : null}
         </div>
         <div className="vt-node-name">
           <span>{node.name}</span>
@@ -183,6 +191,15 @@ export const NodeCard = memo(function NodeCard({
           })}
         </div>
       </div>
+
+      {!compact && chrome.batch && chrome.batch.length > 0 ? (
+        <div className="vt-batch-dots" aria-label="Each item's status">
+          {chrome.batch.slice(0, 24).map((status, index) => (
+            <i key={index} className={`is-${status}`} title={`Item ${index + 1}: ${STATUS_LABEL[status] ?? status}`} />
+          ))}
+          {chrome.batch.length > 24 ? <span>+{chrome.batch.length - 24}</span> : null}
+        </div>
+      ) : null}
 
       {!compact && (node.outputs.length > 0 || warnings > 0 || node.lastRun?.error) && (
         <div className="vt-node-foot">

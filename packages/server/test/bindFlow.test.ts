@@ -137,7 +137,11 @@ test('a binding writes the map, a preview and a report', async () => {
   await setBind(bindNodes(held(), nodesOfShapes('a'), 'hips'));
   const run = (await generate()).runs[0]!;
   assert.equal(run.ok, true, run.warnings.join('; '));
-  assert.deepEqual(run.outputs.map((o) => o.fileName).sort(), ['bound.json', 'bound.md', 'bound.svg']);
+  assert.deepEqual(run.outputs.map((o) => o.fileName).sort(), ['bones', 'bound.json', 'bound.md', 'bound.svg']);
+  // One drawing per bone, to send on as a batch: shape a follows the hips; b, bound to nothing, is on its own.
+  const bones = run.outputs.find((o) => o.port === 'bones')!;
+  assert.equal(bones.kind, 'imageSet');
+  assert.deepEqual(bones.entries, ['hips.svg', 'not-bound.svg']);
 });
 
 test('what is written is the rig, the drawing and the map between them', async () => {

@@ -18,6 +18,7 @@ import {
   type VideoSampling,
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
+import { useBatchRun, waitUntil } from '../../state/batchRun';
 import { useStudio } from '../../state/store';
 import { pngDataUrl } from '../common/pixels';
 import { Slider } from '../common/Slider';
@@ -80,8 +81,8 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
   const [frames, setFrames] = useState<ReadFrame[]>([]);
   const [running, setRunning] = useState<{ done: number; total: number } | null>(null);
   const stopping = useRef(false);
-  const read = useCallback(async () => {
-    if (!videoUrl || !meta || !source) return;
+  const read = useCallback(async (): Promise<ReadFrame[]> => {
+    if (!videoUrl || !meta || !source) return [];
     stopping.current = false;
     const size = backgroundFrameSize(meta, times.length);
     setRunning({ done: 0, total: times.length });
@@ -91,7 +92,7 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
     } catch (reason) {
       setRunning(null);
       notify('error', `Could not read the video: ${(reason as Error).message}`);
-      return;
+      return [];
     }
     const reader = new FrameReader(video, size.width, size.height);
     const thumbs = new FrameReader(video, 96, Math.max(1, Math.round((96 * size.height) / size.width)));
@@ -109,7 +110,7 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
       releaseVideo(video);
       setRunning(null);
     }
-    if (got.length === 0) return;
+    if (got.length === 0) return [];
     setFrames(got);
     const was = dataRef.current;
     const sameVideo = was.video?.hash === source.artifact.hash && was.frameSize?.width === size.width && was.frameSize?.height === size.height;
@@ -119,6 +120,7 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
       // Marks are in frame pixels, so they only carry over at the same size.
       ...(sameVideo ? {} : { marks: [], current: null }),
     });
+    return got;
   }, [meta, notify, patch, source, times, videoUrl]);
 
   /* ---------------- the background ---------------- */
@@ -242,6 +244,30 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
       notify('error', `Could not write the background: ${(reason as Error).message}`);
     }
   };
+
+  // Generate all, for one item of a batch: read its frames, work out its
+  // background with the settings it has, and send it.
+  const readRef = useRef(read);
+  readRef.current = read;
+  const metaRef = useRef({ meta, videoError, framesNow: frames });
+  metaRef.current = { meta, videoError, framesNow: frames };
+  useBatchRun(node, async () => {
+    await waitUntil(() => metaRef.current.meta ?? (metaRef.current.videoError ? 'failed' : null), 'Reading the video');
+    if (!metaRef.current.meta) throw new Error(`the video could not be read: ${metaRef.current.videoError}`);
+    // Both refs are set in the same render, so `read` is now the one made for this video.
+    const got = metaRef.current.framesNow.length > 0 ? metaRef.current.framesNow : await readRef.current();
+    if (got.length === 0) throw new Error('no frames could be read');
+    const settings = dataRef.current;
+    const made = applyMarks(
+      commonestBackground(got.map((frame) => frame.bitmap), settings.tolerance, settings.agreement),
+      settings.marks,
+      (time) => nearestFrame(got, time)?.bitmap,
+    );
+    await generateFlow(node.id, [
+      { name: 'background.png', data: await pngDataUrl(made.image) },
+      { name: 'background.md', data: `data:text/markdown;base64,${utf8Base64(backgroundReport(dataRef.current, made.stats))}` },
+    ]);
+  });
 
   const blocked = !source ? 'Wire a video into the Video input, or upload one here.' : videoError ? `The video could not be read: ${videoError}.` : null;
   const share = (count: number) => (result ? `${((count / Math.max(1, result.stats.total)) * 100).toFixed(1)}%` : '—');

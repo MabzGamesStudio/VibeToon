@@ -226,6 +226,13 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   the exact frame by binary search. Each shot is a row of frames as long as the
   shot: click to split one, join it to the next.
   See [docs/SHOT-SPLIT.md](docs/SHOT-SPLIT.md).
+- **Batches.** A folder of files — a video's shots as clips, a rig's bones as
+  drawings, the frames a rig was matched in — goes over one wire as a batch,
+  drawn as a bundle. The flow it goes into runs once for each item and makes a
+  batch of its own, on down the graph; into an input that takes a folder, the
+  items are gathered back into one. Open a batch flow to edit every item at once
+  or one on its own, and Generate all. Any flow can be a batch.
+  See [docs/BATCHES.md](docs/BATCHES.md).
 - **Custom flows.** Build an arrangement of flows on a graph of its own, or save
   one already on the graph, and use it again as one named flow in the palette. Each use has its own copies of the flows inside, so its
   settings are edited independently. See

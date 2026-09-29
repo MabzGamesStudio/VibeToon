@@ -325,6 +325,11 @@ export function videoSourceOf(project: Project, node: FlowNode): { artifact: Art
   return own ? { artifact: own, wired: false } : undefined;
 }
 
+/** A matched frame's picture: `frame-001.png`, in the order the frames were sampled. */
+export function matchFrameName(index: number): string {
+  return `frame-${String(index + 1).padStart(3, '0')}.png`;
+}
+
 /** The report, in words. */
 export function videoMatchReport(data: VideoMatchFlowData): string {
   const lines: string[] = ['# Rig animation', ''];

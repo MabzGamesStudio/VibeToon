@@ -40,6 +40,7 @@ import {
   type VideoEditFlowData,
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
+import { useBatchRun, waitUntil } from '../../state/batchRun';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
 import { FrameReader, VideoUpload, clock, loadVideo, releaseVideo, useFileUpload, useFrameThumbnails, useVideoMeta } from '../common/video';
@@ -425,6 +426,17 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
       setProgress(null);
     }
   };
+
+  // Generate all, for one video of a batch: once the video is measured, record the edit as Generate does.
+  const onGenerateRef = useRef(onGenerate);
+  onGenerateRef.current = onGenerate;
+  const videoErrorRef = useRef(videoError);
+  videoErrorRef.current = videoError;
+  useBatchRun(node, async () => {
+    await waitUntil(() => (dataRef.current.video && (!source || dataRef.current.video.hash === source.artifact.hash)) || videoErrorRef.current, 'Reading the video');
+    if (!dataRef.current.video) throw new Error(`the video could not be read: ${videoErrorRef.current}`);
+    await onGenerateRef.current();
+  });
 
   const behind = Boolean(data.rendered) && data.rendered !== editKey(data);
   const blocked = !source ? 'Wire a video into the Video input, or upload one here.' : videoError ? `The video could not be read: ${videoError}.` : null;

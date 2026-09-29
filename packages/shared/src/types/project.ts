@@ -249,13 +249,44 @@ export interface FlowNode {
    */
   group?: string;
   /** Set by the last generate run; `signature` covers inputs + own data. */
-  lastRun?: {
-    at: string;
-    signature: string;
-    log: string[];
-    warnings?: string[];
-    error?: string;
-  };
+  lastRun?: FlowRun;
+  /**
+   * Set when a batch is wired in: the flow runs once for each item. `data` is
+   * then the settings the items share; each item keeps its own outputs and
+   * run, and its own settings once edited on its own (see `graph/batch.ts`).
+   */
+  batch?: BatchState;
+  /**
+   * Set only on a view of one item of a batch flow (`itemView`), never saved:
+   * the key of the item this node stands for.
+   */
+  itemOf?: string;
+}
+
+export interface FlowRun {
+  at: string;
+  signature: string;
+  log: string[];
+  warnings?: string[];
+  error?: string;
+}
+
+export interface BatchItemState {
+  /**
+   * This item's settings, when they are not simply the flow's: edited on
+   * their own, or holding what a run found out about this item (its video's
+   * length, say).
+   */
+  data?: FlowData;
+  /** Set once the item has been edited on its own: its settings are then its own. */
+  edited?: boolean;
+  outputs: ArtifactRef[];
+  lastRun?: FlowRun;
+}
+
+export interface BatchState {
+  /** By item key. An item no longer in the batch is kept until the next run, in case it comes back. */
+  items: Record<string, BatchItemState>;
 }
 
 export interface PortRef {
@@ -283,6 +314,13 @@ export interface Connection {
   id: string;
   from: PortRef;
   to: PortRef;
+  /**
+   * For a folder (a set of images, videos or sounds) wired into an input that
+   * takes the whole folder as well as one file: true splits it into a batch,
+   * one item per file. Into an input that takes only one file it is a batch
+   * anyway; from a batch flow, always.
+   */
+  batch?: boolean;
   /** Plain-text rules that describe how to read the upstream artifact. */
   rules: string;
   settings: ConnectionSettings;

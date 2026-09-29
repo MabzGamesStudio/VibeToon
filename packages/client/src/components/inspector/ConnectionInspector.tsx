@@ -1,5 +1,12 @@
 import { useMemo, useRef } from 'react';
 import {
+  canSplit,
+  connectionBatchMode,
+  connectionItems,
+  gathersBatch,
+  isBatchNode,
+  SET_ITEM_KIND,
+  ARTIFACT_KIND_LABEL,
   connectionModeLabel,
   findPort,
   getFlowKind,
@@ -47,6 +54,15 @@ export function ConnectionInspector({
 
   const settings = connection.settings;
 
+  // A folder into an input that takes one of its files as well as the whole
+  // folder can go either way: that is this wire's choice.
+  const batchMode = connectionBatchMode(project, connection);
+  const fromBatch = sourceNode ? isBatchNode(project, sourceNode) : false;
+  const choosable = !fromBatch && sourcePort && targetPort ? canSplit(sourcePort, targetPort) && sourcePort.kinds.some((kind) => targetPort.kinds.includes(kind)) : false;
+  const itemCount = batchMode === 'none' ? 0 : connectionItems(project, connection).length;
+  const setKind = sourcePort?.kinds.find((kind) => SET_ITEM_KIND[kind]);
+  const itemKind = setKind ? SET_ITEM_KIND[setKind] : undefined;
+
   const insert = (text: string) => {
     const next = connection.rules.trim() ? `${connection.rules.replace(/\n+$/, '')}\n${text}` : text;
     patchConnection(connection.id, { rules: next });
@@ -84,6 +100,44 @@ export function ConnectionInspector({
           </button>
         </div>
       </div>
+
+      {batchMode !== 'none' || choosable ? (
+        <div className="vt-section">
+          <h3>Batch</h3>
+          {choosable ? (
+            <div className="vt-facet-values" role="radiogroup" aria-label="How the folder goes">
+              <button
+                type="button"
+                className={`vt-chip${batchMode === 'none' ? ' is-on' : ''}`}
+                aria-pressed={batchMode === 'none'}
+                onClick={() => patchConnection(connection.id, { batch: false })}
+              >
+                The whole folder
+              </button>
+              <button
+                type="button"
+                className={`vt-chip${batchMode === 'batch' ? ' is-on' : ''}`}
+                aria-pressed={batchMode === 'batch'}
+                onClick={() => patchConnection(connection.id, { batch: true })}
+              >
+                A batch, one {itemKind ? ARTIFACT_KIND_LABEL[itemKind].toLowerCase() : 'file'} each
+              </button>
+            </div>
+          ) : null}
+          <p className="vt-hint">
+            {batchMode === 'batch'
+              ? `A batch of ${itemCount} item(s): ${targetNode?.name ?? 'the next flow'} runs once for each, as though it alone were wired in, and makes a batch of what it makes. Open it to edit all of them at once or one at a time.`
+              : batchMode === 'gather'
+                ? `A batch of ${itemCount} item(s), gathered: they arrive at ${targetNode?.name ?? 'the next flow'} together, as one folder.`
+                : `${targetNode?.name ?? 'The next flow'} takes the folder as it is, all at once.`}
+          </p>
+          {fromBatch && sourcePort && targetPort && !gathersBatch(sourcePort, targetPort) ? (
+            <p className="vt-faint" style={{ fontSize: 11 }}>
+              {sourceNode?.name} is a batch, so what it makes goes on as one.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="vt-section vt-rules-editor">
         <h3>

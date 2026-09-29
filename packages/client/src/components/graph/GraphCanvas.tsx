@@ -9,6 +9,12 @@ import {
   missingRequiredInputs,
   portOf,
   portsCompatible,
+  batchItemStatuses,
+  canSplit,
+  connectionBatchMode,
+  connectionItems,
+  gathersBatch,
+  isBatchNode,
   shownEnd,
   shownEndpoints,
   unexposePort,
@@ -116,13 +122,26 @@ function chromeFor(project: Project, scope: string | undefined): Map<string, Nod
       });
       continue;
     }
+    const batch = isBatchNode(project, node);
     result.set(node.id, {
       status: flowStatus(project, node),
       missing: missingRequiredInputs(project, node).map((port) => port.id),
       connected: flowPorts(node)
         .inputs.filter((port) => inputsForPort(project, node.id, port.id).length > 0)
         .map((port) => port.id),
+      ...(batch ? { batch: batchItemStatuses(project, node).map((entry) => entry.status) } : {}),
     });
+  }
+  return result;
+}
+
+/** How each wire carries a batch, and how many items: worked out once per project. */
+function batchWires(project: Project): Map<string, { mode: 'batch' | 'gather'; count: number }> {
+  const result = new Map<string, { mode: 'batch' | 'gather'; count: number }>();
+  for (const connection of project.connections) {
+    const mode = connectionBatchMode(project, connection);
+    if (mode === 'none') continue;
+    result.set(connection.id, { mode, count: connectionItems(project, connection).length });
   }
   return result;
 }
@@ -204,6 +223,7 @@ export function GraphCanvas({ onViewportCentre, scope }: GraphCanvasProps = {}):
   nodesRef.current = nodes;
 
   const chrome = useMemo(() => chromeFor(project, scope), [project, scope]);
+  const batches = useMemo(() => batchWires(project), [project]);
 
   /** On a custom flow's own graph: what it takes, left of its flows, and what it gives, right of them. */
   const instance = scope ? project.nodes.find((node) => node.id === scope) : undefined;
@@ -674,8 +694,14 @@ export function GraphCanvas({ onViewportCentre, scope }: GraphCanvasProps = {}):
     if (!sourceNode || !targetNode) return false;
     const fromPort = portOf(sourceNode, source.portId, 'outputs');
     const toPort = portOf(targetNode, target.portId, 'inputs');
-    return Boolean(fromPort && toPort && portsCompatible(fromPort, toPort));
-  }, [dragWire, hoverPort, project.nodes]);
+    // A folder into an input that takes one of its files goes as a batch, and a
+    // batch into an input that takes a folder of them is gathered.
+    return Boolean(
+      fromPort &&
+        toPort &&
+        (portsCompatible(fromPort, toPort) || canSplit(fromPort, toPort) || (isBatchNode(project, sourceNode) && gathersBatch(fromPort, toPort))),
+    );
+  }, [dragWire, hoverPort, project]);
 
   const nodeNames = useMemo(
     () => new Map(project.nodes.map((node) => [node.id, node.name])),
@@ -719,10 +745,28 @@ export function GraphCanvas({ onViewportCentre, scope }: GraphCanvasProps = {}):
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean).length;
+    // A batch is one wire, drawn as a bundle of them: one strand for each item,
+    // up to a few, and how many there are. A gathered batch closes to one strand.
+    const batch = batches.get(connection.id);
+    const strands = batch ? Math.max(2, Math.min(5, batch.count)) : 1;
+    const spread = 3.5;
 
     return (
-      <g key={connection.id}>
-        <path className={classes} d={path} />
+      <g key={connection.id} className={batch ? `vt-batch-wire is-${batch.mode}` : undefined}>
+        {batch ? (
+          Array.from({ length: strands }, (_, index) => {
+            const offset = (index - (strands - 1) / 2) * spread;
+            return (
+              <path
+                key={index}
+                className={classes}
+                d={batch.mode === 'gather' ? edgePath({ x: from.x, y: from.y + offset }, to) : edgePath({ x: from.x, y: from.y + offset }, { x: to.x, y: to.y + offset })}
+              />
+            );
+          })
+        ) : (
+          <path className={classes} d={path} />
+        )}
         <path
           className="vt-edge is-hit"
           d={path}
@@ -737,8 +781,21 @@ export function GraphCanvas({ onViewportCentre, scope }: GraphCanvasProps = {}):
             }.${toEnd.portId}`}
           </title>
         </path>
+        {batch ? (
+          <g className="vt-batch-badge" transform={`translate(${mid.x}, ${mid.y})`}>
+            <rect x={-19} y={-9} width={38} height={18} rx={9} />
+            <text textAnchor="middle" y={4}>
+              {batch.mode === 'gather' ? `${batch.count}→1` : `×${batch.count}`}
+            </text>
+            <title>
+              {batch.mode === 'gather'
+                ? `A batch of ${batch.count}, gathered into one folder`
+                : `A batch of ${batch.count}: each goes through ${nodeNames.get(toEnd.nodeId) ?? 'the next flow'} on its own`}
+            </title>
+          </g>
+        ) : null}
         {ruleCount > 0 ? (
-          <text className="vt-edge-label" x={mid.x} y={mid.y - 6} textAnchor="middle">
+          <text className="vt-edge-label" x={mid.x} y={mid.y - (batch ? 14 : 6)} textAnchor="middle">
             {ruleCount} rule{ruleCount === 1 ? '' : 's'}
             {connection.settings.mode === 'apply' ? ' · auto' : ''}
             {connection.settings.enabled ? '' : ' · off'}

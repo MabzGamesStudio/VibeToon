@@ -437,9 +437,11 @@ export function createApp(): express.Express {
   app.post(
     '/api/projects/:id/flows/:flowId/generate',
     asyncRoute(async (req, res) => {
-      const body = (req.body ?? {}) as { attachments?: AttachmentInput[] };
+      const body = (req.body ?? {}) as { attachments?: AttachmentInput[]; item?: string };
       const attachments = decodeAttachments(body.attachments);
-      res.json(await generateFlow(param(req, 'id'), param(req, 'flowId'), attachments));
+      // For a batch flow: one item, which the files sent (if any) are for.
+      const item = typeof body.item === 'string' ? body.item : undefined;
+      res.json(await generateFlow(param(req, 'id'), param(req, 'flowId'), attachments, { item }));
     }),
   );
 
@@ -593,7 +595,23 @@ export function createApp(): express.Express {
       const updated: Project = {
         ...project,
         nodes: project.nodes.map((candidate) =>
-          candidate.id === node.id ? { ...candidate, outputs: [], lastRun: undefined } : candidate,
+          candidate.id === node.id
+            ? {
+                ...candidate,
+                outputs: [],
+                lastRun: undefined,
+                // A batch flow's items lose their files too, but keep their own settings.
+                ...(candidate.batch
+                  ? {
+                      batch: {
+                        items: Object.fromEntries(
+                          Object.entries(candidate.batch.items).map(([key, state]) => [key, { ...(state.data !== undefined ? { data: state.data } : {}), outputs: [] }]),
+                        ),
+                      },
+                    }
+                  : {}),
+              }
+            : candidate,
         ),
       };
       res.json(await saveProjectUnchecked(updated));

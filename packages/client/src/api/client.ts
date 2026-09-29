@@ -62,8 +62,9 @@ export const api = {
   deleteProject: (id: string) => request<void>('DELETE', `/api/projects/${id}`),
 
   generateProject: (id: string) => request<GenerateResponse>('POST', `/api/projects/${id}/generate`),
-  generateFlow: (id: string, flowId: string, attachments: AttachmentPayload[] = []) =>
-    request<GenerateResponse>('POST', `/api/projects/${id}/flows/${flowId}/generate`, { attachments }),
+  /** `item`: for a batch flow, run that item alone. */
+  generateFlow: (id: string, flowId: string, attachments: AttachmentPayload[] = [], item?: string) =>
+    request<GenerateResponse>('POST', `/api/projects/${id}/flows/${flowId}/generate`, { attachments, ...(item !== undefined ? { item } : {}) }),
 
   syncPreview: (id: string, flowId: string, connectionId?: string) =>
     request<SyncResponse>(

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -172,6 +173,23 @@ export interface WriteArtifactInput {
 
 const PREVIEW_LIMIT = 4000;
 
+/**
+ * Where one item of a batch flow writes. While an item runs, its flow's files
+ * go into `artifacts/<flow>/items/<item>/` instead of beside the flow's own,
+ * so a generator writes as it always does and knows nothing of batches.
+ */
+const artifactScope = new AsyncLocalStorage<{ flowId: string; folder: string }>();
+
+export function inItemFolder<T>(flowId: string, folder: string, run: () => Promise<T>): Promise<T> {
+  return artifactScope.run({ flowId, folder: path.posix.join('items', folder) }, run);
+}
+
+/** The folder under the flow's own that a write goes to: none, or an item's. */
+function scopedFolder(flowId: string): string {
+  const scope = artifactScope.getStore();
+  return scope && scope.flowId === flowId ? scope.folder : '';
+}
+
 /** The bytes as a Buffer, sharing their memory rather than copying it. */
 function asBuffer(content: Uint8Array): Buffer {
   return Buffer.isBuffer(content) ? content : Buffer.from(content.buffer, content.byteOffset, content.byteLength);
@@ -197,9 +215,10 @@ export async function writeArtifact(input: WriteArtifactInput): Promise<Artifact
   const dir = flowArtifactsDir(input.projectId, input.flowId);
   await ensureDir(dir);
 
+  const folder = scopedFolder(input.flowId);
   const target = resolveInProject(
     input.projectId,
-    path.join('artifacts', input.flowId, input.fileName),
+    path.join('artifacts', input.flowId, folder, input.fileName),
   );
   await ensureDir(path.dirname(target));
 
@@ -214,7 +233,7 @@ export async function writeArtifact(input: WriteArtifactInput): Promise<Artifact
     port: input.port,
     kind: input.kind,
     fileName: input.fileName,
-    path: path.posix.join('artifacts', input.flowId, ...input.fileName.split(path.sep)),
+    path: path.posix.join('artifacts', input.flowId, folder, ...input.fileName.split(path.sep)),
     hash,
     bytes,
     generatedAt: new Date().toISOString(),
@@ -237,24 +256,25 @@ export async function writeArtifactSet(input: {
 }): Promise<ArtifactRef> {
   assertSafeId(input.projectId, 'project id');
   assertSafeId(input.flowId, 'flow id');
-  const relativeDir = path.posix.join('artifacts', input.flowId, input.dirName);
+  const relativeDir = path.posix.join('artifacts', input.flowId, scopedFolder(input.flowId), input.dirName);
   const absoluteDir = resolveInProject(input.projectId, relativeDir);
   await rm(absoluteDir, { recursive: true, force: true });
   await ensureDir(absoluteDir);
 
   let bytes = 0;
-  const parts: string[] = [];
   const entries: string[] = [];
+  const entryHashes: Record<string, string> = {};
   for (const file of input.files) {
     if (path.basename(file.name) !== file.name) {
       throw new HttpError(400, `Artifact set entries cannot contain paths: ${file.name}`);
     }
     const buffer =
-      typeof file.content === 'string' ? Buffer.from(file.content, 'utf8') : Buffer.from(file.content);
+      typeof file.content === 'string' ? Buffer.from(file.content, 'utf8') : asBuffer(file.content);
     await writeFile(path.join(absoluteDir, file.name), buffer);
     bytes += buffer.byteLength;
-    parts.push(`${file.name}:${buffer.byteLength}`);
     entries.push(file.name);
+    // Each file's own hash, so one file of the set can go on alone, in a batch.
+    entryHashes[file.name] = hashBytes(buffer);
   }
 
   return {
@@ -262,10 +282,11 @@ export async function writeArtifactSet(input: {
     kind: input.kind,
     fileName: input.dirName,
     path: relativeDir,
-    hash: hashString(parts.join('|')),
+    hash: hashString(entries.map((entry) => `${entry}:${entryHashes[entry]}`).join('|')),
     bytes,
     generatedAt: new Date().toISOString(),
     entries,
+    entryHashes,
   };
 }
 
