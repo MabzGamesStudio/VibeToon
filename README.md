@@ -148,13 +148,13 @@ Set `VIBETOON_DATA` to keep them somewhere else.
 - **Line detection.** Finds the drawn lines in a picture: a thin band with a
   sharp change into it and out of it, longer than it is wide by a ratio you set.
   An edge between two colours and a gradient are not lines. Writes a black
-  picture with the lines in red, redder the surer.
-- **Palette filter.** A palette and an image in, a filtered image out: keep only
-  those colors, drop them, or snap every pixel to the nearest one. Keep and
-  remove are exact mirrors; snap has no threshold, because every pixel has a
-  nearest. A pixel that was already transparent is left alone in every mode, so
-  cutting a subject out first and filtering it second does not undo the cutting.
-  See [docs/IMAGE-FLOWS.md](docs/IMAGE-FLOWS.md) for all six.
+  picture with the lines red when thin and blue when wide, brighter the surer.
+  Found on a button, or live as the settings change.
+- **Line graph.** Those lines as vector lines: each area of line pixels is
+  filled, thinned to its middle and traced, and the lines are joined where they
+  meet. Keep only a range of widths, take lines out, move the joins; writes the
+  graph, a vector drawing and an SVG.
+  See [docs/IMAGE-FLOWS.md](docs/IMAGE-FLOWS.md) for all seven.
 - **Polygon decomposition.** A picture back into shapes: strokes become lines and
   areas become convex polygons. A line is a region that is *thin* **and** has
   different things either side of it — two blocks meeting is not a line, a stroke
@@ -212,6 +212,10 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   threshold are dropped and split the animation into segments. It plays back as
   the body and skeleton alone, and writes a rig animation.
   See [docs/VIDEO-RIG-MATCH.md](docs/VIDEO-RIG-MATCH.md).
+- **Video source and video edit.** A video from this machine or a link, kept
+  with the project; then crop it, split it into segments and delete the ones
+  not wanted, and write the rest as one video or a clip each.
+  See [docs/VIDEO-EDIT.md](docs/VIDEO-EDIT.md).
 - **Video background.** A clip in, its background out: every pixel that stays
   the same in every sampled frame, within a tolerance, and clear where something
   moved. Pick a frame and paint, erase or draw round what it shows to put more

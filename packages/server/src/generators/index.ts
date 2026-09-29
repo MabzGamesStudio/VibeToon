@@ -19,6 +19,9 @@ import { generateCrop } from './crop';
 import { generateLines } from './lines';
 import { generateVideoBackground } from './videoBackground';
 import { generateShots } from './shots';
+import { generateVideoSource } from './videoSource';
+import { generateVideoEdit } from './videoEdit';
+import { generateLineGraph } from './lineGraph';
 import { generateParts } from './parts';
 import { generateFace } from './face';
 import { generatePaletteFilter } from './paletteFilter';
@@ -66,6 +69,9 @@ const GENERATORS: Record<string, Generator> = {
   'art.lines': generateLines,
   'art.video.background': generateVideoBackground,
   'animation.video.shots': generateShots,
+  'animation.video.source': generateVideoSource,
+  'animation.video.edit': generateVideoEdit,
+  'art.lines.graph': generateLineGraph,
   'art.vectorize': generateVectorize,
   'art.vector.edit': generateVectorEdit,
   'production.edit': generateAssembly,

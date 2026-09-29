@@ -25,8 +25,9 @@ import type { Bitmap } from './cutout';
  * a line; a stroke is.
  *
  * Every pixel of a line gets a confidence from how sharp its two changes are
- * and how far past the ratio it reaches. The result is drawn black where there
- * is no line and red where there is, redder the surer.
+ * and how far past the ratio it reaches, and a width: the narrowest any walk
+ * crossed it. The result is drawn black where there is no line; a line is red
+ * when thin and blue when wide, and brighter the surer.
  */
 
 export interface LineOptions {
@@ -58,12 +59,14 @@ export interface LinesFlowData {
   options: LineOptions;
   /** What the editor shows: the lines found, or the picture itself. */
   view: 'lines' | 'original';
+  /** Find the lines again as soon as a setting changes, rather than on the button. */
+  live: boolean;
   /** The picture it was last shown, so the generator can say what it did. */
   source?: { width: number; height: number; hash?: string };
 }
 
 export function emptyLinesFlowData(): LinesFlowData {
-  return { editor: 'lines', options: { ...DEFAULT_LINE_OPTIONS }, view: 'lines' };
+  return { editor: 'lines', options: { ...DEFAULT_LINE_OPTIONS }, view: 'lines', live: false };
 }
 
 /** The four ways a picture is walked, and the way along a line each one crosses. */
@@ -197,6 +200,12 @@ export interface LineResult {
   height: number;
   /** 0..1 for every pixel: how sure it is that the pixel is on a line. */
   confidence: Float32Array;
+  /**
+   * For every line pixel, how wide its line is, in pixels: the narrowest any
+   * walk crossed it (a diagonal step counts √2), which is the width straight
+   * across. 0 where there is no line.
+   */
+  lineWidth: Float32Array;
   stats: {
     /** Pixels on a line, at any confidence. */
     linePixels: number;
@@ -216,6 +225,7 @@ export function detectLines(bitmap: Bitmap, input: Partial<LineOptions> = {}): L
   const { width, height, data } = bitmap;
   const total = width * height;
   const confidence = new Float32Array(total);
+  const lineWidth = new Float32Array(total);
   let crossings = 0;
   const chunk = options.chunk;
   const chunksX = Math.ceil(width / chunk);
@@ -342,11 +352,11 @@ export function detectLines(bitmap: Bitmap, input: Partial<LineOptions> = {}): L
                 }
               }
             }
-            const lineWidth = widthSum / patch.length;
+            const meanWidth = widthSum / patch.length;
             // A diagonal walk steps √2 per pixel, along and across alike.
             const unit = Math.hypot(ax, ay);
             const length = (maxAlong - minAlong) / unit + 1;
-            const ratio = length / Math.max(1, lineWidth);
+            const ratio = length / Math.max(1, meanWidth);
             if (ratio < options.ratio) continue;
             const reachScore = Math.min(1, ratio / (options.ratio * 2));
             for (const at of patch) {
@@ -356,6 +366,8 @@ export function detectLines(bitmap: Bitmap, input: Partial<LineOptions> = {}): L
               const sharpScore = Math.min(1, sharpAt[at]! / (options.contrast * 2.5));
               const score = Math.max(0.2, Math.min(1, sharpScore * 0.5 + reachScore * 0.5));
               if (score > confidence[at]!) confidence[at] = score;
+              const across = widthAt[at]! * unit;
+              if (lineWidth[at] === 0 || across < lineWidth[at]!) lineWidth[at] = across;
             }
           }
         }
@@ -369,6 +381,7 @@ export function detectLines(bitmap: Bitmap, input: Partial<LineOptions> = {}): L
     width,
     height,
     confidence,
+    lineWidth,
     stats: { linePixels, crossings, chunks: chunksX * chunksY, ms: Date.now() - started },
   };
 }
@@ -384,15 +397,52 @@ export function normaliseLineOptions(input: Partial<LineOptions>): LineOptions {
   };
 }
 
-/** The lines as a picture: black where there is none, red where there is, redder the surer. */
+/** A line this wide, or wider, is drawn pure blue; one pixel wide is pure red. */
+export const FULL_BLUE_WIDTH = 16;
+
+/** Where a width sits between red (1 px) and blue (`FULL_BLUE_WIDTH` and up), 0..1. */
+export function widthShade(width: number): number {
+  return Math.max(0, Math.min(1, (width - 1) / (FULL_BLUE_WIDTH - 1)));
+}
+
+/**
+ * The lines as a picture. Black where there is no line. Where there is, the
+ * colour runs from red for a thin line to blue for a wide one, and it is
+ * brighter the surer: red plus blue is the confidence, their split the width.
+ * That makes the picture exact enough to read back (see `readLineImage`), which
+ * is how the Line Graph flow takes it in.
+ */
 export function lineImage(result: LineResult): Bitmap {
   const out = new Uint8ClampedArray(result.width * result.height * 4);
   for (let i = 0; i < result.confidence.length; i += 1) {
     const at = i * 4;
-    out[at] = Math.round(result.confidence[i]! * 255);
+    const sure = result.confidence[i]!;
+    const shade = widthShade(result.lineWidth[i]! || 1);
+    out[at] = Math.round(sure * 255 * (1 - shade));
+    out[at + 2] = Math.round(sure * 255 * shade);
     out[at + 3] = 255;
   }
   return { width: result.width, height: result.height, data: out };
+}
+
+/**
+ * Read a line picture back: every pixel's confidence and line width. A pixel
+ * with no red and no blue is no line. Widths past `FULL_BLUE_WIDTH` read as
+ * `FULL_BLUE_WIDTH`, since they were all drawn the same blue.
+ */
+export function readLineImage(bitmap: Bitmap): { width: number; height: number; confidence: Float32Array; lineWidth: Float32Array } {
+  const total = bitmap.width * bitmap.height;
+  const confidence = new Float32Array(total);
+  const lineWidth = new Float32Array(total);
+  for (let i = 0; i < total; i += 1) {
+    const r = bitmap.data[i * 4]!;
+    const b = bitmap.data[i * 4 + 2]!;
+    const sum = r + b;
+    if (sum === 0 || bitmap.data[i * 4 + 3]! === 0) continue;
+    confidence[i] = Math.min(1, sum / 255);
+    lineWidth[i] = 1 + (b / sum) * (FULL_BLUE_WIDTH - 1);
+  }
+  return { width: bitmap.width, height: bitmap.height, confidence, lineWidth };
 }
 
 /** What was found, in words. */
@@ -426,7 +476,8 @@ export function linesReport(result: LineResult, options: LineOptions, source: st
     `| 50% | ${confident[1]} |`,
     `| 75% | ${confident[2]} |`,
     '',
-    '`lines.png` is black where there is no line and red where there is, redder the surer.',
+    '`lines.png` is black where there is no line. A line is red when it is thin and blue when it is wide (' +
+      `${FULL_BLUE_WIDTH} px and up), and brighter the surer.`,
     '',
   ].join('\n');
 }

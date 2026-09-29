@@ -315,7 +315,7 @@ editor and sent with the run.
 
 # Line Detection
 
-`art.lines` · takes an **Image** · gives **`lines.png`** and **`lines.md`**
+`art.lines` · takes an **Image** · gives **`lines.png`** and **`lines.md`** · feeds the [Line Graph](#line-graph)
 
 Finds the drawn lines in a picture: the strokes between areas, told apart from
 the edges where one area simply meets another.
@@ -352,9 +352,15 @@ colour:
    is. The length is measured over the chunk and half a chunk round it, so a
    line crossing a chunk's border is not cut short.
 
-**Confidence.** Each line pixel gets a confidence from how sharp its two
-changes are and how far past the ratio it reaches. `lines.png` is **black where
-there is no line and red where there is**, the redder the surer.
+**Confidence and width.** Each line pixel gets a confidence from how sharp its
+two changes are and how far past the ratio it reaches, and a **width**: the
+narrowest any walk crossed its line, which is the width straight across (a
+diagonal step counts as √2 pixels). `lines.png` is **black where there is no
+line**. A line is **red when it is thin and blue when it is wide**, from pure red
+at 1 pixel to pure blue at 16 pixels and wider, and **brighter the surer**: red
+plus blue is the confidence, and how they are split is the width. That is exact
+enough to read back, which is how the [Line Graph](#line-graph) takes the lines
+in.
 
 | Setting | What it does |
 | --- | --- |
@@ -364,11 +370,78 @@ there is no line and red where there is**, the redder the surer.
 | Longer than wide by | How many times longer than wide a line must be. |
 | Chunk size | The side of the squares the picture is read in. |
 
-The editor works the lines out as the settings change. **Lines** and
-**Original** switch between the line picture and the picture itself; **over the
-picture** lays the red lines over the picture. A PNG is read on the server as
-well; any other format is worked out in the editor and sent with the run. A
+The editor finds the lines when the picture arrives, and again when you press
+**Find the lines**. Changing a setting does not redo it straight away: the
+editor says the settings have changed since, and the button is highlighted.
+Tick **live** to find them again each time a setting stops moving, which suits a
+small picture. Generate always writes the lines for the settings as they are.
+
+**Lines** and **Original** switch between the line picture and the picture
+itself; **over the picture** lays the lines over it. A PNG is read on the server
+as well; any other format is worked out in the editor and sent with the run. A
 picture a million pixels in size takes well under a second.
+
+---
+
+# Line Graph
+
+`art.lines.graph` · takes a Line Detection's **Lines** · gives **`graph.json`**, **`vector.json`**, **`lines.svg`** and **`graph.md`**
+
+Turns found lines into vector lines, joined where they meet.
+
+```
+Picture ──▶ Line Detection ──▶ Line Graph ──▶ vector.json ──▶ Vector Editor, Rig Binding…
+```
+
+**How it traces.**
+
+1. The lines picture is read back: every pixel's confidence and width. A pixel
+   counts when it is at least as sure as **Surest pixels only**.
+2. **Fill.** Every connected area of line pixels is one fill. The editor shows
+   each in its own faint colour under the lines.
+3. **Thin.** Each fill is thinned to its middle, one pixel wide, keeping it in
+   one piece (Zhang–Suen thinning). The vector lines are laid along this middle,
+   so each runs over the area it came from.
+4. **Nodes.** Where a middle ends there is an end; where three or more meet,
+   a junction. Lines that cross or branch share the node where they meet. A loop
+   with no end or junction gets a node where it starts, and comes back to it.
+5. **Tidy.** Thinning leaves short spurs off a lumpy band. A line from an end
+   into a junction shorter than **Drop spurs shorter than** is dropped, and a
+   node left joining just two lines is taken out and the two joined into one.
+6. **Simplify.** Each line keeps only the points it needs to stay within
+   **Simplify** pixels of the middle it was traced along.
+
+Each line keeps the **width** of the band it runs along (the mean width under
+it) and its mean confidence.
+
+**Keep lines of width.** Only lines in the range are kept: drawn in colour in
+the editor, and written to the files. A small bar chart shows how many lines
+there are of each width, coloured as the lines are. At the top of the scale
+(16+ px) the range keeps everything wider too.
+
+**By hand.**
+
+- Click a line to select it (Shift adds to the selection). **Delete**, or
+  **Take out**, takes the selected lines out. **Put back all** returns them.
+- Drag a node to move it; every line ending there moves its end with it.
+  **Nodes back** undoes every move.
+- **Show lines taken out or out of range** draws them dashed: grey for out of
+  range, red for taken out.
+
+The hand edits are kept for this picture traced this way. Change the tracing
+settings, or the lines coming in, and the lines are traced afresh with new ids,
+so the edits are set aside (not applied to the wrong lines) until you forget
+them. The width range is not an edit: it can be changed freely. Every change is
+one undo step.
+
+**What comes out**, of the kept lines only:
+
+| File | What it is |
+| --- | --- |
+| `graph.json` | The nodes, and the lines between them: `from`, `to`, `points`, `width`, `confidence`, `length`. |
+| `vector.json` | The lines as a vector drawing: open the Vector Editor on it, or bind it to a rig. |
+| `lines.svg` | Each line as a polyline as wide as its line, coloured red (thin) to blue (wide). |
+| `graph.md` | How many lines were found, kept, left out by width and taken out by hand. |
 
 ---
 

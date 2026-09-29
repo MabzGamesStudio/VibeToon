@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   DEFAULT_LINE_OPTIONS,
+  FULL_BLUE_WIDTH,
   detectLines,
   emptyLinesFlowData,
   inputsForPort,
@@ -72,23 +73,40 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, project.id, artifact?.hash]);
 
-  // Worked out a moment after the settings stop moving.
-  const [result, setResult] = useState<{ lines: LineResult; image: Bitmap } | null>(null);
+  // The lines are found when the picture arrives, then on the button — or, with
+  // live on, a moment after each setting stops moving.
+  const [result, setResult] = useState<{ lines: LineResult; image: Bitmap; key: string } | null>(null);
   const [working, setWorking] = useState(false);
   const optionsKey = JSON.stringify(data.options);
+  const find = useCallback((options: LineOptions) => {
+    if (!source) return null;
+    const lines = detectLines(source, options);
+    const found = { lines, image: lineImage(lines), key: JSON.stringify(options) };
+    setResult(found);
+    return found;
+  }, [source]);
+  const run = useCallback(() => {
+    setWorking(true);
+    // A frame to paint "Looking…" before the work holds the page up.
+    window.setTimeout(() => {
+      find(dataRef.current.options);
+      setWorking(false);
+    }, 20);
+  }, [find]);
   useEffect(() => {
-    if (!source) {
-      setResult(null);
-      return undefined;
-    }
+    setResult(null);
+    if (source) run();
+  }, [source]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!source || !data.live || result?.key === optionsKey) return undefined;
     setWorking(true);
     const timer = window.setTimeout(() => {
-      const lines = detectLines(source, data.options);
-      setResult({ lines, image: lineImage(lines) });
+      find(dataRef.current.options);
       setWorking(false);
     }, 150);
     return () => window.clearTimeout(timer);
-  }, [source, optionsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [source, optionsKey, data.live]); // eslint-disable-line react-hooks/exhaustive-deps
+  const behind = Boolean(result && result.key !== optionsKey);
 
   const [overlay, setOverlay] = useState(false);
   const canvas = useRef<HTMLCanvasElement | null>(null);
@@ -101,14 +119,16 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
   }, [result, source, showing, overlay]);
 
   const onGenerate = async () => {
-    if (!result) {
+    // What is written is always for the settings as they are, shown or not.
+    const current = result && !behind ? result : find(data.options);
+    if (!current) {
       await generateFlow(node.id);
       return;
     }
     try {
       await generateFlow(node.id, [
-        { name: 'lines.png', data: await pngDataUrl(result.image) },
-        { name: 'lines.md', data: `data:text/markdown;base64,${utf8Base64(linesReport(result.lines, data.options, input?.sourceNode.name ?? 'the picture'))}` },
+        { name: 'lines.png', data: await pngDataUrl(current.image) },
+        { name: 'lines.md', data: `data:text/markdown;base64,${utf8Base64(linesReport(current.lines, data.options, input?.sourceNode.name ?? 'the picture'))}` },
       ]);
     } catch (reason) {
       notify('error', `Could not write the lines: ${(reason as Error).message}`);
@@ -177,9 +197,27 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
             format={(value) => `${Math.round(value)} px`}
             onChange={(chunk) => setOptions({ chunk: Math.round(chunk) })}
           />
-          <button type="button" className="vt-btn is-small" onClick={() => patch({ options: { ...DEFAULT_LINE_OPTIONS } })}>
-            Back to the defaults
-          </button>
+          <div className="vt-row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+            <button
+              type="button"
+              className={`vt-btn is-small${behind && !data.live ? ' is-primary' : ''}`}
+              disabled={!source || working}
+              onClick={run}
+            >
+              Find the lines
+            </button>
+            <label className="vt-row" style={{ gap: 5 }} title="Find the lines again whenever a setting changes">
+              <input type="checkbox" checked={data.live} onChange={(event) => patch({ live: event.target.checked })} />
+              live
+            </label>
+            <span className="vt-spacer" />
+            <button type="button" className="vt-btn is-ghost is-small" onClick={() => patch({ options: { ...DEFAULT_LINE_OPTIONS } })}>
+              Defaults
+            </button>
+          </div>
+          {behind && !data.live ? (
+            <p className="vt-hint">The settings have changed since these lines were found. Press Find the lines to see them.</p>
+          ) : null}
         </div>
 
         <div className="vt-section">
@@ -188,10 +226,11 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
             {working ? 'Looking…' : result ? summariseLines(result.lines) : '—'}
           </p>
           <div className="vt-lines-legend" aria-hidden="true">
-            <span>no line</span>
+            <span>thin</span>
             <i />
-            <span>sure</span>
+            <span>{FULL_BLUE_WIDTH} px +</span>
           </div>
+          <p className="vt-faint" style={{ fontSize: 11 }}>Black is no line. Brighter is surer.</p>
         </div>
       </aside>
 
@@ -238,7 +277,7 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
           </div>
         </Stage>
         <p className="vt-faint" style={{ marginTop: 8, fontSize: 11 }}>
-          Black is no line; red is a line, and the redder the surer. Toggle Original to compare, or lay the lines over the picture.
+          Black is no line. A line is red when thin and blue when wide, brighter the surer. Toggle Original to compare, or lay the lines over the picture.
         </p>
       </div>
     </EditorShell>

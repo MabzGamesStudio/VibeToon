@@ -28,6 +28,9 @@ import { CropFlowEditor } from './CropFlowEditor';
 import { LinesFlowEditor } from './LinesFlowEditor';
 import { VideoBackgroundFlowEditor } from './VideoBackgroundFlowEditor';
 import { ShotsFlowEditor } from './ShotsFlowEditor';
+import { VideoSourceFlowEditor } from './VideoSourceFlowEditor';
+import { VideoEditFlowEditor } from './VideoEditFlowEditor';
+import { LineGraphFlowEditor } from './LineGraphFlowEditor';
 import { PartsFlowEditor } from './PartsFlowEditor';
 import { FaceFlowEditor } from './FaceFlowEditor';
 import { VectorEditFlowEditor } from './VectorEditFlowEditor';
@@ -99,6 +102,12 @@ export function FlowEditor({ node }: { node: FlowNode }): JSX.Element {
       return <VideoBackgroundFlowEditor project={project} node={node} />;
     case 'shots':
       return <ShotsFlowEditor project={project} node={node} />;
+    case 'videoSource':
+      return <VideoSourceFlowEditor project={project} node={node} />;
+    case 'videoEdit':
+      return <VideoEditFlowEditor project={project} node={node} />;
+    case 'lineGraph':
+      return <LineGraphFlowEditor project={project} node={node} />;
     case 'parts':
       return <PartsFlowEditor project={project} node={node} />;
     case 'face':

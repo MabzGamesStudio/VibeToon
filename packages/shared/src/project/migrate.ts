@@ -35,6 +35,9 @@ import { emptyCropFlowData } from '../flows/crop';
 import { DEFAULT_LINE_OPTIONS } from '../flows/lines';
 import { emptyVideoBackgroundFlowData } from '../flows/videoBackground';
 import { DEFAULT_SHOT_OPTIONS, emptyShotsFlowData } from '../flows/shots';
+import { emptyVideoSourceFlowData } from '../flows/videoSource';
+import { DEFAULT_EDIT_FPS, emptyVideoEditFlowData } from '../flows/videoEdit';
+import { DEFAULT_LINE_GRAPH_OPTIONS, emptyLineGraphFlowData } from '../flows/lineGraph';
 import type { BriefFlowData, FlowData, FlowNode, Project } from '../types/project';
 import { DEFAULT_RANDOM_TEXT_OPTIONS, readTextMode } from '../types/text';
 import { defaultDataForKind } from './factory';
@@ -232,8 +235,8 @@ export function normaliseFlowData(data: FlowData): FlowData {
     }
     case 'lines': {
       const options = fill(data.options, DEFAULT_LINE_OPTIONS);
-      if (!options.filled && (data.view === 'lines' || data.view === 'original')) return data;
-      return { ...data, options: options.value, view: data.view === 'original' ? 'original' : 'lines' };
+      if (!options.filled && (data.view === 'lines' || data.view === 'original') && typeof data.live === 'boolean') return data;
+      return { ...data, options: options.value, view: data.view === 'original' ? 'original' : 'lines', live: data.live === true };
     }
     case 'videoBackground': {
       const base = emptyVideoBackgroundFlowData();
@@ -246,6 +249,40 @@ export function normaliseFlowData(data: FlowData): FlowData {
         sampling: sampling.value,
         marks: Array.isArray(data.marks) ? data.marks : [],
         current: data.current ?? null,
+      };
+    }
+    case 'videoSource': {
+      const whole = data.source !== undefined && typeof data.description === 'string' && typeof data.credit === 'string';
+      return whole ? data : { ...emptyVideoSourceFlowData(), ...data, source: data.source ?? null };
+    }
+    case 'videoEdit': {
+      const whole = Array.isArray(data.segments) && data.crop !== undefined && (data.output === 'joined' || data.output === 'clips') && typeof data.fps === 'number' && data.selected !== undefined;
+      if (whole) return data;
+      return {
+        ...emptyVideoEditFlowData(),
+        ...data,
+        segments: Array.isArray(data.segments) ? data.segments : [],
+        crop: data.crop ?? null,
+        output: data.output === 'clips' ? 'clips' : 'joined',
+        fps: typeof data.fps === 'number' ? data.fps : DEFAULT_EDIT_FPS,
+        selected: data.selected ?? null,
+      };
+    }
+    case 'lineGraph': {
+      const base = emptyLineGraphFlowData();
+      const options = fill(data.options, DEFAULT_LINE_GRAPH_OPTIONS);
+      const range = fill(data.widthRange, base.widthRange);
+      const whole = Array.isArray(data.hidden) && typeof data.moved === 'object' && data.moved !== null && Array.isArray(data.selected) && typeof data.showFill === 'boolean';
+      if (!options.filled && !range.filled && whole) return data;
+      return {
+        ...base,
+        ...data,
+        options: options.value,
+        widthRange: range.value,
+        hidden: Array.isArray(data.hidden) ? data.hidden : [],
+        moved: typeof data.moved === 'object' && data.moved !== null ? data.moved : {},
+        selected: Array.isArray(data.selected) ? data.selected : [],
+        showFill: data.showFill ?? true,
       };
     }
     case 'shots': {

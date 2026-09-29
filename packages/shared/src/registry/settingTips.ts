@@ -901,6 +901,39 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     what: 'The size of the squares the picture is read in. Lines are found, and measured, a chunk at a time, reaching a little past each so a line crossing a border is not cut short.',
     examples: ['24 — short lines are judged on their own.', '48 — a good default.', '160 — long lines are measured over more of their length.'],
   },
+  'lineGraph.minConfidence': {
+    what: 'How sure the Line Detection must have been about a pixel for it to be part of a line here. Its confidence is how bright the pixel is in the lines picture.',
+    examples: ['20% — every line pixel found. A good default.', '50% — only the sharper, longer lines.', '80% — only the surest strokes.'],
+  },
+  'lineGraph.simplify': {
+    what: 'How far a traced line may stray from the middle of its fill once simplified, in pixels. The middle is traced pixel by pixel, then the points that add nothing are dropped.',
+    examples: ['0 — every pixel of the middle is a point.', '1 — a good default: straight runs become one segment, curves keep their shape.', '4 — coarse, angular lines with few points.'],
+  },
+  'lineGraph.spur': {
+    what: 'Thinning a lumpy band leaves short branches off its middle. A line from a loose end into a junction shorter than this is taken to be one, and dropped.',
+    examples: ['0 — keep every branch.', '4 px — a good default.', '15 px — drop short ticks and serifs too.'],
+  },
+  'lineGraph.widthRange': {
+    what: 'Only lines of this width are kept: in the files written, and drawn in colour here. The width of a line is the mean width of the band it runs along. At the top of the scale, the range keeps everything wider too.',
+    examples: ['0 to 16+ — every line.', '0 to 3 — hairlines and outlines only.', '6 to 16+ — the heavy strokes only.'],
+  },
+  'videoSource.upload': {
+    what: 'A video file on this machine. It is copied into the project, so the flow keeps it whatever happens to the file.',
+    examples: ['An MP4 from a phone.', 'A WebM exported from another tool.'],
+  },
+  'videoSource.link': {
+    what: 'The address of a video file, fetched once and kept with the project. It must be the file itself: a page that plays a video is a web page, not the video. Addresses on this machine and on the private network are refused.',
+    examples: ['https://example.org/media/clip.mp4 — the file.', 'A page on a video site — not the file, and refused.'],
+    note: 'Use footage you have the right to use, and say whose it is under Credit and terms.',
+  },
+  'videoSource.credit': {
+    what: 'Who made the video and on what terms. Written into the source notes, so whoever uses the project later knows.',
+    examples: ['Footage: A. Nother, CC BY 4.0.', 'Shot for this project.'],
+  },
+  'videoEdit.fps': {
+    what: 'The frame rate the edit is recorded at, and what a split snaps to: a split falls on the start of the frame nearest where it was asked for.',
+    examples: ['24 — film and most animation.', '30 — a good default for web and phone video.', '60 — smooth, and twice the size.'],
+  },
   'videoBackground.sampling': {
     what: 'Which frames the background is worked out from: so many a second, or so many spread over the clip. Every frame is held at once, so many frames of a big video are read smaller.',
     examples: ['12 in all — quick, for a clip where things move a lot.', '24 in all — a good default.', '2 a second — a long clip, evenly.'],
