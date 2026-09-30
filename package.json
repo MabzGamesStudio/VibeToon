@@ -21,7 +21,7 @@
     "start": "npm run start -w @vibetoon/server",
     "typecheck": "tsc -b packages/shared packages/server packages/client scripts",
     "test": "npm run test -w @vibetoon/shared && npm run test -w @vibetoon/server",
-    "docs:flows": "node --import tsx scripts/flow-docs.ts"
+    "docs:flows": "node --import tsx scripts/flow-docs.ts && node --import tsx scripts/algorithm-docs.ts"
   },
   "devDependencies": {
     "typescript": "^5.6.3"
