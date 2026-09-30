@@ -11,8 +11,9 @@ import {
   embedFrame,
   filmstripFrames,
   panEditView,
+  frameIndex,
+  nearestFrameStart,
   rulerTicks,
-  snapToFrame,
   splitAtCuts,
   stepFrame,
   zoomEditView,
@@ -221,7 +222,7 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
     if (!panning && event.button !== 0) return;
     const startX = event.clientX;
     const startView = viewRef.current;
-    const scrub = (clientX: number) => seekTo(snapToFrame(Math.max(0, Math.min(duration, timeAtX(clientX))), dataRef.current.fps));
+    const scrub = (clientX: number) => seekTo(nearestFrameStart(Math.max(0, Math.min(duration, timeAtX(clientX))), dataRef.current.fps));
     if (!panning) {
       player.current?.pause();
       scrub(event.clientX);
@@ -653,11 +654,17 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
             </div>
 
             <div className="vt-row vt-edit-controls">
+              <button type="button" className="vt-btn is-small" onClick={() => stepBy(-1)} aria-label="Back a frame" title="Back a frame (←)">
+                |◀
+              </button>
               <button type="button" className="vt-btn is-small" onClick={togglePlay} aria-label={playing ? 'Pause' : 'Play'}>
                 {playing ? '❚❚ Pause' : '▶ Play'}
               </button>
+              <button type="button" className="vt-btn is-small" onClick={() => stepBy(1)} aria-label="On a frame" title="On a frame (→)">
+                ▶|
+              </button>
               <span className="vt-faint">
-                {clock(now)} / {clock(duration)}
+                {clock(now)} / {clock(duration)} · frame {frameIndex(now, data.fps) + 1}
               </span>
               <label className="vt-row" style={{ gap: 5 }}>
                 <input type="checkbox" checked={editOnly} onChange={(event) => setEditOnly(event.target.checked)} />

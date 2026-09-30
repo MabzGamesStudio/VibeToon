@@ -128,6 +128,9 @@ interface StudioValue {
    * that item only or to every item.
    */
   batchFocus: Record<string, BatchFocus>;
+  /** The flow kind whose "How it works" guide is open, if any. */
+  guide: string | null;
+  showGuide(kind: string | null): void;
   setBatchFocus(nodeId: string, focus: BatchFocus): void;
   /** A batch flow's focus as it stands, the first item when none is chosen; undefined when it has no items. */
   batchFocusOf(nodeId: string): BatchFocus | undefined;
@@ -184,6 +187,7 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
   const [selection, setSelection] = useState<Selection>({ type: 'none' });
   const [focusedFlowId, setFocusedFlowId] = useState<string | null>(null);
   const [batchFocus, setBatchFocusState] = useState<Record<string, BatchFocus>>({});
+  const [guide, showGuide] = useState<string | null>(null);
   // Read by edits and runs, which must see a change of item made a moment before.
   const batchFocusRef = useRef(batchFocus);
   const setBatchFocus = useCallback((nodeId: string, focus: BatchFocus) => {
@@ -919,6 +923,8 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
       batchFocus,
       setBatchFocus,
       batchFocusOf,
+      guide,
+      showGuide,
       acceptSync,
       uploadOutput,
       fetchOutput,
@@ -960,6 +966,8 @@ export function StudioProvider({ children }: { children: ReactNode }): JSX.Eleme
       batchFocus,
       setBatchFocus,
       batchFocusOf,
+      guide,
+      showGuide,
       acceptSync,
       uploadOutput,
       fetchOutput,

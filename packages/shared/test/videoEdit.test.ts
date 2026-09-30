@@ -24,6 +24,9 @@ import {
   rulerTicks,
   splitAtCuts,
   stepFrame,
+  frameIndex,
+  frameStart,
+  nearestFrameStart,
   zoomEditView,
   type VideoEditFlowData,
 } from '../src/flows/videoEdit';
@@ -132,6 +135,22 @@ test('left and right step a frame at a time, and stop at the ends', () => {
   assert.equal(stepFrame(0, 25, -1, 10), 0);
   assert.equal(stepFrame(9.99, 25, 1, 10), 9.96, 'the last frame starts a frame before the end');
   assert.equal(stepFrame(5, 25, 25, 10), 6, 'a second on');
+});
+
+test('stepping on and on moves a frame each time, whatever the rate', () => {
+  for (const fps of [24, 25, 29.97, 30, 60]) {
+    let time = 0;
+    for (let step = 1; step <= 200; step += 1) {
+      time = stepFrame(time, fps, 1, 60);
+      assert.equal(frameIndex(time, fps), step, `${fps} fps, step ${step}: at ${time}`);
+    }
+    // Even when the player hands the time back rounded to the millisecond.
+    time = Math.round(stepFrame(0, fps, 91, 60) * 1000) / 1000;
+    assert.equal(frameIndex(stepFrame(time, fps, 1, 60), fps), 92, `${fps} fps from a rounded time`);
+  }
+  assert.equal(stepFrame(91 / 30, 30, 1, 10), frameStart(92, 30));
+  assert.ok(frameStart(91, 30) >= 91 / 30 - 1e-6, 'a frame is shown from its exact start, not a hair before');
+  assert.equal(nearestFrameStart(3.02, 30), frameStart(91, 30));
 });
 
 test('shot cuts found in the video split it, and only for that video', () => {

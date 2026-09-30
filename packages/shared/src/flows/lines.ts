@@ -109,7 +109,7 @@ export function isBlend(left: readonly number[], middle: readonly number[], righ
   return off <= length * 0.2;
 }
 
-interface Run {
+export interface Run {
   /** Positions along the walk, `end` exclusive. */
   start: number;
   end: number;
@@ -220,6 +220,134 @@ export interface LineResult {
  * The lines in a picture, as a confidence for every pixel.
  */
 export function detectLines(bitmap: Bitmap, input: Partial<LineOptions> = {}): LineResult {
+  return detect(bitmap, input, null).result;
+}
+
+/**
+ * Why one pixel is, or is not, on a line: everything the detection decided
+ * about it, step by step, with the numbers it decided by.
+ *
+ * It is the detection itself, run over the whole picture with a note kept of
+ * that pixel, so what it says is what happened — not a second account of it.
+ */
+export function explainLinePixel(bitmap: Bitmap, input: Partial<LineOptions>, x: number, y: number): LineTrace {
+  const target = { x: Math.max(0, Math.min(bitmap.width - 1, Math.floor(x))), y: Math.max(0, Math.min(bitmap.height - 1, Math.floor(y))) };
+  return detect(bitmap, input, target).trace!;
+}
+
+/** The four walks, by name, in the order they are made. */
+export const WALK_NAMES = ['Across (left to right)', 'Down (top to bottom)', 'Diagonal ↘', 'Diagonal ↗'] as const;
+
+/** One test a run must pass to be a line crossing. */
+export interface LineCheck {
+  label: string;
+  /** What it means when it fails, in a few words. */
+  failed: string;
+  pass: boolean;
+  /** The numbers it was decided by, in words. */
+  detail: string;
+}
+
+/** One walk through the pixel: its runs, and whether the pixel's run is a line crossing. */
+export interface LineTraceWalk {
+  /** The walk's pixels in order; `index` is the pixel asked about. */
+  points: Array<{ x: number; y: number }>;
+  index: number;
+  /** The runs before soft edges were folded away, and after. */
+  rawRuns: Run[];
+  runs: Run[];
+  /** The run the pixel is in, after folding. */
+  run: number;
+  /** Each test, in order, up to and including the first that fails. */
+  checks: LineCheck[];
+  crossing: boolean;
+  /** When it is a crossing: how wide the run is, in steps, and the sharper-limited edge. */
+  across?: number;
+  sharp?: number;
+}
+
+/** The patch of crossings the pixel joined, and the longer-than-wide test. */
+export interface LineTracePatch {
+  /** Every pixel in it, as `y * width + x`. */
+  pixels: number[];
+  /** Along the line, in pixels, and its mean width in steps. */
+  length: number;
+  meanWidth: number;
+  ratio: number;
+  needed: number;
+  pass: boolean;
+  /** 0..1 each, and the score from them. */
+  reachScore: number;
+  sharpScore: number;
+  score: number;
+}
+
+export interface LineTraceDirection {
+  name: string;
+  step: [number, number];
+  along: [number, number];
+  walk: LineTraceWalk | null;
+  patch: LineTracePatch | null;
+  /** What this walk gave the pixel: 0 when nothing. */
+  score: number;
+  /** The width across it found, in pixels (diagonal steps counted √2), when a line. */
+  width: number;
+}
+
+export interface LineTrace {
+  x: number;
+  y: number;
+  /** The pixel's colour, RGBA. */
+  colour: [number, number, number, number];
+  options: LineOptions;
+  /** The chunk it was read in, and the window round it walks were made in. */
+  chunk: { x0: number; y0: number; x1: number; y1: number };
+  window: { x0: number; y0: number; x1: number; y1: number };
+  directions: LineTraceDirection[];
+  /** The best any walk gave it, and the narrowest width: what is drawn. */
+  confidence: number;
+  width: number;
+}
+
+/** Each test, as it reads when it fails. */
+const FAILED: Record<string, string> = {
+  'Has a colour on both sides': 'nothing on one side',
+  'Narrow enough': 'too wide',
+  'A sharp change into it': 'no sharp change in',
+  'A sharp change out of it': 'no sharp change out',
+  'A colour of its own': 'a blend, not a colour',
+  'Unlike the colour before it': 'too like the colour before',
+  'Unlike the colour after it': 'too like the colour after',
+};
+
+/**
+ * The tests a run must pass to be a crossing, with their numbers — the same
+ * ones, in the same order, as in `detect`.
+ */
+export function crossingChecks(runs: readonly Run[], r: number, options: LineOptions): LineCheck[] {
+  const checks: LineCheck[] = [];
+  const add = (label: string, pass: boolean, detail: string) => {
+    checks.push({ label, failed: FAILED[label] ?? `not ${label.toLowerCase()}`, pass, detail });
+    return pass;
+  };
+  const line = runs[r]!;
+  const before = runs[r - 1];
+  const next = runs[r + 1];
+  if (!add('Has a colour on both sides', r >= 1 && r + 1 < runs.length, r < 1 ? 'It is the first run of the walk: nothing before it.' : r + 1 >= runs.length ? 'It is the last run of the walk: nothing after it.' : 'There is a run before it and a run after it.')) return checks;
+  const across = line.end - line.start;
+  if (!add('Narrow enough', across <= options.maxWidth, `${across} px across, and the widest a line can be is ${options.maxWidth}.`)) return checks;
+  if (!add('A sharp change into it', line.sharpIn > 0, line.sharpIn > 0 ? `The colour jumps by ${line.sharpIn.toFixed(0)} into it (sharp is ${options.contrast} or more).` : 'The colour drifts into it, or blends: no single step of ' + options.contrast + ' or more.')) return checks;
+  if (!add('A sharp change out of it', next!.sharpIn > 0, next!.sharpIn > 0 ? `The colour jumps by ${next!.sharpIn.toFixed(0)} out of it.` : 'The colour drifts out of it, or blends: no single step of ' + options.contrast + ' or more.')) return checks;
+  const blend = isBlend(before!.colour, line.colour, next!.colour);
+  if (!add('A colour of its own', !blend, blend ? 'Its colour lies between the colours either side: a soft edge between them, not a line.' : 'Its colour is not on the way from one side’s colour to the other’s.')) return checks;
+  const unlikeBefore = colourDistance(line.colour, before!.colour);
+  if (!add('Unlike the colour before it', unlikeBefore >= options.contrast, `${unlikeBefore.toFixed(0)} apart (needs ${options.contrast}).`)) return checks;
+  const unlikeAfter = colourDistance(line.colour, next!.colour);
+  add('Unlike the colour after it', unlikeAfter >= options.contrast, `${unlikeAfter.toFixed(0)} apart (needs ${options.contrast}).`);
+  return checks;
+}
+
+function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number; y: number } | null): { result: LineResult; trace: LineTrace | null } {
   const started = Date.now();
   const options = normaliseLineOptions(input);
   const { width, height, data } = bitmap;
@@ -235,7 +363,16 @@ export function detectLines(bitmap: Bitmap, input: Partial<LineOptions> = {}): L
   // And for a line to show how long it is, beyond the chunk it was found in.
   const reach = Math.ceil(chunk / 2);
 
-  for (const direction of DIRECTIONS) {
+  // The note kept of one pixel, when asked.
+  const targetAt = target ? target.y * width + target.x : -1;
+  const targetChunk = target ? { cx: Math.floor(target.x / chunk), cy: Math.floor(target.y / chunk) } : null;
+  const traced: LineTraceDirection[] = [];
+
+  for (const [directionIndex, direction] of DIRECTIONS.entries()) {
+    const note: LineTraceDirection | null = target
+      ? { name: WALK_NAMES[directionIndex]!, step: direction.step, along: direction.along, walk: null, patch: null, score: 0, width: 0 }
+      : null;
+    if (note) traced.push(note);
     // Per pixel: the line's width across, and how sharp its sides are, where a
     // walk in this direction found one.
     const widthAt = new Uint16Array(total);
@@ -267,7 +404,26 @@ export function detectLines(bitmap: Bitmap, input: Partial<LineOptions> = {}): L
               offsets.push((y * width + x) * 4);
             }
             if (offsets.length < 3) continue;
-            const runs = withoutBlends(runsOf(data, offsets, options), options);
+            const raw = runsOf(data, offsets, options);
+            const runs = withoutBlends(note ? [...raw] : raw, options);
+            if (note && targetChunk && cx === targetChunk.cx && cy === targetChunk.cy) {
+              const index = xs.findIndex((px, k) => px === target!.x && ys[k] === target!.y);
+              if (index >= 0) {
+                const run = runs.findIndex((candidate) => index >= candidate.start && index < candidate.end);
+                const checks = crossingChecks(runs, run, options);
+                const crossing = checks.every((check) => check.pass) && checks.length === 7;
+                note.walk = {
+                  points: xs.map((px, k) => ({ x: px, y: ys[k]! })),
+                  index,
+                  rawRuns: raw.map((one) => ({ ...one, colour: [...one.colour] })),
+                  runs: runs.map((one) => ({ ...one, colour: [...one.colour] })),
+                  run,
+                  checks,
+                  crossing,
+                  ...(crossing ? { across: runs[run]!.end - runs[run]!.start, sharp: Math.min(runs[run]!.sharpIn, runs[run + 1]!.sharpIn) } : {}),
+                };
+              }
+            }
             for (let r = 1; r + 1 < runs.length; r += 1) {
               const line = runs[r]!;
               const next = runs[r + 1]!;
@@ -357,6 +513,22 @@ export function detectLines(bitmap: Bitmap, input: Partial<LineOptions> = {}): L
             const unit = Math.hypot(ax, ay);
             const length = (maxAlong - minAlong) / unit + 1;
             const ratio = length / Math.max(1, meanWidth);
+            const tracing = note !== null && targetChunk !== null && cx === targetChunk.cx && cy === targetChunk.cy && patch.includes(targetAt);
+            if (tracing) {
+              const reachWould = Math.min(1, ratio / (options.ratio * 2));
+              const sharpWould = Math.min(1, sharpAt[targetAt]! / (options.contrast * 2.5));
+              note!.patch = {
+                pixels: [...patch],
+                length,
+                meanWidth,
+                ratio,
+                needed: options.ratio,
+                pass: ratio >= options.ratio,
+                reachScore: reachWould,
+                sharpScore: sharpWould,
+                score: ratio >= options.ratio ? Math.max(0.2, Math.min(1, sharpWould * 0.5 + reachWould * 0.5)) : 0,
+              };
+            }
             if (ratio < options.ratio) continue;
             const reachScore = Math.min(1, ratio / (options.ratio * 2));
             for (const at of patch) {
@@ -368,6 +540,10 @@ export function detectLines(bitmap: Bitmap, input: Partial<LineOptions> = {}): L
               if (score > confidence[at]!) confidence[at] = score;
               const across = widthAt[at]! * unit;
               if (lineWidth[at] === 0 || across < lineWidth[at]!) lineWidth[at] = across;
+              if (note && at === targetAt) {
+                note.score = score;
+                note.width = across;
+              }
             }
           }
         }
@@ -377,12 +553,32 @@ export function detectLines(bitmap: Bitmap, input: Partial<LineOptions> = {}): L
 
   let linePixels = 0;
   for (let i = 0; i < total; i += 1) if (confidence[i]! > 0) linePixels += 1;
-  return {
+  const result: LineResult = {
     width,
     height,
     confidence,
     lineWidth,
     stats: { linePixels, crossings, chunks: chunksX * chunksY, ms: Date.now() - started },
+  };
+  if (!target || !targetChunk) return { result, trace: null };
+  const x0 = targetChunk.cx * chunk;
+  const y0 = targetChunk.cy * chunk;
+  const x1 = Math.min(width, x0 + chunk);
+  const y1 = Math.min(height, y0 + chunk);
+  const at = targetAt * 4;
+  return {
+    result,
+    trace: {
+      x: target.x,
+      y: target.y,
+      colour: [data[at]!, data[at + 1]!, data[at + 2]!, data[at + 3]!],
+      options,
+      chunk: { x0, y0, x1, y1 },
+      window: { x0: Math.max(0, x0 - context), y0: Math.max(0, y0 - context), x1: Math.min(width, x1 + context), y1: Math.min(height, y1 + context) },
+      directions: traced,
+      confidence: confidence[targetAt]!,
+      width: lineWidth[targetAt]!,
+    },
   };
 }
 

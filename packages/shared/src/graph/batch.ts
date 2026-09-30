@@ -131,6 +131,39 @@ export function setEntryArtifact(set: ArtifactRef, entry: string): ArtifactRef {
   };
 }
 
+/**
+ * The files a folder output will hold, known before they are made — so a
+ * batch has its items, and says which are still to come, as soon as there is
+ * something to make them from: the shots a Shot Split has found, before each
+ * is recorded; the segments of an edit written as clips; the frames a rig was
+ * matched in.
+ *
+ * The names are those the flows write (`shotClipName`, `clipName`,
+ * `matchFrameName`), repeated here so the graph does not import the flows that
+ * import it; a test holds them together.
+ */
+export function plannedEntries(node: FlowNode, portId: string): string[] {
+  const data = node.data as unknown as Record<string, unknown>;
+  const numbered = (count: number, name: (n: string) => string, width: number) =>
+    Array.from({ length: Math.max(0, count) }, (_, index) => name(String(index + 1).padStart(width, '0')));
+  if (node.kind === 'animation.video.shots' && portId === 'clips') {
+    const video = data.video as { duration: number } | undefined;
+    if (!video) return [];
+    const cuts = new Set(((data.cuts as number[] | undefined) ?? []).filter((cut) => cut > 0 && cut < video.duration));
+    return numbered(cuts.size + 1, (n) => `shot-${n}.webm`, 2);
+  }
+  if (node.kind === 'animation.video.edit' && portId === 'clips') {
+    if (data.output !== 'clips' || !data.video) return [];
+    const segments = (data.segments as Array<{ start: number; end: number; deleted: boolean }> | undefined) ?? [];
+    const kept = segments.length === 0 ? 1 : segments.filter((segment) => !segment.deleted && segment.end > segment.start).length;
+    return numbered(kept, (n) => `clip-${n}.webm`, 2);
+  }
+  if (node.kind === 'animation.video.match' && portId === 'frames') {
+    return numbered(((data.frames as unknown[] | undefined) ?? []).length, (n) => `frame-${n}.png`, 3);
+  }
+  return [];
+}
+
 /** The items a wire carries, if it carries a batch. */
 export function connectionItems(project: Project, connection: Connection): BatchItem[] {
   const source = nodeById(project, connection.from.nodeId);
@@ -140,9 +173,12 @@ export function connectionItems(project: Project, connection: Connection): Batch
     const made = new Map((ref?.items ?? []).map((item) => [item.key, item.artifact]));
     return batchItems(project, source).map((item) => ({ key: item.key, label: item.label, artifact: made.get(item.key) }));
   }
-  if (!ref) return [];
-  if (ref.items) return ref.items.map((item) => ({ key: item.key, label: item.label, artifact: item.artifact }));
-  return (ref.entries ?? []).map((entry) => ({ key: entry, label: withoutExtension(entry), artifact: setEntryArtifact(ref, entry) }));
+  if (ref?.items) return ref.items.map((item) => ({ key: item.key, label: item.label, artifact: item.artifact }));
+  if (ref?.entries && ref.entries.length > 0) {
+    return ref.entries.map((entry) => ({ key: entry, label: withoutExtension(entry), artifact: setEntryArtifact(ref, entry) }));
+  }
+  // Nothing made yet: the items it will hold, still to come.
+  return plannedEntries(source, connection.from.portId).map((entry) => ({ key: entry, label: withoutExtension(entry) }));
 }
 
 /** A batch flow's items: those of the first batch wired into it. */

@@ -153,3 +153,17 @@ test('the file lists each shot with its times and frames', () => {
   assert.match(report, /1 change\(s\) made by hand/);
   assert.match(shotsReport(emptyShotsFlowData()), /Not split yet/);
 });
+
+test('each shot is recorded as a video when asked, or when the Shot clips output is wired', async () => {
+  const { shotClipsWanted } = await import('../src/flows/shots');
+  const { createConnection, createNode, createProject } = await import('../src/project/factory');
+  const shots = { ...createNode('animation.video.shots', { x: 0, y: 0 }), id: 'shots' };
+  const bg = { ...createNode('art.video.background', { x: 0, y: 0 }), id: 'bg' };
+  const alone = { ...createProject('p'), nodes: [shots, bg] };
+  assert.equal(shotClipsWanted(alone, shots), false);
+  assert.equal(shotClipsWanted(alone, { ...shots, data: { ...shots.data, clips: true } as typeof shots.data }), true);
+  const wired = { ...alone, connections: [createConnection({ nodeId: 'shots', portId: 'clips' }, { nodeId: 'bg', portId: 'video' })] };
+  assert.equal(shotClipsWanted(wired, shots), true);
+  const off = { ...wired, connections: wired.connections.map((c) => ({ ...c, settings: { ...c.settings, enabled: false } })) };
+  assert.equal(shotClipsWanted(off, shots), false, 'not by a wire that is switched off');
+});

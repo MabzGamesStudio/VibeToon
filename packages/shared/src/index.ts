@@ -13,6 +13,8 @@ export * from './registry/flowKinds';
 export * from './registry/flowSearch';
 export * from './registry/settingTips';
 export * from './registry/sliderRanges';
+export * from './registry/guides';
+export * from './registry/guides/index';
 export * from './rules/parseRules';
 export * from './graph/graph';
 export * from './graph/batch';
