@@ -78,8 +78,31 @@ export function snapToFrame(time: number, fps: number): number {
 export function stepFrame(time: number, fps: number, by: number, duration: number): number {
   const rate = Math.max(1, fps);
   const last = Math.max(0, Math.ceil(duration * rate - 1e-6) - 1);
-  const frame = Math.max(0, Math.min(last, Math.floor(time * rate + 1e-6) + by));
-  return round(frame / rate);
+  const frame = Math.max(0, Math.min(last, frameIndex(time, rate) + by));
+  return frameStart(frame, rate);
+}
+
+/**
+ * The frame a time is in. A time a hair before a frame's start — a start
+ * rounded to the millisecond, as 91/30 s = 3.0333… becomes 3.033 — counts as
+ * that frame, or stepping from it would land back on it.
+ */
+export function frameIndex(time: number, fps: number): number {
+  return Math.max(0, Math.floor(time * Math.max(1, fps) + 0.05));
+}
+
+/**
+ * When a frame starts, exactly (to the microsecond). Not rounded to the
+ * millisecond: a video shown at a time just before a frame's start shows the
+ * frame before.
+ */
+export function frameStart(frame: number, fps: number): number {
+  return Math.round((frame / Math.max(1, fps)) * 1e6) / 1e6;
+}
+
+/** The start of the frame nearest a time, exactly: where scrubbing lands. */
+export function nearestFrameStart(time: number, fps: number): number {
+  return frameStart(Math.max(0, Math.round(time * Math.max(1, fps))), fps);
 }
 
 /** Split the segment under `time` at the frame nearest it. A split on an edge does nothing. */

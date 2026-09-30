@@ -49,9 +49,30 @@ ends, how long it is, and how sharp the cut into it was. Then a strip of its
 frames, **as long as the shot**. Every row uses the same scale (**Row scale**, in
 pixels a second), so a shot twice as long is twice as wide.
 
-- **Split a shot**: click in its row at the frame to split at. The line under
-  the pointer shows the time, snapped to a frame.
+- **Look at a shot**: click its strip, or its number, or press **View**. The
+  shot opens in the large viewer (below), at the frame you clicked.
+- **Split a shot**: Shift-click in its row at the frame to split at, or press
+  **S** in the viewer. The line under the pointer shows the time, snapped to a
+  frame.
 - **Join a shot to the next**: press **Join with next**.
+
+### The shot viewer
+
+The viewer shows the chosen shot large, held to that shot: playing stops at its
+end (or loops, with **Loop**), and scrubbing stays inside it. Under the video is
+a scrub bar of the shot's frames.
+
+| Key | Does |
+| --- | --- |
+| ← / → | Back or on a frame (Shift: a second) |
+| Home / End | The shot's first or last frame |
+| Space | Play or pause |
+| ↑ / ↓ | The shot before or after |
+| S | Split the shot at this frame |
+| Escape | Close the viewer |
+
+Looking at a shot changes nothing in the flow, so it does not make the flow out
+of date.
 
 Every change is one undo step. **Find the shots again** starts over and replaces
 what was done by hand.
@@ -81,8 +102,9 @@ flow's own *Video* port.
 
 ### Each shot as a video
 
-Tick **Each shot as a video of its own** (under *What comes out*) and Generate
-also records every shot as a clip — `shots/shot-01.webm`, `shot-02.webm`, … — on
+Tick **Each shot as a video of its own** (under *What comes out*), or wire the
+**Shot clips** port into another flow — the box is then ticked for you, and says
+which flow needs it — and Generate also records every shot as a clip — `shots/shot-01.webm`, `shot-02.webm`, … — on
 the **Shot clips** port. Wire that into a flow that takes one video, such as
 Video Background, and it is a **batch**: each shot goes through that flow on its
 own, and you get a background for each. See [BATCHES.md](BATCHES.md).
@@ -93,3 +115,6 @@ own, and you get a background for each. See [BATCHES.md](BATCHES.md).
 - The sound is not kept.
 - When the shots change after they were recorded, the editor says so until they
   are recorded again.
+- Before anything is recorded, the flow downstream already shows one item per
+  shot (*None of the 5 made yet by Shot Split*), with a button to open Shot Split
+  and record them.

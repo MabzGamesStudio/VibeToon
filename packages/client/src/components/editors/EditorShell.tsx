@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react';
-import { flowStatus, getFlowKind, inputsForPort, type FlowNode, type Project } from '@vibetoon/shared';
+import { flowStatus, getFlowKind, guideFor, inputsForPort, type FlowNode, type Project } from '@vibetoon/shared';
+import { AlgorithmGuideView } from '../common/AlgorithmGuide';
 import { useStudio } from '../../state/store';
 import { useView } from '../../state/view';
 import { ArtifactView } from '../inspector/ArtifactView';
@@ -29,7 +30,8 @@ export function EditorShell({
   onGenerate,
   children,
 }: EditorShellProps): JSX.Element {
-  const { focusFlow, generateFlow, busyFlows, runs, select } = useStudio();
+  const { focusFlow, generateFlow, busyFlows, runs, select, guide, showGuide } = useStudio();
+  const hasGuide = guideFor(node.kind) !== undefined;
   const { view, toggle } = useView();
   const panelOpen = view.inspector;
   const def = getFlowKind(node.kind);
@@ -53,6 +55,11 @@ export function EditorShell({
         <span className="vt-faint">{def?.label}</span>
         <span className={`vt-pill is-${status}`}>{status}</span>
         <span className="vt-spacer" />
+        {hasGuide ? (
+          <button type="button" className="vt-btn is-small" title="How this flow’s algorithm works: steps, pseudocode, explanation and further reading" onClick={() => showGuide(node.kind)}>
+            How it works
+          </button>
+        ) : null}
         {actions}
         <button
           type="button"
@@ -73,6 +80,7 @@ export function EditorShell({
       </div>
 
       {banner}
+      {guide === node.kind ? <AlgorithmGuideView kind={node.kind} onClose={() => showGuide(null)} /> : null}
 
       <div className="vt-editor-body">
         {children}

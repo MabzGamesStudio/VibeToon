@@ -6,6 +6,7 @@ import {
   emptyShotsFlowData,
   joinShots,
   shotClipName,
+  shotClipsWanted,
   shotsKey,
   shotsOf,
   splitShotAt,
@@ -24,6 +25,7 @@ import { Field } from '../common/Field';
 import { Slider } from '../common/Slider';
 import { FrameReader, VideoUpload, clock, loadVideo, releaseVideo, useFileUpload, useVideoMeta } from '../common/video';
 import { EditorShell } from './EditorShell';
+import { ShotViewer } from './ShotViewer';
 import { blobDataUrl, recordingType, renderEdit, type RenderProgress } from './renderVideo';
 
 /** Frames are compared this small: enough for an 8 × 8 picture and a colour histogram. */
@@ -98,10 +100,15 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
   // With "each shot as a video" on, Generate plays each shot through and
   // records it: a clip per shot, in a folder that goes on as a batch.
   const [recording, setRecording] = useState<RenderProgress | null>(null);
+  const clipsWanted = shotClipsWanted(project, node);
+  const clipsWiredTo = project.connections
+    .filter((connection) => connection.from.nodeId === node.id && connection.from.portId === 'clips')
+    .map((connection) => project.nodes.find((candidate) => candidate.id === connection.to.nodeId)?.name)
+    .filter(Boolean);
   const stopRecording = useRef(false);
   const onGenerate = async () => {
     const current = dataRef.current;
-    if (!current.clips || !current.video || !videoUrl) {
+    if (!clipsWanted || !current.video || !videoUrl) {
       await generateFlow(node.id);
       return;
     }
@@ -218,6 +225,17 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
   }, [wanted, videoUrl, meta, running, thumbWidth]);
 
   const [hover, setHover] = useState<{ shot: number; time: number } | null>(null);
+  // The shot shown large, and where a click on its row asked it to go.
+  // Kept here, not in the flow: looking at a shot changes nothing it writes.
+  const [viewed, setViewed] = useState<number | null>(null);
+  const viewing = viewed !== null && viewed < shots.length ? viewed : null;
+  const [seek, setSeek] = useState<{ time: number } | null>(null);
+  const select = (index: number | null) => setViewed(index);
+  const splitAt = (time: number) => {
+    const next = splitShotAt(dataRef.current, time);
+    if (next === dataRef.current) notify('info', 'That is where the shot already starts or ends.');
+    else patch(next);
+  };
   const strength = new Map(data.detected.map((cut) => [cut.time, cut.difference]));
 
   const blocked = !source ? 'Wire a video into the Video input, or upload one here.' : videoError ? `The video could not be read: ${videoError}.` : null;
@@ -240,8 +258,15 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
               Stop
             </button>
           </div>
-        ) : data.clips && data.recorded && data.recorded !== shotsKey(data) ? (
-          <div className="vt-sync-banner"><span>The shots have changed since their clips were recorded. Generate to record them again.</span></div>
+        ) : clipsWanted && data.video && data.recorded !== shotsKey(data) ? (
+          <div className="vt-sync-banner">
+            <span>
+              {data.recorded
+                ? 'The shots have changed since their clips were recorded.'
+                : `Each shot is to be recorded as a video${clipsWiredTo.length > 0 ? ` for ${clipsWiredTo.join(', ')}` : ''}, and has not been yet.`}{' '}
+              Generate to record them.
+            </span>
+          </div>
         ) : undefined
       }
       actions={source?.wired ? undefined : <VideoUpload replace={Boolean(source)} onFile={upload} />}
@@ -321,11 +346,16 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
         <div className="vt-section">
           <h3>What comes out</h3>
           <label className="vt-row" style={{ gap: 6 }}>
-            <input type="checkbox" checked={data.clips} onChange={(event) => patch({ clips: event.target.checked })} />
+            <input type="checkbox" checked={clipsWanted} disabled={clipsWiredTo.length > 0} onChange={(event) => patch({ clips: event.target.checked })} />
             Each shot as a video of its own
           </label>
+          {clipsWiredTo.length > 0 ? (
+            <p className="vt-faint" style={{ fontSize: 11 }}>
+              On, because Shot clips is wired to {clipsWiredTo.join(', ')}.
+            </p>
+          ) : null}
           <p className="vt-hint">
-            {data.clips
+            {clipsWanted
               ? 'Generate records each shot onto the Shot clips port, as a folder of videos. Wire it into a flow that takes one video — Video Background, say — and each shot goes through it on its own, as a batch. Recording takes as long as the video.'
               : 'The shots are written as times, in shots.json. Tick this to have each one as a video too, to send them on as a batch.'}
           </p>
@@ -352,12 +382,28 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
           <div className="vt-empty">{blocked ?? 'Press Find the shots to split the video.'}</div>
         ) : (
           <div className="vt-shot-list">
+            {viewing !== null && videoUrl ? (
+              <ShotViewer
+                videoUrl={videoUrl}
+                shots={shots}
+                index={viewing}
+                fps={data.options.fps}
+                tiles={tileTimes(shots[viewing]!).map((time) => thumbs[time.toFixed(2)])}
+                seek={seek}
+                onSelect={select}
+                onSplit={splitAt}
+              />
+            ) : (
+              <p className="vt-hint" style={{ margin: '0 0 8px' }}>
+                Click a shot to see it large, slide through it and step it a frame at a time. Shift-click a shot’s frames to split it there.
+              </p>
+            )}
             {shots.map((shot, index) => {
               const width = Math.max(thumbWidth / 2, (shot.end - shot.start) * pxPerSecond);
               const into = index === 0 ? null : strength.get(shot.start);
               return (
-                <div key={`${shot.start}`} className={`vt-shot-row${data.selected === index ? ' is-selected' : ''}`}>
-                  <div className="vt-shot-head">
+                <div key={`${shot.start}`} className={`vt-shot-row${viewing === index ? ' is-selected' : ''}`}>
+                  <div className="vt-shot-head" onClick={() => select(index)} style={{ cursor: 'pointer' }}>
                     <strong>Shot {index + 1}</strong>
                     <span className="vt-faint">
                       {clock(shot.start)} – {clock(shot.end)}
@@ -368,7 +414,7 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
                   <div
                     className="vt-shot-strip"
                     style={{ width }}
-                    title="Click to split this shot here"
+                    title="Click to see this shot here, large. Shift-click to split it here."
                     onPointerMove={(event) => {
                       const box = event.currentTarget.getBoundingClientRect();
                       const time = shot.start + ((event.clientX - box.left) / box.width) * (shot.end - shot.start);
@@ -378,9 +424,12 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
                     onClick={(event) => {
                       const box = event.currentTarget.getBoundingClientRect();
                       const time = shot.start + ((event.clientX - box.left) / box.width) * (shot.end - shot.start);
-                      const next = splitShotAt(dataRef.current, time);
-                      if (next === dataRef.current) notify('info', 'That is where the shot already starts or ends.');
-                      else patch(next);
+                      if (event.shiftKey) {
+                        splitAt(Math.round(time * data.options.fps) / data.options.fps);
+                        return;
+                      }
+                      if (viewing !== index) select(index);
+                      setSeek({ time });
                     }}
                   >
                     {tileTimes(shot).map((time, tile) => {
@@ -398,6 +447,9 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
                     ) : null}
                   </div>
                   <div className="vt-shot-actions">
+                    <button type="button" className={`vt-btn is-small${viewing === index ? ' is-active' : ''}`} onClick={() => select(viewing === index ? null : index)}>
+                      {viewing === index ? 'Viewing' : 'View'}
+                    </button>
                     {index < shots.length - 1 ? (
                       <button type="button" className="vt-btn is-small" title="Join this shot and the next into one" onClick={() => patch(joinShots(dataRef.current, index))}>
                         Join with next

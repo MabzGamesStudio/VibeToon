@@ -279,6 +279,13 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   collapse again — the cutout canvas, the filter preview, the skeleton, design
   plates and storyboard panels. Expanding does not move anything in the page, so
   a drawing in progress survives it.
+- **How it works.** Every flow that runs an algorithm has a **How it works**
+  button, in its editor and in the graph's inspector. It explains the algorithm
+  four ways: a flow chart of the steps, with loops and the tests that turn
+  things away; pseudocode; the reasoning, part by part; and further reading.
+  Line Detection also has **Explain a pixel**: click any pixel to see every
+  check it passed or failed on its way to being a line or not. The same guides
+  are generated into [docs/ALGORITHMS.md](docs/ALGORITHMS.md).
 - **Every other flow kind** uses the brief editor: fields defined by the flow
   itself, generated into a markdown brief with everything arriving over its
   connections recorded underneath. Image and audio ports take a file you upload,
@@ -323,4 +330,5 @@ docs/             architecture, the flow catalogue, the rules language, the log
 ```
 
 More detail in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and the full flow
-list in [docs/FLOWS.md](docs/FLOWS.md).
+list in [docs/FLOWS.md](docs/FLOWS.md); how each flow's algorithm works in
+[docs/ALGORITHMS.md](docs/ALGORITHMS.md).

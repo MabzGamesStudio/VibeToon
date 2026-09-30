@@ -3635,3 +3635,630 @@ input.is-invalid {
     cursor: default;
   }
 }
+
+.vt-batch-missing {
+  color: $warn;
+  font-size: 11px;
+}
+
+/* ---------------- one shot, large ---------------- */
+
+.vt-shot-viewer {
+  position: sticky;
+  top: -12px;
+  z-index: 2;
+  margin: -12px -12px 10px;
+  padding: 10px 12px;
+  background: $bg-1;
+  border-bottom: 1px solid $line;
+}
+
+.vt-shot-viewer-head,
+.vt-shot-viewer-controls {
+  gap: 8px;
+  font-size: 12px;
+}
+
+.vt-shot-viewer-head {
+  margin-bottom: 6px;
+}
+
+.vt-shot-video {
+  display: block;
+  width: 100%;
+  height: min(46vh, 480px);
+  object-fit: contain;
+  background: #000;
+  border-radius: 4px;
+}
+
+.vt-shot-viewer-controls {
+  margin: 6px 0;
+}
+
+.vt-shot-scrub {
+  position: relative;
+  display: flex;
+  height: 44px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #000;
+  box-shadow: 0 0 0 1px $line;
+  cursor: text;
+  touch-action: none;
+  user-select: none;
+}
+
+.vt-shot-scrub-tile {
+  flex: 1;
+  min-width: 0;
+  pointer-events: none;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+}
+
+.vt-shot-scrub-head {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+/* ---------------- how it works ---------------- */
+
+.vt-guide-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow: auto;
+}
+
+.vt-guide {
+  width: min(920px, 100%);
+  padding: 16px 20px 20px;
+  border: 1px solid $line-strong;
+  border-radius: $radius-lg;
+  background: $bg-1;
+  box-shadow: $shadow-2;
+
+  header {
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+
+  h2 {
+    margin: 2px 0 0;
+    font-size: 18px;
+  }
+
+  h3 {
+    margin: 18px 0 6px;
+    font-size: 13px;
+    color: $text;
+  }
+
+  p,
+  li {
+    font-size: 13px;
+    line-height: 1.55;
+    color: $text-dim;
+  }
+
+  code {
+    font-family: $mono;
+    font-size: 12px;
+    color: $text;
+  }
+}
+
+.vt-guide-tabs {
+  margin-bottom: 8px;
+}
+
+.vt-guide-summary {
+  font-size: 14px !important;
+  color: $text !important;
+}
+
+.vt-guide-try {
+  padding: 8px 10px;
+  border-left: 3px solid $accent;
+  background: $accent-soft;
+  border-radius: 0 $radius-sm $radius-sm 0;
+}
+
+.vt-guide-code {
+  @include scroll;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: $radius;
+  background: $bg-0;
+  font-family: $mono;
+  font-size: 12px;
+  line-height: 1.55;
+  color: $text;
+  white-space: pre;
+}
+
+.vt-guide-settings {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  font-size: 13px;
+
+  dt {
+    color: $text;
+    font-weight: 600;
+  }
+
+  dd {
+    margin: 0;
+    color: $text-dim;
+  }
+}
+
+.vt-guide-resources {
+  padding-left: 18px;
+
+  a {
+    color: $accent;
+  }
+}
+
+/* The flow diagram. */
+.vt-flowchart {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.vt-flowchart-arrow {
+  align-self: flex-start;
+  width: 2px;
+  height: 14px;
+  margin-left: 22px;
+  background: $line-strong;
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    left: -4px;
+    bottom: -2px;
+    border: 5px solid transparent;
+    border-top-color: $line-strong;
+  }
+}
+
+.vt-flowchart-box {
+  position: relative;
+  max-width: 460px;
+  padding: 7px 10px;
+  border: 1px solid $line-strong;
+  border-radius: $radius;
+  background: $bg-2;
+
+  &.is-input,
+  &.is-output {
+    border-radius: 16px;
+    border-color: $accent;
+    background: $accent-soft;
+  }
+
+  &.is-decision {
+    border-color: $warn;
+    background: rgba(232, 176, 75, 0.1);
+    border-style: solid;
+    transform: none;
+  }
+}
+
+.vt-flowchart-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: $text;
+}
+
+.vt-flowchart-detail {
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: $text-dim;
+}
+
+.vt-flowchart-yes {
+  position: absolute;
+  right: 8px;
+  bottom: -16px;
+  font-size: 10px;
+  color: $ok;
+}
+
+.vt-flowchart-decision-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vt-flowchart-no {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  font-size: 11.5px;
+  color: $err;
+}
+
+.vt-flowchart-no-arrow {
+  flex: none;
+  font-weight: 600;
+}
+
+.vt-flowchart-loop {
+  padding: 6px 10px 10px;
+  border: 1px dashed $line-strong;
+  border-radius: $radius;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.vt-flowchart-loop-head {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: $accent;
+}
+
+/* ---------------- explain a pixel ---------------- */
+
+.vt-crop-frame.is-picking {
+  cursor: crosshair;
+}
+
+.vt-line-pick-cell {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 0.25;
+  vector-effect: non-scaling-stroke;
+}
+
+.vt-line-pick-hair {
+  stroke: rgba(255, 255, 255, 0.65);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.vt-line-debug {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid $line;
+  border-radius: $radius;
+  background: $bg-1;
+
+  h4 {
+    margin: 14px 0 6px;
+    font-size: 12.5px;
+    color: $text;
+  }
+}
+
+.vt-line-debug-head {
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.vt-line-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px $line-strong;
+}
+
+.vt-line-verdict {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-left: 3px solid $err;
+  background: rgba(232, 112, 90, 0.08);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: $text-dim;
+
+  &.is-line {
+    border-left-color: $ok;
+    background: rgba(86, 194, 113, 0.08);
+  }
+
+  strong {
+    color: $text;
+  }
+}
+
+.vt-line-debug-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.vt-line-magnifier-wrap {
+  flex: none;
+  width: min-content;
+}
+
+.vt-line-magnifier {
+  position: relative;
+  overflow: hidden;
+
+  canvas,
+  svg {
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+
+  svg {
+    overflow: visible;
+  }
+}
+
+.vt-line-magnifier-legend {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: $text-faint;
+}
+
+.vt-line-chunk {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+.vt-line-patch {
+  fill: rgba(232, 176, 75, 0.35);
+  stroke: rgba(232, 176, 75, 0.8);
+  stroke-width: 0.5;
+
+  &.is-short {
+    fill: rgba(232, 112, 90, 0.3);
+    stroke: rgba(232, 112, 90, 0.8);
+  }
+}
+
+.vt-line-run-cell {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.vt-line-target {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2.5;
+}
+
+.vt-line-directions {
+  flex: 1;
+  min-width: 260px;
+  margin-bottom: 18px;
+}
+
+.vt-line-direction {
+  display: grid;
+  grid-template-columns: 140px 1fr 110px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 5px 8px;
+  border: 1px solid $line;
+  border-left-width: 4px;
+  border-radius: $radius-sm;
+  background: $bg-2;
+  color: $text-dim;
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+
+  &.is-on {
+    border-color: $accent;
+    color: $text;
+  }
+
+  &.is-total {
+    cursor: default;
+    border-left-color: #fff;
+    background: $bg-0;
+  }
+}
+
+.vt-line-direction-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: $bg-0;
+  overflow: hidden;
+
+  i {
+    display: block;
+    height: 100%;
+  }
+}
+
+.vt-line-direction-status {
+  font-size: 11px;
+  text-align: right;
+}
+
+.vt-line-pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 4px;
+  font-size: 11.5px;
+}
+
+.vt-line-stage {
+  padding: 3px 8px;
+  border-radius: 10px;
+  border: 1px solid $line;
+  color: $text-faint;
+
+  &.is-ok {
+    border-color: rgba(86, 194, 113, 0.6);
+    color: $ok;
+  }
+
+  &.is-no {
+    border-color: rgba(232, 112, 90, 0.6);
+    color: $err;
+  }
+}
+
+.vt-line-stages section {
+  padding-top: 2px;
+  border-top: 1px solid $line;
+  margin-top: 8px;
+}
+
+.vt-line-strip-wrap {
+  @include scroll;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.vt-line-strip {
+  display: block;
+
+  text {
+    font-size: 10px;
+  }
+}
+
+.vt-line-strip-label {
+  fill: $text-dim;
+}
+
+.vt-line-strip-note {
+  fill: $text-faint;
+}
+
+.vt-line-strip-jump {
+  fill: $warn;
+  font-weight: 600;
+}
+
+.vt-line-strip-you {
+  fill: #fff;
+  font-weight: 600;
+}
+
+.vt-line-checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+
+  li {
+    display: flex;
+    gap: 8px;
+    padding: 3px 0;
+    color: $text-dim;
+  }
+
+  li.is-fail {
+    color: $text;
+  }
+}
+
+.vt-line-check-mark {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  font-weight: 700;
+
+  .is-pass & {
+    color: $ok;
+  }
+
+  .is-fail & {
+    color: $err;
+  }
+}
+
+.vt-line-because {
+  margin: 6px 0 0;
+  font-size: 12px;
+
+  &.is-yes {
+    color: $ok;
+  }
+
+  &.is-no {
+    color: $err;
+  }
+}
+
+.vt-line-numbers {
+  font-size: 12px;
+
+  b {
+    color: $text;
+  }
+}
+
+.vt-line-ratio {
+  position: relative;
+  height: 10px;
+  margin: 18px 0 4px;
+  border-radius: 5px;
+  background: $bg-0;
+
+  i {
+    display: block;
+    height: 100%;
+    border-radius: 5px;
+
+    &.is-pass {
+      background: $ok;
+    }
+
+    &.is-fail {
+      background: $err;
+    }
+  }
+}
+
+.vt-line-ratio-mark {
+  position: absolute;
+  top: -16px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: $text;
+  white-space: nowrap;
+
+  &::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 14px;
+    width: 2px;
+    height: 14px;
+    background: #fff;
+  }
+}

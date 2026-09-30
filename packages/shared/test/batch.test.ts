@@ -11,12 +11,16 @@ import {
   isBatchNode,
   itemFolder,
   itemHasOwnData,
+  plannedEntries,
   itemView,
 } from '../src/graph/batch';
 import { computeSignature, flowStatus, inputsForPort, validateConnection } from '../src/graph/graph';
 import { createConnection, createNode, createProject } from '../src/project/factory';
 import { migrateProject } from '../src/project/migrate';
 import type { ArtifactRef } from '../src/types/artifacts';
+import { shotClipName, shotsOf, type ShotsFlowData } from '../src/flows/shots';
+import { clipName, keptSegments, splitSegmentAt, toggleSegment, type VideoEditFlowData } from '../src/flows/videoEdit';
+import { matchFrameName } from '../src/flows/videoMatch';
 import type { FlowNode, Project } from '../src/types/project';
 
 const at = { x: 0, y: 0 };
@@ -226,6 +230,30 @@ test('a change is carried key by key into nested settings', () => {
   const after = { options: { contrast: 30, flatness: 10 }, view: 'lines', list: [1, 2, 3] };
   const onto = { options: { contrast: 18, flatness: 4 }, view: 'original', list: [9] };
   assert.deepEqual(carryChange(before, after, onto), { options: { contrast: 30, flatness: 4 }, view: 'original', list: [1, 2, 3] });
+});
+
+test('before a folder is made, a batch has the items it will hold, still to come', () => {
+  const shots = { ...createNode('animation.video.shots', at, 'Shots'), id: 'shots' };
+  const shotsData = { ...(shots.data as ShotsFlowData), video: { duration: 6, width: 32, height: 18 }, cuts: [2.5, 4.2, 4.2, 0, 9] };
+  const withShots = { ...shots, data: shotsData as FlowNode['data'] };
+  const bg = { ...createNode('art.video.background', at), id: 'bg' };
+  const project: Project = { ...createProject('p'), nodes: [withShots, bg], connections: [createConnection({ nodeId: 'shots', portId: 'clips' }, { nodeId: 'bg', portId: 'video' })] };
+  const items = batchItems(project, bg);
+  assert.deepEqual(items.map((item) => item.key), shotsOf(shotsData.cuts, 6).map((_, index) => shotClipName(index)), 'named as the clips will be');
+  assert.ok(items.every((item) => item.artifact === undefined), 'none made yet');
+  assert.deepEqual(batchItemStatuses(project, bg).map((entry) => entry.status), ['empty', 'empty', 'empty']);
+  assert.deepEqual(plannedEntries({ ...shots, data: { ...shotsData, video: undefined } as FlowNode['data'] }, 'clips'), [], 'no shots found, nothing to come');
+  // Once recorded, the files themselves.
+  const recorded = { ...withShots, outputs: [{ ...clipsRef('shots', ['shot-01.webm', 'shot-02.webm']), port: 'clips' }] };
+  assert.deepEqual(batchItems({ ...project, nodes: [recorded, bg] }, bg).map((item) => item.artifact?.path), ['artifacts/shots/clips/shot-01.webm', 'artifacts/shots/clips/shot-02.webm']);
+
+  const edit = createNode('animation.video.edit', at);
+  const cut = toggleSegment(splitSegmentAt(splitSegmentAt({ ...(edit.data as VideoEditFlowData), video: { duration: 10, width: 64, height: 36 }, output: 'clips' }, 2), 6), 1);
+  assert.deepEqual(plannedEntries({ ...edit, data: cut as FlowNode['data'] }, 'clips'), keptSegments(cut).map((_, index) => clipName(index)));
+  assert.deepEqual(plannedEntries({ ...edit, data: { ...cut, output: 'joined' } as FlowNode['data'] }, 'clips'), []);
+  const match = createNode('animation.video.match', at);
+  const frames = [{ time: 0, fit: null, confidence: 0 }, { time: 0.5, fit: null, confidence: 0 }];
+  assert.deepEqual(plannedEntries({ ...match, data: { ...match.data, frames } as FlowNode['data'] }, 'frames'), [matchFrameName(0), matchFrameName(1)]);
 });
 
 test('keys become safe folder names, and a view of an item is never kept', () => {

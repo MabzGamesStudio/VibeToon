@@ -21,7 +21,7 @@ sounds. Each file in it is one item.
 
 | Flow | Output | Items |
 | --- | --- | --- |
-| Shot Split | Shot clips | Each shot as a video, with **Each shot as a video of its own** ticked. |
+| Shot Split | Shot clips | Each shot as a video. Wiring this port ticks **Each shot as a video of its own** for you. |
 | Video Edit | Clips | Each kept segment, when the edit is written as a clip each. |
 | Rig Binding | Bone drawings | Each bone's shapes, as a drawing the size of the whole. |
 | Rig Parts | Part drawings | Each part's drawing. |
@@ -45,6 +45,16 @@ And a flow that has a batch wired into it makes a batch of everything it makes:
 - Wired into an input that takes a **folder** of that kind and not one file
   (Animatic's *Panel images*), the items are **gathered**: they arrive together,
   as one folder. The wire shows `10→1`.
+
+### Items before their files exist
+
+A batch has its items as soon as the flow upstream knows what they will be, not
+only once their files are written. Shot Split knows its shots as soon as they are
+found, Video Edit its segments, and Video Rig Match its frames, so a flow wired
+to one of them shows *×5* straight away. Until the files are there, the batch bar
+says so (*None of the 5 made yet by Shot Split*, or *3 of 5*) with a button that
+opens the flow that makes them, and **Generate all** leaves those items out
+rather than running them on nothing.
 
 ## A batch flow
 

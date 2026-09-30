@@ -386,6 +386,35 @@ itself; **over the picture** lays the lines over it. A PNG is read on the server
 as well; any other format is worked out in the editor and sent with the run. A
 picture a million pixels in size takes well under a second.
 
+## Explain a pixel
+
+Press **Explain a pixel** over the picture and click any pixel (a drag still
+pans). The explanation opens under the picture and answers one question: why
+is this pixel, or is it not, a line? It is worked out by the same code that
+finds the lines (`explainLinePixel` beside `detectLines`), and a test holds the
+two to the same answer.
+
+- **The verdict** — a line or not, its confidence and width, and in a sentence
+  what decided it.
+- **A magnifier** round the pixel, with the chunk it was read in, the patch it
+  joined, and the four walks through it (across, down, both diagonals) drawn
+  over the pixels. The run each walk found the pixel in is outlined.
+- **Each walk, pixel by pixel** — a strip of the pixels the walk crossed, cut
+  into runs of one colour, with the size of each change marked (▲), slow drift
+  shown dotted, and soft edges that were folded into their neighbours hatched.
+- **The checks**, in the order the code makes them — narrow enough, a sharp
+  change in, a sharp change out, a colour of its own, and so on — each ticked or
+  crossed, with the numbers it compared. The first cross is why the walk did not
+  count.
+- **The patch** its crossings joined: how many pixels, how long and how wide,
+  and a bar showing how far past **Longer than wide by** it reached.
+- **The score**, as the sum it is: how sharp its edges were, how far past the
+  ratio its patch reached, and the confidence that makes.
+
+**How it works** at the top of the editor explains the whole algorithm, with a
+flow chart, pseudocode and further reading (see
+[ALGORITHMS.md](ALGORITHMS.md#line-detection)).
+
 ---
 
 # Line Graph

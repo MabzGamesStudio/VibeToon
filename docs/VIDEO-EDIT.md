@@ -62,13 +62,18 @@ window on it, deleted stretches are red and shot cuts orange.
 | To | Do |
 | --- | --- |
 | Scrub | Drag along the timeline. The video follows, a frame at a time, and the playhead stays in view. |
-| Step a frame | ← and → (Shift: a second). Home and End go to the first and last frame. Stepping pauses the video. |
+| Step a frame | ← and → (Shift: a second), or the **◀|** and **|▶** buttons beside Play. Hold the key or press it again and again: each press moves exactly one frame. Home and End go to the first and last frame. Stepping pauses the video, and the frame number is shown next to the time. |
 | Zoom | The mouse wheel over the timeline zooms about the pointer, **+** and **−** (on the keyboard or the buttons) about the playhead, in as far as a few frames across. **Whole video** zooms right out. |
 | Pan | Drag with Shift (or Alt, or the middle button) held, scroll sideways, or drag the window on the bar underneath (click the bar to go straight there). |
 
 The filmstrip shows a frame every so many frames, fewer the further out it is
 zoomed; zoomed in far enough, every frame. A frame is repeated along its tile
 when there is room, so a tile is as long as the frames it stands for.
+
+Frames are counted from the time with a little give (`floor(time × fps +
+0.05)`), and a frame's start time is worked out exactly. Without that, a frame
+whose start rounds to, say, 3.033 s read back as the frame before it, and
+stepping on from it went nowhere. Scrubbing snaps to the nearest frame start.
 
 ## Shots
 

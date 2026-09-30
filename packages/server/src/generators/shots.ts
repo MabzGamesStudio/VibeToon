@@ -1,4 +1,4 @@
-import { shotsFile, shotsKey, shotsOf, shotsReport, summariseShots, videoSourceOf, type ShotsFlowData } from '@vibetoon/shared';
+import { shotClipsWanted, shotsFile, shotsKey, shotsOf, shotsReport, summariseShots, videoSourceOf, type ShotsFlowData } from '@vibetoon/shared';
 import { writeArtifact, writeArtifactSet } from '../storage';
 import type { GenerationContext, GenerationResult } from './types';
 
@@ -30,7 +30,8 @@ export async function generateShots(ctx: GenerationContext): Promise<GenerationR
     await writeArtifact({ projectId: ctx.project.id, flowId: ctx.node.id, port: 'report', kind: 'markdown', fileName: 'shots.md', content: shotsReport(data) }),
   ];
   const clips = ctx.attachments.filter((attachment) => attachment.name.startsWith('shots/')).sort((a, b) => (a.name < b.name ? -1 : 1));
-  if (data.clips && clips.length > 0) {
+  const wanted = shotClipsWanted(ctx.project, ctx.node);
+  if (wanted && clips.length > 0) {
     outputs.push(
       await writeArtifactSet({
         projectId: ctx.project.id,
@@ -42,10 +43,10 @@ export async function generateShots(ctx: GenerationContext): Promise<GenerationR
       }),
     );
     ctx.log(`${clips.length} shot clip(s) written.`);
-  } else if (data.clips) {
+  } else if (wanted) {
     ctx.warn('Each shot is recorded as a video in the editor, where the video can be played: open this flow and press Generate there. The shots have been written.');
   }
-  if (data.clips && data.recorded && data.recorded !== shotsKey(data) && clips.length === 0) {
+  if (wanted && data.recorded && data.recorded !== shotsKey(data) && clips.length === 0) {
     ctx.warn('The shots have changed since their clips were recorded.');
   }
   return { outputs };

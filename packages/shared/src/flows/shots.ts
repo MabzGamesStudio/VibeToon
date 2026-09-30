@@ -1,4 +1,5 @@
 import type { Bitmap } from './cutout';
+import type { FlowNode, Project } from '../types/project';
 import { DEFAULT_VIDEO_SAMPLING, frameTimes, type VideoSampling } from './videoMatch';
 
 /**
@@ -248,6 +249,16 @@ export function emptyShotsFlowData(): ShotsFlowData {
 /** A shot's clip file: `shot-01.webm`, `shot-02.webm`, … */
 export function shotClipName(index: number, extension = 'webm'): string {
   return `shot-${String(index + 1).padStart(2, '0')}.${extension}`;
+}
+
+/**
+ * Whether each shot is to be recorded as a video: when asked for, or when the
+ * Shot clips output is wired to something — which would otherwise wait on
+ * clips that are never made.
+ */
+export function shotClipsWanted(project: Project, node: FlowNode): boolean {
+  const data = node.data as ShotsFlowData;
+  return data.clips === true || project.connections.some((connection) => connection.from.nodeId === node.id && connection.from.portId === 'clips' && connection.settings.enabled);
 }
 
 /** A key for the shots as cut: when it changes, the clips recorded from them are behind. */

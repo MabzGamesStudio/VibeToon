@@ -1,11 +1,13 @@
 import {
   flowStatus,
   getFlowKind,
+  guideFor,
   inputsForPort,
   type FlowNode,
   type Project,
 } from '@vibetoon/shared';
 import { useStudio } from '../../state/store';
+import { AlgorithmGuideView } from '../common/AlgorithmGuide';
 import { Field } from '../common/Field';
 import { ArtifactView } from './ArtifactView';
 import { RunLog } from './RunLog';
@@ -18,7 +20,7 @@ const STATUS_TEXT: Record<string, string> = {
 };
 
 export function NodeInspector({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
-  const { patchNode, removeNode, focusFlow, generateFlow, clearArtifacts, busyFlows, runs } = useStudio();
+  const { patchNode, removeNode, focusFlow, generateFlow, clearArtifacts, busyFlows, runs, guide, showGuide } = useStudio();
   const def = getFlowKind(node.kind);
   const status = flowStatus(project, node);
   const busy = busyFlows.includes(node.id);
@@ -63,8 +65,19 @@ export function NodeInspector({ project, node }: { project: Project; node: FlowN
           >
             {busy ? 'Generating…' : 'Generate'}
           </button>
+          {guideFor(node.kind) ? (
+            <button
+              type="button"
+              className="vt-btn"
+              title="How this flow’s algorithm works: steps, pseudocode, explanation and further reading"
+              onClick={() => showGuide(node.kind)}
+            >
+              How it works
+            </button>
+          ) : null}
         </div>
       </div>
+      {guide === node.kind ? <AlgorithmGuideView kind={node.kind} onClose={() => showGuide(null)} /> : null}
 
       <div className="vt-section">
         <h3>Inputs</h3>

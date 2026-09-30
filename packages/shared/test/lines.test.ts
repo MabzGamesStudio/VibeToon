@@ -5,6 +5,7 @@ import {
   DEFAULT_LINE_OPTIONS,
   detectLines,
   emptyLinesFlowData,
+  explainLinePixel,
   isBlend,
   lineImage,
   linesReport,
@@ -184,4 +185,72 @@ test('where a walk clips a corner, the colour beside a line is not taken for par
     }
   }
   assert.ok(at(result, 31, 50) > 0 && at(result, 60, 21) > 0);
+});
+
+/* ---------------- explaining one pixel ---------------- */
+
+/** A drawing with a bit of everything: a stroke, an edge, a gradient, a soft edge and a speck. */
+function sampler(): Bitmap {
+  return paint(96, 64, (x, y) => {
+    if (x >= 20 && x < 23 && y > 4 && y < 60) return BLACK; // a stroke
+    if (y === 40 && x > 40 && x < 43) return BLACK; // a dash, shorter than wide by ratio
+    if (x >= 60) return x === 60 ? [80, 160, 145] : GRASS; // an edge, softened by one blended pixel
+    if (y < 20) return [Math.min(255, x * 14), Math.max(0, 255 - x * 14), 120]; // a steep gradient: narrow runs, no sharp step
+    return SKY;
+  });
+}
+
+test('what explaining a pixel says is what the detection did, pixel for pixel', () => {
+  const picture = sampler();
+  const options = { ...DEFAULT_LINE_OPTIONS, chunk: 24 };
+  const result = detectLines(picture, options);
+  for (let y = 2; y < 64; y += 7) {
+    for (let x = 1; x < 96; x += 5) {
+      const trace = explainLinePixel(picture, options, x, y);
+      const want = result.confidence[y * 96 + x]!;
+      assert.equal(trace.confidence, want, `(${x}, ${y})`);
+      const best = Math.max(0, ...trace.directions.map((direction) => direction.score));
+      assert.ok(Math.abs(best - want) < 1e-6, `(${x}, ${y}): the best walk is the confidence`);
+      for (const direction of trace.directions) {
+        assert.ok(direction.walk, `(${x}, ${y}) ${direction.name}: every walk through it is noted`);
+        assert.equal(direction.walk!.points[direction.walk!.index]!.x, x);
+        // A score only ever comes from a crossing that passed the longer-than-wide test.
+        if (direction.score > 0) assert.ok(direction.walk!.crossing && direction.patch?.pass, `(${x}, ${y}) ${direction.name}`);
+        if (direction.patch?.pass) assert.ok(Math.abs(direction.patch.score - direction.score) < 1e-6);
+      }
+    }
+  }
+});
+
+test('a pixel on a stroke is explained: sharp in, sharp out, its own colour, long enough', () => {
+  const trace = explainLinePixel(sampler(), DEFAULT_LINE_OPTIONS, 21, 30);
+  assert.ok(trace.confidence > 0);
+  const across = trace.directions[0]!;
+  assert.equal(across.walk!.crossing, true);
+  assert.deepEqual(across.walk!.checks.map((check) => check.pass), [true, true, true, true, true, true, true]);
+  assert.equal(across.walk!.across, 3, 'three pixels wide');
+  assert.ok(across.patch!.pass && across.patch!.ratio >= 3);
+  assert.equal(across.width, 3);
+  // Walking down the stroke, the pixel is in one long run: no crossing that way.
+  const down = trace.directions[1]!;
+  assert.equal(down.walk!.crossing, false);
+  assert.equal(down.score, 0);
+});
+
+test('an edge, a gradient and a dash each fail for the reason they should', () => {
+  const picture = sampler();
+  // The edge at 60/61, with its blended pixel: folded into the edge, so one change only.
+  const edge = explainLinePixel(picture, DEFAULT_LINE_OPTIONS, 60, 30).directions[0]!.walk!;
+  assert.ok(edge.rawRuns.length > edge.runs.length, 'the blend is folded away');
+  assert.equal(edge.crossing, false);
+  // A gradient drifts: no sharp change into its runs.
+  const gradient = explainLinePixel(picture, DEFAULT_LINE_OPTIONS, 8, 10).directions[0]!.walk!;
+  assert.equal(gradient.crossing, false);
+  assert.ok(gradient.checks.some((check) => !check.pass && /sharp change/.test(check.label)), gradient.checks.map((check) => check.label).join(', '));
+  // The dash is crossed walking down it, but is not long enough.
+  const dash = explainLinePixel(picture, DEFAULT_LINE_OPTIONS, 42, 40).directions[1]!;
+  assert.equal(dash.walk!.crossing, true);
+  assert.equal(dash.patch!.pass, false);
+  assert.ok(dash.patch!.ratio < 3, `ratio ${dash.patch!.ratio}`);
+  assert.equal(dash.score, 0);
 });

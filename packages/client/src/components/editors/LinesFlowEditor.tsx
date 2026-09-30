@@ -22,6 +22,7 @@ import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
 import { paintBitmap } from './CropFlowEditor';
 import { EditorShell } from './EditorShell';
+import { LineDebugger } from './LineDebugger';
 
 /** Base64 of a UTF-8 string, for a markdown attachment. */
 function utf8Base64(text: string): string {
@@ -36,7 +37,8 @@ function utf8Base64(text: string): string {
  * settings change, and shown in place of the picture or under it.
  */
 export function LinesFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
-  const { setFlowData, generateFlow, notify, busyFlows } = useStudio();
+  const { setFlowData, generateFlow, notify, busyFlows, showGuide } = useStudio();
+  const openGuide = () => showGuide(node.kind);
   const data = node.data.editor === 'lines' ? (node.data as LinesFlowData) : emptyLinesFlowData();
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -109,6 +111,20 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
   const behind = Boolean(result && result.key !== optionsKey);
 
   const [overlay, setOverlay] = useState(false);
+  // Explain a pixel: click one, and see why it is or is not on a line.
+  const [debug, setDebug] = useState(false);
+  const [pick, setPick] = useState<{ x: number; y: number } | null>(null);
+  const pressed = useRef<{ x: number; y: number } | null>(null);
+  const pixelAt = (clientX: number, clientY: number): { x: number; y: number } | null => {
+    const element = canvas.current;
+    if (!element || !source) return null;
+    // The canvas is drawn "contain": letterboxed inside its box, at one scale.
+    const box = element.getBoundingClientRect();
+    const scale = Math.min(box.width / source.width, box.height / source.height);
+    const x = Math.floor((clientX - box.left - (box.width - source.width * scale) / 2) / scale);
+    const y = Math.floor((clientY - box.top - (box.height - source.height * scale) / 2) / scale);
+    return x >= 0 && y >= 0 && x < source.width && y < source.height ? { x, y } : null;
+  };
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const under = useRef<HTMLCanvasElement | null>(null);
   const showing = data.view;
@@ -263,6 +279,15 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
             <>
               {generateButton}
               {liveToggle}
+              <button
+                type="button"
+                className={`vt-chip${debug ? ' is-on' : ''}`}
+                aria-pressed={debug}
+                title="Click a pixel to see why it is, or is not, on a line"
+                onClick={() => setDebug((on) => !on)}
+              >
+                Explain a pixel
+              </button>
               {showing === 'lines' ? (
                 <label className="vt-row" style={{ gap: 4, fontSize: 11 }}>
                   <input type="checkbox" checked={overlay} onChange={(event) => setOverlay(event.target.checked)} />
@@ -286,13 +311,35 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
         >
           <div className="vt-resize-stage">
             {source ? (
-              <div className="vt-crop-frame">
+              <div
+                className={`vt-crop-frame${debug ? ' is-picking' : ''}`}
+                onPointerDown={(event) => {
+                  if (debug && event.button === 0 && !event.shiftKey) pressed.current = { x: event.clientX, y: event.clientY };
+                }}
+                onPointerUp={(event) => {
+                  const from = pressed.current;
+                  pressed.current = null;
+                  // A click, not a drag.
+                  if (!debug || !from || Math.hypot(event.clientX - from.x, event.clientY - from.y) > 4) return;
+                  const at = pixelAt(event.clientX, event.clientY);
+                  if (at) setPick(at);
+                }}
+              >
                 <canvas ref={under} className="vt-lines-under" style={{ display: overlay && showing === 'lines' ? 'block' : 'none' }} />
                 <canvas
                   ref={canvas}
                   className={`vt-crop-canvas${overlay && showing === 'lines' ? ' is-screen' : ''}`}
                   style={{ imageRendering: 'pixelated' }}
                 />
+                {debug && pick ? (
+                  <svg className="vt-crop-overlay vt-line-pick" viewBox={`0 0 ${source.width} ${source.height}`} preserveAspectRatio="xMidYMid meet" style={{ pointerEvents: 'none' }}>
+                    <rect x={pick.x} y={pick.y} width={1} height={1} className="vt-line-pick-cell" />
+                    <line x1={pick.x + 0.5} y1={0} x2={pick.x + 0.5} y2={pick.y - 1} className="vt-line-pick-hair" />
+                    <line x1={pick.x + 0.5} y1={pick.y + 2} x2={pick.x + 0.5} y2={source.height} className="vt-line-pick-hair" />
+                    <line x1={0} y1={pick.y + 0.5} x2={pick.x - 1} y2={pick.y + 0.5} className="vt-line-pick-hair" />
+                    <line x1={pick.x + 2} y1={pick.y + 0.5} x2={source.width} y2={pick.y + 0.5} className="vt-line-pick-hair" />
+                  </svg>
+                ) : null}
               </div>
             ) : (
               <div className="vt-empty">{blocked ?? 'Reading the picture…'}</div>
@@ -301,7 +348,20 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
         </Stage>
         <p className="vt-faint" style={{ marginTop: 8, fontSize: 11 }}>
           Black is no line. A line is red when thin and blue when wide, brighter the surer. Toggle Original to compare, or lay the lines over the picture.
+          {debug ? ' Click a pixel to see why it is, or is not, on a line.' : ''}
         </p>
+        {debug && source ? (
+          pick ? (
+            <LineDebugger source={source} options={data.options} pick={pick} onClose={() => setPick(null)} onGuide={openGuide} />
+          ) : (
+            <div className="vt-line-debug">
+              <p className="vt-hint">
+                <b>Explain a pixel</b> is on: click any pixel of the picture above — on a line, beside one, on an edge — and the whole detection is run again with a note
+                kept of it, to show every step it went through and the numbers it was decided by.
+              </p>
+            </div>
+          )
+        ) : null}
       </div>
     </EditorShell>
   );

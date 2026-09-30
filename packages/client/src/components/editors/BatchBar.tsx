@@ -10,7 +10,7 @@ const STATUS_WORD: Record<string, string> = { ready: 'up to date', stale: 'out o
  * an edit goes to every item or to that one alone, and Generate all.
  */
 export function BatchBar({ nodeId }: { nodeId: string }): JSX.Element | null {
-  const { project, batchFocus, setBatchFocus, transform, generateFlow, busyFlows, notify } = useStudio();
+  const { project, batchFocus, setBatchFocus, transform, generateFlow, busyFlows, notify, focusFlow } = useStudio();
   const [running, setRunning] = useState<{ done: number; total: number } | null>(null);
   const stopping = useRef(false);
   const node = project?.nodes.find((candidate) => candidate.id === nodeId);
@@ -18,16 +18,33 @@ export function BatchBar({ nodeId }: { nodeId: string }): JSX.Element | null {
 
   const entries = batchItemStatuses(project, node);
   const source = project.nodes.find((candidate) => candidate.id === batchConnectionsInto(project, node)[0]?.from.nodeId);
+  const openSource = source ? (
+    <button type="button" className="vt-btn is-small" onClick={() => focusFlow(source.id)}>
+      Open {source.name}
+    </button>
+  ) : null;
+  // What the flow the batch comes from has to do to make its items.
+  const howToMake =
+    source?.kind === 'animation.video.shots'
+      ? 'Open it and Generate: each shot is recorded as a video, which takes as long as the video.'
+      : source?.kind === 'animation.video.edit'
+        ? 'Open it, write the edit as a clip each, and Generate.'
+        : source?.kind === 'animation.video.match'
+          ? 'Open it and Generate: the matched frames are written as pictures.'
+          : 'Generate it first.';
   if (entries.length === 0) {
     return (
       <div className="vt-batch-bar">
-        <span className="vt-batch-count">batch</span>
+        <span className="vt-batch-count">batch ×0</span>
         <span className="vt-faint">
-          A batch with nothing in it yet: {source?.name ?? 'what is wired in'} has made no items. Generate it first; its items then show here.
+          Nothing in this batch yet: {source?.name ?? 'what is wired in'} has made no items
+          {source?.kind === 'animation.video.shots' ? ' — find the shots there first' : ''}. {howToMake}
         </span>
+        {openSource}
       </div>
     );
   }
+  const missing = entries.filter((entry) => !entry.item.artifact).length;
 
   const chosen = batchFocus[nodeId];
   const index = Math.max(0, entries.findIndex((entry) => entry.item.key === chosen?.key));
@@ -50,9 +67,15 @@ export function BatchBar({ nodeId }: { nodeId: string }): JSX.Element | null {
     const back = { key, only };
     setRunning({ done: 0, total: entries.length });
     let done = 0;
+    let skipped = 0;
     try {
       for (const entry of entries) {
         if (stopping.current) break;
+        // Nothing to work on until the flow before has made it.
+        if (!entry.item.artifact) {
+          skipped += 1;
+          continue;
+        }
         setBatchFocus(nodeId, { key: entry.item.key, only: true, quiet: true });
         const run = await waitForRunner(nodeId, entry.item.key);
         if (!run) {
@@ -65,6 +88,7 @@ export function BatchBar({ nodeId }: { nodeId: string }): JSX.Element | null {
       }
       if (stopping.current) notify('info', `Stopped after ${done} of ${entries.length} item(s).`);
       else if (done === entries.length) notify('success', `${node.name}: all ${done} item(s) generated.`);
+      else if (skipped > 0) notify('warn', `${node.name}: ${done} item(s) generated; ${skipped} skipped, not made yet by ${source?.name ?? 'the flow before'}.`);
     } catch (reason) {
       notify('error', `Generate all stopped: ${(reason as Error).message}`);
     } finally {
@@ -136,6 +160,13 @@ export function BatchBar({ nodeId }: { nodeId: string }): JSX.Element | null {
         </button>
       ) : null}
 
+      {missing > 0 ? (
+        <span className="vt-batch-missing" title={howToMake}>
+          {missing === entries.length ? `None of the ${entries.length}` : `${missing} of ${entries.length}`} made yet by {source?.name ?? 'the flow before'}.
+          {entries[index] && !entries[index]!.item.artifact ? ' Not this one.' : ''}
+        </span>
+      ) : null}
+      {missing > 0 ? openSource : null}
       <span className="vt-spacer" />
       {running ? (
         <>
