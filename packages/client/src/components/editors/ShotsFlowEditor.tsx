@@ -135,7 +135,6 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
         return;
       }
       const attachments = await Promise.all(blobs.map(async (blob, index) => ({ name: `shots/${shotClipName(index)}`, data: await blobDataUrl(blob) })));
-      patch({ recorded: shotsKey(current) });
       await generateFlow(node.id, attachments);
     } catch (reason) {
       notify('error', `Could not record the shots: ${(reason as Error).message}`);

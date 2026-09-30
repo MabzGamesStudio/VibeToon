@@ -49,5 +49,12 @@ export async function generateShots(ctx: GenerationContext): Promise<GenerationR
   if (wanted && data.recorded && data.recorded !== shotsKey(data) && clips.length === 0) {
     ctx.warn('The shots have changed since their clips were recorded.');
   }
+  // Which shots the clips were recorded from is part of the flow's data, so it
+  // is set here, in the run that writes them. Set by the editor afterwards, it
+  // changed the data the run's signature was taken from, and the flow came out
+  // of its own Generate already out of date.
+  if (wanted && clips.length > 0 && data.recorded !== shotsKey(data)) {
+    return { outputs, data: { ...data, recorded: shotsKey(data) } };
+  }
   return { outputs };
 }

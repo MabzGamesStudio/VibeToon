@@ -10,7 +10,7 @@ process.env.VIBETOON_DATA = dataRoot;
 process.env.VIBETOON_LOG_FILE = 'off';
 
 const { createApp } = await import('../src/app');
-import { emptyShotsFlowData, type ArtifactRef, type FlowNode, type GenerateResponse, type Project, type ShotsFlowData } from '@vibetoon/shared';
+import { emptyShotsFlowData, flowStatus, shotsKey, type ArtifactRef, type FlowNode, type GenerateResponse, type Project, type ShotsFlowData } from '@vibetoon/shared';
 
 const server = createApp().listen(0);
 const port = await new Promise<number>((resolve) => {
@@ -113,4 +113,9 @@ test('each shot as a video: the clips recorded in the editor go on the Shot clip
   assert.deepEqual(clips.entries, ['shot-01.webm', 'shot-02.webm', 'shot-03.webm']);
   assert.equal(Object.keys(clips.entryHashes ?? {}).length, 3, 'each clip with its own hash, to go on alone');
   assert.ok(run.log.some((line) => /3 shot clip\(s\) written/.test(line)), run.log.join('; '));
+  // The run records which shots the clips came from itself, so the flow is up
+  // to date the moment it has written them, not out of date from its own Generate.
+  const node = project.nodes.find((candidate) => candidate.id === SHOTS)!;
+  assert.equal((node.data as ShotsFlowData).recorded, shotsKey(node.data as ShotsFlowData));
+  assert.equal(flowStatus(project, node), 'ready');
 });
