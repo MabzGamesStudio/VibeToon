@@ -1,4 +1,4 @@
-import { shotClipsWanted, shotsFile, shotsKey, shotsOf, shotsReport, summariseShots, videoSourceOf, type ShotsFlowData } from '@vibetoon/shared';
+import { shotClipsWanted, shotsFile, shotsKey, shotsOf, shotsReport, summariseShots, videoSourceOf, type ShotsFlowData, noVideoMessage } from '@vibetoon/shared';
 import { writeArtifact, writeArtifactSet } from '../storage';
 import type { GenerationContext, GenerationResult } from './types';
 
@@ -13,7 +13,7 @@ export async function generateShots(ctx: GenerationContext): Promise<GenerationR
   const data = ctx.node.data as ShotsFlowData;
   const video = videoSourceOf(ctx.project, ctx.node);
   if (!video) {
-    ctx.warn('No video — wire one into the Video input, or upload one in the editor.');
+    ctx.warn(noVideoMessage(ctx.project, ctx.node));
     return { outputs: [] };
   }
   if (!data.video) {

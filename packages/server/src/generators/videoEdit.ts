@@ -1,4 +1,4 @@
-import { editFile, editKey, keptSegments, summariseEdit, videoSourceOf, type VideoEditFlowData } from '@vibetoon/shared';
+import { editFile, editKey, keptSegments, summariseEdit, videoSourceOf, type VideoEditFlowData, noVideoMessage } from '@vibetoon/shared';
 import { writeArtifact, writeArtifactSet } from '../storage';
 import type { GenerationContext, GenerationResult } from './types';
 
@@ -14,7 +14,7 @@ export async function generateVideoEdit(ctx: GenerationContext): Promise<Generat
   const data = ctx.node.data as VideoEditFlowData;
   const source = videoSourceOf(ctx.project, ctx.node);
   if (!source) {
-    ctx.warn('No video — wire one into the Video input, or upload one in the editor.');
+    ctx.warn(noVideoMessage(ctx.project, ctx.node));
     return { outputs: [] };
   }
   if (!data.video) {

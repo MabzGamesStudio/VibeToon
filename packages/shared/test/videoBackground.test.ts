@@ -134,3 +134,13 @@ test('the nearest frame read is used for a mark, and the report says what was ke
   assert.match(backgroundReport({ ...data, agreement: 100 }, stats), /One colour in at least 100% of the frames, within 8: 176 pixels \(88\.0%\)/);
   assert.match(backgroundReport(emptyVideoBackgroundFlowData(), null), /Not worked out yet/);
 });
+
+test('a wire that carries no video yet says which flow has to make it, not that nothing is wired', async () => {
+  const { noVideoMessage } = await import('../src/index');
+  const node = { id: 'bg', kind: 'art.video.background', name: 'Video Background', outputs: [], data: {} } as never;
+  const source = { id: 'src', kind: 'animation.video.source', name: 'Clip', outputs: [], data: {} } as never;
+  const wire = { id: 'c', from: { nodeId: 'src', portId: 'video' }, to: { nodeId: 'bg', portId: 'video' }, rules: '', settings: { enabled: true } } as never;
+  const project = { nodes: [source, node], connections: [wire] } as never;
+  assert.match(noVideoMessage(project, node), /Clip is wired in, but has not made its video yet/);
+  assert.match(noVideoMessage({ nodes: [source, node], connections: [] } as never, node), /No video — wire one/);
+});

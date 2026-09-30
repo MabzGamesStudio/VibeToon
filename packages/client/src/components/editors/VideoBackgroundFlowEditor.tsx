@@ -16,6 +16,7 @@ import {
   type Project,
   type VideoBackgroundFlowData,
   type VideoSampling,
+  noVideoMessage,
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useBatchRun, waitUntil } from '../../state/batchRun';
@@ -269,7 +270,7 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
     ]);
   });
 
-  const blocked = !source ? 'Wire a video into the Video input, or upload one here.' : videoError ? `The video could not be read: ${videoError}.` : null;
+  const blocked = !source ? noVideoMessage(project, node) : videoError ? `The video could not be read: ${videoError}.` : null;
   const share = (count: number) => (result ? `${((count / Math.max(1, result.stats.total)) * 100).toFixed(1)}%` : '—');
 
   return (
