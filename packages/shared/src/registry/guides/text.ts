@@ -345,7 +345,7 @@ export const RANDOM_TEXT_GUIDE: AlgorithmGuide = {
       kind: 'loop',
       title: 'Until the length is reached',
       steps: [
-        { kind: 'decision', title: 'Sentence at its longest?', no: 'Carry on.', detail: 'If so, end it with a full stop.' },
+        { kind: 'decision', title: 'Room left in this sentence?', detail: 'Fewer words than the most a sentence may have.', no: 'End it with a full stop and start the next.' },
         { kind: 'step', title: 'Next slot from the sentence shape', detail: 'A new shape is drawn when one runs out: length first, then shape.' },
         { kind: 'step', title: 'Gather candidates', detail: 'Everything the last few words point at, plus the commonest words, up to 400.' },
         { kind: 'step', title: 'Score each candidate', detail: 'prior × context × grammar × punctuation × slot × continuation × repeat penalty.' },

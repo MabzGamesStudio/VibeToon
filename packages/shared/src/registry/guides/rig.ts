@@ -144,7 +144,7 @@ export const POSE_GUIDE: AlgorithmGuide = {
       kind: 'loop',
       title: 'IK: each round, until close enough or out of rounds',
       steps: [
-        { kind: 'decision', title: 'Stalled, with the chain straight?', no: 'Carry on.' },
+        { kind: 'decision', title: 'Stalled, with the chain straight?', no: 'Skip the nudge.' },
         { kind: 'step', title: 'Nudge: bend alternate joints a few degrees', detail: 'Fixed, not random, so the same drag gives the same pose.' },
         {
           kind: 'loop',

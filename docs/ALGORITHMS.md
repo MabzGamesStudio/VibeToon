@@ -1914,7 +1914,7 @@ flowchart TD
   s1 --> s3
   subgraph s5["↻ IK: each round, until close enough or out of rounds"]
     s6{"Stalled, with the chain straight?"}
-    s7["Carry on."]
+    s7["Skip the nudge."]
     s6 -- no --> s7
     s8["Nudge: bend alternate joints a few degrees"]
     s6 --> s8
@@ -1939,7 +1939,7 @@ flowchart TD
   - Its angle = its parent’s total + its rest angle + its turn
   - Its end = its start + its length in that direction
 - **↻ IK: each round, until close enough or out of rounds**
-  - **Stalled, with the chain straight?** *If not:* Carry on.
+  - **Stalled, with the chain straight?** *If not:* Skip the nudge.
   - Nudge: bend alternate joints a few degrees — Fixed, not random, so the same drag gives the same pose.
   - **↻ For each joint, from the tip back up the chain**
     - Turn it so the tip points at the target, the short way round; clamp to its range
@@ -2671,8 +2671,8 @@ flowchart TD
   s4["Plan a length"]
   s2 --> s4
   subgraph s5["↻ Until the length is reached"]
-    s6{"Sentence at its longest?"}
-    s7["Carry on."]
+    s6{"Room left in this sentence?"}
+    s7["End it with a full stop and start the next."]
     s6 -- no --> s7
     s8["Next slot from the sentence shape"]
     s6 --> s8
@@ -2697,7 +2697,7 @@ flowchart TD
 - **Mode after / from nothing?** *If not:* Within: write words, phrases and fragments into gaps. Alter: replace a share of the words, then grow or trim to length.
 - Plan a length — A target and a tolerance, in words or characters.
 - **↻ Until the length is reached**
-  - **Sentence at its longest?** — If so, end it with a full stop. *If not:* Carry on.
+  - **Room left in this sentence?** — Fewer words than the most a sentence may have. *If not:* End it with a full stop and start the next.
   - Next slot from the sentence shape — A new shape is drawn when one runs out: length first, then shape.
   - Gather candidates — Everything the last few words point at, plus the commonest words, up to 400.
   - Score each candidate — prior × context × grammar × punctuation × slot × continuation × repeat penalty.
