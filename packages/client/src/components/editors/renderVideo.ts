@@ -36,8 +36,15 @@ function recorderFor(canvas: HTMLCanvasElement, fps: number, type: string): Reco
 
 /**
  * Play one stretch of the video through the crop onto the canvas, from `start`
- * to `end`, while the recorder runs. The recorder is paused while seeking, so
- * the jump between segments is not recorded.
+ * to `end`, while the recorder runs.
+ *
+ * The recorder keeps time by the clock, not by the video, so it runs only while
+ * the video is really moving: it starts once the first frame after the seek is
+ * on screen, pauses whenever the video waits to buffer or the page is hidden
+ * (when the browser stops drawing), and stops at the end of the stretch.
+ * Recording through a stall instead wrote the same picture for as long as it
+ * lasted, and a clip came out longer than its shot, its frames no longer spread
+ * evenly through it. The jump between segments is not recorded either.
  */
 async function playThrough(
   video: HTMLVideoElement,
@@ -49,26 +56,74 @@ async function playThrough(
   stopped: () => boolean,
 ): Promise<void> {
   const draw = () => context.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height);
+  const record = () => {
+    if (recorder.state === 'paused') recorder.resume();
+    else if (recorder.state === 'inactive') recorder.start(250);
+  };
+  const hold = () => {
+    if (recorder.state === 'recording') recorder.pause();
+  };
   await seek(video, segment.start);
   draw();
-  if (recorder.state === 'paused') recorder.resume();
-  else if (recorder.state === 'inactive') recorder.start(250);
-  await video.play();
-  await new Promise<void>((resolve) => {
-    const tick = () => {
-      if (stopped() || video.ended || video.currentTime >= segment.end - 1e-3) {
-        video.pause();
-        resolve();
-        return;
-      }
-      draw();
-      onTime(video.currentTime - segment.start);
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  });
+  let moving = false;
+  const onWaiting = () => {
+    moving = false;
+    hold();
+  };
+  const onVisibility = () => {
+    if (document.hidden) {
+      hold();
+      video.pause();
+    } else if (!stopped()) void video.play();
+  };
+  video.addEventListener('waiting', onWaiting);
+  video.addEventListener('stalled', onWaiting);
+  document.addEventListener('visibilitychange', onVisibility);
+  // A video that is not in the page never calls back for its frames, so this
+  // looks at each repaint instead.
+  const next = (callback: () => void) => requestAnimationFrame(callback);
+  try {
+    if (!document.hidden) await video.play();
+    await new Promise<void>((resolve) => {
+      let last = video.currentTime;
+      let movedAt = performance.now();
+      const tick = () => {
+        if (stopped() || video.ended || video.currentTime >= segment.end - 1e-3) {
+          video.pause();
+          resolve();
+          return;
+        }
+        // Record only once the picture is actually moving on.
+        if (video.currentTime !== last && !video.paused && !document.hidden) {
+          movedAt = performance.now();
+          draw();
+          if (!moving) {
+            moving = true;
+            record();
+          } else if (recorder.state === 'paused') record();
+        } else if (moving && performance.now() - movedAt > 100) {
+          // Stuck without saying so: hold until it moves again.
+          hold();
+        }
+        last = video.currentTime;
+        onTime(video.currentTime - segment.start);
+        next(tick);
+      };
+      next(tick);
+      // A hidden page draws nothing: look again once it is shown.
+      const wake = () => {
+        if (!document.hidden) next(tick);
+      };
+      document.addEventListener('visibilitychange', wake, { once: true });
+    });
+  } finally {
+    video.removeEventListener('waiting', onWaiting);
+    video.removeEventListener('stalled', onWaiting);
+    document.removeEventListener('visibilitychange', onVisibility);
+  }
   draw();
-  recorder.pause();
+  if (recorder.state === 'inactive') recorder.start(250);
+  hold();
 }
 
 /**
