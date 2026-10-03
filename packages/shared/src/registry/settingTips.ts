@@ -897,6 +897,14 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     what: 'How many times longer than wide a band must be to be a line. The band’s pixels are joined up with the ones like them nearby and measured along it.',
     examples: ['1 — any speck with sharp sides counts.', '3 — a good default: dots and short dashes are left out.', '8 — only long strokes.'],
   },
+  'lines.joinTolerance': {
+    what: 'How different in colour the crossings beside one another may be and still join one patch, before the patch is measured for Longer than wide by. Low, a line that shades along its length, or is speckled, breaks into short patches that each fail; high, they join into one long one.',
+    examples: ['10 — strict: only crossings of nearly the same colour join.', '18 — the same as the default Sharp change.', '50 — loose: a shaded or noisy stroke counts as one line.'],
+  },
+  'lines.drawWidth': {
+    what: 'How many pixels across the middle of each line are drawn in the output, however wide the line was found to be. 0 draws every line at its full width.',
+    examples: ['0 — each line as wide as it was found.', '1–2 — a thin centre line for every stroke, whatever its width.', '4 — every stroke drawn 4 px wide, or its own width if thinner.'],
+  },
   'lines.chunk': {
     what: 'The size of the squares the picture is read in. Lines are found, and measured, a chunk at a time, reaching a little past each so a line crossing a border is not cut short.',
     examples: ['24 — short lines are judged on their own.', '48 — a good default.', '160 — long lines are measured over more of their length.'],

@@ -95,9 +95,11 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
       setWorking(false);
     }, 20);
   }, [find]);
+  // With Live off nothing is worked out until Generate is pressed: on a big
+  // picture finding the lines holds the page up for a while.
   useEffect(() => {
     setResult(null);
-    if (source) run();
+    if (source && dataRef.current.live) run();
   }, [source]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!source || !data.live || result?.key === optionsKey) return undefined;
@@ -130,7 +132,8 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
   const showing = data.view;
   useEffect(() => {
     if (showing === 'original') paintBitmap(canvas.current, source);
-    else paintBitmap(canvas.current, result?.image ?? null);
+    // Until the lines are found, the picture they will be found in.
+    else paintBitmap(canvas.current, result?.image ?? source);
     paintBitmap(under.current, overlay && showing === 'lines' ? source : null);
   }, [result, source, showing, overlay]);
 
@@ -231,6 +234,22 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
             value={data.options.ratio}
             format={(value) => `×${value.toFixed(1)}`}
             onChange={(ratio) => setOptions({ ratio: Math.round(ratio * 10) / 10 })}
+          />
+          <Slider
+            range="lines.joinTolerance"
+            label="Patch colour tolerance"
+            tip="lines.joinTolerance"
+            value={data.options.joinTolerance ?? data.options.contrast}
+            format={(value) => `${Math.round(value)}`}
+            onChange={(joinTolerance) => setOptions({ joinTolerance: Math.round(joinTolerance) })}
+          />
+          <Slider
+            range="lines.drawWidth"
+            label="Drawn width"
+            tip="lines.drawWidth"
+            value={data.options.drawWidth ?? 0}
+            format={(value) => (Math.round(value) === 0 ? 'whole line' : `${Math.round(value)} px`)}
+            onChange={(drawWidth) => setOptions({ drawWidth: Math.round(drawWidth) })}
           />
           <Slider
             range="lines.chunk"
@@ -352,7 +371,7 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
         </p>
         {debug && source ? (
           pick ? (
-            <LineDebugger source={source} options={data.options} pick={pick} onClose={() => setPick(null)} onGuide={openGuide} />
+            <LineDebugger source={source} options={data.live || !result ? data.options : (JSON.parse(result.key) as LineOptions)} pick={pick} onClose={() => setPick(null)} onGuide={openGuide} />
           ) : (
             <div className="vt-line-debug">
               <p className="vt-hint">

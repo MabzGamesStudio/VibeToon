@@ -44,6 +44,18 @@ export interface LineOptions {
   ratio: number;
   /** The side of the square chunks the picture is read in, in pixels. */
   chunk: number;
+  /**
+   * How different, 0..100, a neighbouring crossing may be in colour and still
+   * join a patch for the longer-than-wide test. Higher lets a line that shades
+   * along its length, or is broken up by noise, count as one long patch.
+   * Missing, it is the sharp change, as it always was.
+   */
+  joinTolerance?: number;
+  /**
+   * Draw only this many pixels across the middle of each line, however wide it
+   * was found to be; 0 draws the whole width.
+   */
+  drawWidth?: number;
 }
 
 export const DEFAULT_LINE_OPTIONS: LineOptions = {
@@ -52,6 +64,7 @@ export const DEFAULT_LINE_OPTIONS: LineOptions = {
   maxWidth: 8,
   ratio: 3,
   chunk: 48,
+  drawWidth: 0,
 };
 
 export interface LinesFlowData {
@@ -354,6 +367,9 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
   const total = width * height;
   const confidence = new Float32Array(total);
   const lineWidth = new Float32Array(total);
+  // How far each line pixel is from the middle of its line, in pixels, read off
+  // the walk that gave it its width.
+  const centreOffset = new Float32Array(total);
   let crossings = 0;
   const chunk = options.chunk;
   const chunksX = Math.ceil(width / chunk);
@@ -377,6 +393,7 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
     // walk in this direction found one.
     const widthAt = new Uint16Array(total);
     const sharpAt = new Float32Array(total);
+    const offsetAt = new Float32Array(total);
 
     for (let cy = 0; cy < chunksY; cy += 1) {
       for (let cx = 0; cx < chunksX; cx += 1) {
@@ -444,6 +461,7 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
                 const at = y * width + x;
                 widthAt[at] = across;
                 sharpAt[at] = sharp;
+                offsetAt[at] = Math.abs(p - line.start + 0.5 - across / 2);
                 marked = true;
               }
               if (marked) crossings += 1;
@@ -502,7 +520,7 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
                   // Only the same band: a short run of the colour beside a line,
                   // where a walk clips a corner, is a patch of its own, not
                   // part of the line it touches.
-                  if (pixelDistance(data, at * 4, next * 4) >= options.contrast) continue;
+                  if (pixelDistance(data, at * 4, next * 4) >= options.joinTolerance) continue;
                   seen[next] = pass;
                   patch.push(next);
                 }
@@ -539,7 +557,10 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
               const score = Math.max(0.2, Math.min(1, sharpScore * 0.5 + reachScore * 0.5));
               if (score > confidence[at]!) confidence[at] = score;
               const across = widthAt[at]! * unit;
-              if (lineWidth[at] === 0 || across < lineWidth[at]!) lineWidth[at] = across;
+              if (lineWidth[at] === 0 || across < lineWidth[at]!) {
+                lineWidth[at] = across;
+                centreOffset[at] = offsetAt[at]! * unit;
+              }
               if (note && at === targetAt) {
                 note.score = score;
                 note.width = across;
@@ -551,6 +572,16 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
     }
   }
 
+  // Drawn narrower than found: only the pixels nearest the middle of the line,
+  // and the line drawn as being that wide.
+  const drawWidth = options.drawWidth;
+  if (drawWidth > 0) {
+    for (let i = 0; i < total; i += 1) {
+      if (confidence[i] === 0) continue;
+      if (centreOffset[i]! >= drawWidth / 2 && centreOffset[i]! > 0.5 + 1e-6) confidence[i] = 0;
+      else lineWidth[i] = Math.min(lineWidth[i]!, drawWidth);
+    }
+  }
   let linePixels = 0;
   for (let i = 0; i < total; i += 1) if (confidence[i]! > 0) linePixels += 1;
   const result: LineResult = {
@@ -582,7 +613,7 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
   };
 }
 
-export function normaliseLineOptions(input: Partial<LineOptions>): LineOptions {
+export function normaliseLineOptions(input: Partial<LineOptions>): Required<LineOptions> {
   const merged = { ...DEFAULT_LINE_OPTIONS, ...input };
   return {
     contrast: Math.max(1, Math.min(100, merged.contrast)),
@@ -590,6 +621,8 @@ export function normaliseLineOptions(input: Partial<LineOptions>): LineOptions {
     maxWidth: Math.max(1, Math.min(64, Math.round(merged.maxWidth))),
     ratio: Math.max(0.1, Math.min(50, merged.ratio)),
     chunk: Math.max(8, Math.min(1024, Math.round(merged.chunk))),
+    joinTolerance: Math.max(1, Math.min(100, input.joinTolerance ?? merged.contrast)),
+    drawWidth: Math.max(0, Math.min(64, merged.drawWidth ?? 0)),
   };
 }
 
@@ -665,6 +698,8 @@ export function linesReport(result: LineResult, options: LineOptions, source: st
     `| Widest line | ${options.maxWidth} px |`,
     `| Longer than wide by | ×${options.ratio} |`,
     `| Chunk | ${options.chunk} px |`,
+    `| Patch colour tolerance | ${options.joinTolerance ?? options.contrast} |`,
+    `| Drawn width | ${options.drawWidth ? `${options.drawWidth} px across the middle` : 'the whole line'} |`,
     '',
     '| Confidence at least | Pixels |',
     '| --- | --- |',

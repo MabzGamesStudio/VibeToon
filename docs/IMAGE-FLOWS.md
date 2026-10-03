@@ -369,9 +369,14 @@ in.
 | Widest line | The widest a band can be and still be a line, in pixels. |
 | Longer than wide by | How many times longer than wide a line must be. |
 | Chunk size | The side of the squares the picture is read in. |
+| Patch colour tolerance | How different in colour neighbouring crossings may be and still join one patch for *Longer than wide by*. Raise it when a stroke that shades along its length, or is speckled, breaks into short patches that fail. It starts at the Sharp change. |
+| Drawn width | Draw only this many pixels across the middle of every line, however wide it was found to be (0 draws the whole width). A 10 px stroke at 2 is drawn as a 2 px line down its middle, and recorded as 2 px wide. |
 
-The editor finds the lines when the picture arrives. After that, two controls
-sit both under the settings and over the picture:
+With **Live** off, nothing is worked out until **Generate** is pressed: not when
+the picture arrives, not when a setting moves, and **Explain a pixel** explains
+the lines on screen rather than finding them again for the new settings. Until
+the first Generate the picture itself is shown. Two controls sit both under the
+settings and over the picture:
 
 - **Generate** finds the lines for the settings as they are and writes
   `lines.png` and `lines.md` to the outputs (as Generate at the top of the

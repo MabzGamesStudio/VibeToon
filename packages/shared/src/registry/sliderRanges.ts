@@ -143,6 +143,8 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('lines.maxWidth', 'Widest line', LINES, 'What a line is', 1, 32, 1, 'px'),
   def('lines.ratio', 'Longer than wide by', LINES, 'What a line is', 0.5, 12, 0.1, '×'),
   def('lines.chunk', 'Chunk size', LINES, 'What a line is', 8, 256, 8, 'px'),
+  def('lines.joinTolerance', 'Patch colour tolerance', LINES, 'What a line is', 1, 100, 1),
+  def('lines.drawWidth', 'Drawn width', LINES, 'What is drawn', 0, 32, 1, 'px'),
 
   // Line Graph
   def('lineGraph.minConfidence', 'Surest pixels only', LINE_GRAPH, 'Tracing', 0.05, 1, 0.05),
