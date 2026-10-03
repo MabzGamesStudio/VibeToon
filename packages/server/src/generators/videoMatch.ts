@@ -5,8 +5,7 @@ import {
   videoMatchReport,
   videoMatchState,
   videoSourceOf,
-  type VideoMatchFlowData,
-} from '@vibetoon/shared';
+  type VideoMatchFlowData, noVideoMessage } from '@vibetoon/shared';
 import { writeArtifact, writeArtifactSet } from '../storage';
 import type { GenerationContext, GenerationResult } from './types';
 
@@ -28,7 +27,7 @@ export async function generateVideoMatch(ctx: GenerationContext): Promise<Genera
   }
   const video = videoSourceOf(ctx.project, ctx.node);
   if (!video) {
-    ctx.warn('No video — wire one into the Video input, or upload one in the editor.');
+    ctx.warn(noVideoMessage(ctx.project, ctx.node));
     return { outputs: [] };
   }
 

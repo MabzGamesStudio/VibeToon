@@ -325,6 +325,21 @@ export function videoSourceOf(project: Project, node: FlowNode): { artifact: Art
   return own ? { artifact: own, wired: false } : undefined;
 }
 
+/**
+ * Why a flow that reads a video has none, in words that say what to do. A wire
+ * into the Video input that carries no file yet is not "no video wired": the
+ * flow at the other end has not made it — a video not generated, or a batch of
+ * shot clips planned but not recorded.
+ */
+export function noVideoMessage(project: Project, node: FlowNode): string {
+  const wires = inputsForPort(project, node.id, 'video');
+  if (wires.length === 0) return 'No video — wire one into the Video input, or upload one in the editor.';
+  const names = [...new Set(wires.map((input) => input.sourceNode.name))].join(', ');
+  return node.itemOf
+    ? `${names} is wired in, but has not made this item's video yet. Open ${names} and press Generate there to make it.`
+    : `${names} is wired in, but has not made its video yet. Open ${names} and press Generate there, then come back.`;
+}
+
 /** A matched frame's picture: `frame-001.png`, in the order the frames were sampled. */
 export function matchFrameName(index: number): string {
   return `frame-${String(index + 1).padStart(3, '0')}.png`;

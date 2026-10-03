@@ -1,4 +1,4 @@
-import { backgroundReport, pngSize, videoSourceOf, type VideoBackgroundFlowData } from '@vibetoon/shared';
+import { backgroundReport, pngSize, videoSourceOf, type VideoBackgroundFlowData, noVideoMessage } from '@vibetoon/shared';
 import { writeArtifact } from '../storage';
 import type { GenerationContext, GenerationResult } from './types';
 
@@ -12,7 +12,7 @@ import type { GenerationContext, GenerationResult } from './types';
 export async function generateVideoBackground(ctx: GenerationContext): Promise<GenerationResult> {
   const data = ctx.node.data as VideoBackgroundFlowData;
   if (!videoSourceOf(ctx.project, ctx.node)) {
-    ctx.warn('No video — wire one into the Video input, or upload one in the editor.');
+    ctx.warn(noVideoMessage(ctx.project, ctx.node));
     return { outputs: [] };
   }
   const image = ctx.attachments.find((attachment) => attachment.name === 'background.png');
