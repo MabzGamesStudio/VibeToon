@@ -79,9 +79,21 @@ async function playThrough(
   video.addEventListener('waiting', onWaiting);
   video.addEventListener('stalled', onWaiting);
   document.addEventListener('visibilitychange', onVisibility);
-  // A video that is not in the page never calls back for its frames, so this
-  // looks at each repaint instead.
   const next = (callback: () => void) => requestAnimationFrame(callback);
+  // Each frame the video actually decodes, where the browser says so. Its
+  // clock can run on while no new frame is decoded — a browser may stop
+  // decoding a video it thinks nobody sees — so a moving clock alone is not
+  // a moving picture: with frame callbacks, only a new frame counts.
+  type FrameVideo = HTMLVideoElement & { requestVideoFrameCallback?(callback: () => void): number; cancelVideoFrameCallback?(handle: number): void };
+  const framed = video as FrameVideo;
+  const byFrame = typeof framed.requestVideoFrameCallback === 'function';
+  let fresh = false;
+  let frameHandle = 0;
+  const onFrame = () => {
+    fresh = true;
+    frameHandle = framed.requestVideoFrameCallback!(onFrame);
+  };
+  if (byFrame) frameHandle = framed.requestVideoFrameCallback!(onFrame);
   try {
     if (!document.hidden) await video.play();
     await new Promise<void>((resolve) => {
@@ -94,7 +106,9 @@ async function playThrough(
           return;
         }
         // Record only once the picture is actually moving on.
-        if (video.currentTime !== last && !video.paused && !document.hidden) {
+        const advanced = byFrame ? fresh : video.currentTime !== last;
+        fresh = false;
+        if (advanced && !video.paused && !document.hidden) {
           movedAt = performance.now();
           draw();
           if (!moving) {
@@ -117,6 +131,7 @@ async function playThrough(
       document.addEventListener('visibilitychange', wake, { once: true });
     });
   } finally {
+    if (byFrame) framed.cancelVideoFrameCallback?.(frameHandle);
     video.removeEventListener('waiting', onWaiting);
     video.removeEventListener('stalled', onWaiting);
     document.removeEventListener('visibilitychange', onVisibility);
@@ -143,6 +158,11 @@ export async function renderEdit(options: {
   const type = recordingType();
   if (!type) throw new Error('this browser cannot record video');
   const video = await loadVideo(options.url);
+  // In the page, if only just: a video the browser thinks nobody can see may
+  // have its decoding stopped while its clock runs on, and it would record the
+  // same frame over and over.
+  Object.assign(video.style, { position: 'fixed', right: '0', bottom: '0', width: '2px', height: '2px', pointerEvents: 'none', zIndex: '-1' });
+  document.body.appendChild(video);
   const canvas = document.createElement('canvas');
   canvas.width = options.crop.width;
   canvas.height = options.crop.height;
@@ -171,6 +191,7 @@ export async function renderEdit(options: {
       }
     }
   } finally {
+    video.remove();
     releaseVideo(video);
   }
   return blobs;

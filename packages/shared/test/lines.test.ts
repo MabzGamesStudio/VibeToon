@@ -254,3 +254,28 @@ test('an edge, a gradient and a dash each fail for the reason they should', () =
   assert.ok(dash.patch!.ratio < 3, `ratio ${dash.patch!.ratio}`);
   assert.equal(dash.score, 0);
 });
+
+test('drawn width: only the middle of a wide line is drawn, as that wide', () => {
+  // A 6 px black stroke across a white picture, rows 20–25.
+  const picture = paint(80, 48, (_x, y) => (y >= 20 && y < 26 ? BLACK : WHITE));
+  const whole = detectLines(picture, { ...DEFAULT_LINE_OPTIONS, maxWidth: 8 });
+  const rows = (result: ReturnType<typeof detectLines>) => [...Array(48).keys()].filter((y) => at(result, 40, y) > 0);
+  assert.deepEqual(rows(whole), [20, 21, 22, 23, 24, 25]);
+  const thin = detectLines(picture, { ...DEFAULT_LINE_OPTIONS, maxWidth: 8, drawWidth: 2 });
+  assert.deepEqual(rows(thin), [22, 23]);
+  assert.equal(thin.lineWidth[22 * 80 + 40], 2, 'drawn as the width it is drawn');
+  const one = detectLines(picture, { ...DEFAULT_LINE_OPTIONS, maxWidth: 8, drawWidth: 1 });
+  assert.ok(rows(one).length >= 1 && rows(one).length <= 2, 'the middle is always kept');
+});
+
+test('patch colour tolerance: a stroke that changes colour along its length joins into one line', () => {
+  // A 2 px stroke along row 20 that alternates black and dark red every 2 px:
+  // each piece alone is a dash, too short; joined, a long line.
+  const RED: Rgb = [150, 0, 0];
+  const picture = paint(80, 40, (x, y) => (y >= 20 && y < 22 ? (Math.floor(x / 2) % 2 ? RED : BLACK) : WHITE));
+  const strict = detectLines(picture, { ...DEFAULT_LINE_OPTIONS, joinTolerance: 10 });
+  const loose = detectLines(picture, { ...DEFAULT_LINE_OPTIONS, joinTolerance: 100 });
+  assert.equal(at(strict, 40, 20), 0, 'pieces of different colour are short patches');
+  assert.ok(at(loose, 40, 20) > 0, 'one patch once the colours may join');
+  assert.equal(normaliseLineOptions({ contrast: 30 }).joinTolerance, 30, 'missing, it follows the sharp change');
+});
