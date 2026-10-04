@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { findTheEnd } from './video';
 import { clipLength, frameLengthOf, snapToClipFrame, type Bitmap, type ClipSpan } from '@vibetoon/shared';
 
 /**
@@ -133,21 +134,9 @@ export async function openClip(url: string): Promise<OpenClip> {
       video.src = url;
     });
 
-    // Where the clip ends: a recorded clip often says nothing until it has been
-    // read to the end, and seeking past the end makes it find out.
-    if (!Number.isFinite(video.duration)) {
-      const known = new Promise<void>((resolve) => {
-        const check = () => {
-          if (!Number.isFinite(video.duration)) return;
-          video.removeEventListener('durationchange', check);
-          resolve();
-        };
-        video.addEventListener('durationchange', check);
-      });
-      video.currentTime = 1e101;
-      await Promise.race([known, new Promise((resolve) => window.setTimeout(resolve, 8000))]);
-    }
-    const end = Number.isFinite(video.duration) ? video.duration : video.seekable.length ? video.seekable.end(video.seekable.length - 1) : 0;
+    // Where the clip ends, found by reading to it: a header may give no
+    // length, or only the first part's (see `findTheEnd`).
+    const end = await findTheEnd(video);
     if (!(end > 0)) throw new Error('the video has no length');
 
     const shown = new Presented(video);

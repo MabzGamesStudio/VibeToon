@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { VIDEO_FILE_ACCEPT, type Bitmap } from '@vibetoon/shared';
+import { VIDEO_FILE_ACCEPT, frameRateOf, type Bitmap } from '@vibetoon/shared';
 
 /** A video element ready to be read from, at a URL, its length known. */
 export async function loadVideo(url: string): Promise<HTMLVideoElement> {
@@ -13,21 +13,84 @@ export async function loadVideo(url: string): Promise<HTMLVideoElement> {
     element.onerror = () => reject(new Error('the video could not be read in this browser'));
     element.src = url;
   });
-  // A video recorded in a browser often does not say how long it is until it
-  // has been read to the end; seeking past the end makes it find out.
-  if (!Number.isFinite(video.duration)) {
-    await new Promise<void>((resolve) => {
-      const known = () => {
-        if (!Number.isFinite(video.duration)) return;
-        video.removeEventListener('durationchange', known);
-        resolve();
-      };
-      video.addEventListener('durationchange', known);
-      video.currentTime = 1e101;
-    });
-    await seek(video, 0);
-  }
+  await findTheEnd(video);
   return video;
+}
+
+/**
+ * Make a video say how long it really is.
+ *
+ * A header is not to be trusted for this. One recorded in a browser often has
+ * no length at all, and some — a recording in pieces, an MP4 written as it
+ * went — give the length of only the first part, so a clip that plays for
+ * three seconds says half a second, and everything worked out from it (its
+ * frames, its segments) is cut short. Seeking past the end makes the browser
+ * read to the real end, whatever the header said; the length is then the
+ * furthest of what it says and what it can seek to.
+ */
+export async function findTheEnd(video: HTMLVideoElement): Promise<number> {
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener('seeked', onSeeked);
+      window.clearTimeout(timer);
+      resolve();
+    };
+    const onSeeked = () => {
+      // Still no length: give it a moment more to find one.
+      if (Number.isFinite(video.duration)) done();
+    };
+    const timer = window.setTimeout(done, 8000);
+    video.addEventListener('seeked', onSeeked);
+    video.addEventListener('durationchange', onSeeked);
+    video.currentTime = 1e101;
+  });
+  const seekable = video.seekable.length > 0 ? video.seekable.end(video.seekable.length - 1) : 0;
+  const end = Math.max(Number.isFinite(video.duration) ? video.duration : 0, Number.isFinite(seekable) ? seekable : 0);
+  await seek(video, 0);
+  return end;
+}
+
+type FrameCallbackVideo = HTMLVideoElement & {
+  requestVideoFrameCallback?(callback: (now: number, metadata: { mediaTime: number }) => void): number;
+  cancelVideoFrameCallback?(handle: number): void;
+};
+
+/**
+ * Frames a second, measured: the video plays a moment, muted and in the page,
+ * and the times of the frames it shows are read (see `frameRateOf`). A header
+ * or a guess is not used: a shot's frames are numbered by this.
+ */
+export async function measureFrameRate(video: HTMLVideoElement, fallback = 30): Promise<number> {
+  const watched = video as FrameCallbackVideo;
+  if (typeof watched.requestVideoFrameCallback !== 'function') return fallback;
+  const placed = !video.isConnected;
+  if (placed) {
+    Object.assign(video.style, { position: 'fixed', right: '0', bottom: '0', width: '2px', height: '2px', pointerEvents: 'none', zIndex: '-1' });
+    document.body.appendChild(video);
+  }
+  const seen: number[] = [];
+  let handle = 0;
+  const watch = (_now: number, metadata: { mediaTime: number }) => {
+    seen.push(metadata.mediaTime);
+    if (seen.length < 16) handle = watched.requestVideoFrameCallback!(watch);
+  };
+  handle = watched.requestVideoFrameCallback(watch);
+  try {
+    video.muted = true;
+    await video.play();
+    const until = performance.now() + 1500;
+    while (seen.length < 16 && performance.now() < until && !video.ended) await new Promise((resolve) => window.setTimeout(resolve, 30));
+  } catch {
+    // Not allowed to play: the fallback stands.
+  }
+  video.pause();
+  watched.cancelVideoFrameCallback?.(handle);
+  if (placed) video.remove();
+  await seek(video, 0);
+  return frameRateOf(seen, fallback);
 }
 
 export function seek(video: HTMLVideoElement, time: number): Promise<void> {
@@ -90,6 +153,8 @@ export interface VideoMeta {
   duration: number;
   width: number;
   height: number;
+  /** Frames a second, measured from the frames shown. */
+  fps: number;
 }
 
 /** A video's length and size, read once for each URL. */
@@ -102,8 +167,11 @@ export function useVideoMeta(url: string | null): { meta: VideoMeta | null; erro
     if (!url) return undefined;
     let cancelled = false;
     loadVideo(url)
-      .then((video) => {
-        if (!cancelled) setMeta({ duration: video.duration, width: video.videoWidth, height: video.videoHeight });
+      .then(async (video) => {
+        const seekable = video.seekable.length > 0 ? video.seekable.end(video.seekable.length - 1) : 0;
+        const duration = Math.max(Number.isFinite(video.duration) ? video.duration : 0, Number.isFinite(seekable) ? seekable : 0);
+        const fps = await measureFrameRate(video);
+        if (!cancelled) setMeta({ duration, width: video.videoWidth, height: video.videoHeight, fps });
         releaseVideo(video);
       })
       .catch((reason: Error) => {

@@ -102,10 +102,13 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
   useEffect(() => {
     if (!meta || !source) return;
     const was = dataRef.current.video;
-    if (was && was.hash === source.artifact.hash && was.duration === meta.duration) return;
-    const video = { hash: source.artifact.hash, duration: Math.round(meta.duration * 1000) / 1000, width: meta.width, height: meta.height };
+    const duration = Math.round(meta.duration * 1000) / 1000;
+    // Its own frame rate, measured, the first time this video is seen.
+    const rate = dataRef.current.fpsFor === source.artifact.hash ? {} : { fps: meta.fps, fpsFor: source.artifact.hash };
+    if (was && was.hash === source.artifact.hash && was.duration === duration && Object.keys(rate).length === 0) return;
+    const video = { hash: source.artifact.hash, duration, width: meta.width, height: meta.height };
     // A different video: its old segments and crop were for another picture.
-    patch(was && was.hash !== source.artifact.hash ? { video, segments: [], crop: null, selected: null } : { video });
+    patch(was && was.hash !== source.artifact.hash ? { video, segments: [], crop: null, selected: null, ...rate } : { video, ...rate });
   }, [meta, source, patch]);
 
   const duration = data.video?.duration ?? 0;

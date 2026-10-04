@@ -122,6 +122,13 @@ one; or type its left, top, width and height. Everything outside it is dimmed.
 The crop is the same for every frame, and its sides are kept even, which video
 encoders need.
 
+## Length and frame rate
+
+The video's length is found by reading to its real end, not taken from its
+header, and its frame rate is measured from the frames it shows; the
+*Frame rate* starts at what was measured, for each video of a batch on its
+own. Stepping, splitting and recording all go by it.
+
 ## Recorded as
 
 **Recorded as** (under *What comes out*) picks the format the edit, or each

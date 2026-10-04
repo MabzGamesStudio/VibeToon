@@ -42,6 +42,20 @@ frame rate from the file, so set it if it is not 24.
 Two cuts between the same two compared frames are found as one. For fast
 cutting, compare more often.
 
+## Length and frame rate
+
+The video's **length** is found by reading to its real end, never taken from
+its header alone: a recording made in a browser often has no length in it,
+and some (an MP4 written in pieces) give only the first piece's, so a clip
+that plays for three seconds would say half a second. Its **frame rate** is
+measured by playing it a moment and timing the frames shown (the middle gap
+between them, snapped to a standard rate such as 24, 25, 29.97 or 30). The
+side panel shows both, and the frame count they make.
+
+Frames in `shots.json`, the report, a split's snapping and the recorded clips
+all go by that measured rate (it can be changed under *Frame rate*), not by a
+24 fps guess. In a batch, every video keeps its own length and frame rate.
+
 ## Putting them right
 
 After **Find the shots**, each shot is a row: its number, where it starts and

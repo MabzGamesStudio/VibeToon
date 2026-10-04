@@ -35,3 +35,15 @@ test('the length runs to the end of the last frame; the frame length ignores dro
   assert.ok(Math.abs(frameLengthOf([0, 0.0333, 0.0667, 0.1333, 0.1667]) - 1 / 30) < 0.002);
   assert.equal(frameLengthOf([0.5]), 1 / 30, 'nothing to go on: the fallback');
 });
+
+test('the frame rate is the middle gap, snapped to a standard rate; drops and stutters do not move it', async () => {
+  const { frameRateOf } = await import('../src/flows/clipFrames');
+  const at30 = Array.from({ length: 12 }, (_, i) => i / 30);
+  assert.equal(frameRateOf(at30), 30);
+  // A dropped frame (one gap doubled) and a stutter (one gap short).
+  const rough = [0, 1 / 30, 2 / 30, 4 / 30, 5 / 30, 5.4 / 30, 6 / 30, 7 / 30, 8 / 30];
+  assert.equal(frameRateOf(rough), 30);
+  assert.equal(frameRateOf(Array.from({ length: 10 }, (_, i) => i / 23.976)), 23.976);
+  assert.equal(frameRateOf(Array.from({ length: 10 }, (_, i) => i / 60)), 60);
+  assert.equal(frameRateOf([0.2]), 30, 'nothing to go on');
+});

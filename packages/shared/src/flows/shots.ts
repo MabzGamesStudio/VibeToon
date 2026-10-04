@@ -234,6 +234,19 @@ export interface ShotsFlowData {
   recorded?: string;
   /** What each clip is recorded as (`CLIP_FORMATS`); WebM (VP9) when not set. */
   clipFormat?: ClipFormatId;
+  /**
+   * The video's frames a second: measured from the video when it arrives, and
+   * changeable. Each video has its own, so in a batch every shot is numbered
+   * by its own rate, not by a shared guess. Missing, `options.fps`.
+   */
+  frameRate?: number;
+  /** The video the frame rate was measured from, so a new one is measured again. */
+  frameRateFor?: string;
+}
+
+/** The frame rate a video's shots are numbered, cut and recorded by. */
+export function shotFrameRate(data: Pick<ShotsFlowData, 'frameRate' | 'options'>): number {
+  return data.frameRate && data.frameRate > 0 ? data.frameRate : data.options.fps;
 }
 
 export function emptyShotsFlowData(): ShotsFlowData {
@@ -300,10 +313,11 @@ export function joinShots(data: ShotsFlowData, index: number): ShotsFlowData {
 /** Split a shot at a time, snapped to the nearest frame. A split on a shot's edge does nothing. */
 export function splitShotAt(data: ShotsFlowData, time: number): ShotsFlowData {
   const duration = data.video?.duration ?? 0;
-  const frame = Math.round(time * data.options.fps);
-  const at = Math.round((frame / data.options.fps) * 1000) / 1000;
+  const fps = shotFrameRate(data);
+  const frame = Math.round(time * fps);
+  const at = Math.round((frame / fps) * 1000) / 1000;
   if (!(at > 0) || at >= duration) return data;
-  if (data.cuts.some((cut) => Math.abs(cut - at) < 0.5 / data.options.fps)) return data;
+  if (data.cuts.some((cut) => Math.abs(cut - at) < 0.5 / fps)) return data;
   const cuts = [...data.cuts, at].sort((a, b) => a - b);
   return { ...data, cuts, edits: data.edits + 1, selected: cuts.indexOf(at) + 1 };
 }
@@ -326,7 +340,7 @@ export function formatClock(seconds: number): string {
 /** `shots.json`: the shots' time segments, and their frames. */
 export function shotsFile(data: ShotsFlowData): string {
   const duration = data.video?.duration ?? 0;
-  const fps = data.options.fps;
+  const fps = shotFrameRate(data);
   const shots = shotsOf(data.cuts, duration).map((shot, index) => ({
     index: index + 1,
     start: shot.start,
@@ -356,7 +370,7 @@ export function shotsReport(data: ShotsFlowData): string {
     '# Shots',
     '',
     `A ${duration.toFixed(2)}s video, ${data.video.width} × ${data.video.height}, in **${shots.length}** shot(s).`,
-    `Cuts are where frames differ by ${Math.round(data.options.threshold * 100)}% or more, found to the frame at ${data.options.fps} fps; no shot is shorter than ${data.options.minShot}s.`,
+    `Cuts are where frames differ by ${Math.round(data.options.threshold * 100)}% or more, found to the frame at ${shotFrameRate(data)} fps; no shot is shorter than ${data.options.minShot}s.`,
     data.edits > 0 ? `${data.edits} change(s) made by hand since.` : '',
     '',
     '| Shot | From | To | Length | Cut into it |',

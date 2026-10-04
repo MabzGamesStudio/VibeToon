@@ -7,6 +7,7 @@ import {
   joinShots,
   clipFormat,
   shotClipName,
+  shotFrameRate,
   shotClipsWanted,
   shotsKey,
   shotsOf,
@@ -55,6 +56,13 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
   const { meta, error: videoError } = useVideoMeta(videoUrl);
   const upload = useFileUpload((fileName, body) => uploadOutput(node.id, 'source', fileName, body), (message) => notify('error', message));
 
+  // The video's own frame rate, measured when it arrives: a shot's frames are
+  // numbered by it, and its clips recorded at it. Each item of a batch has its own.
+  useEffect(() => {
+    if (!meta || !source || dataRef.current.frameRateFor === source.artifact.hash) return;
+    patch({ frameRate: meta.fps, frameRateFor: source.artifact.hash });
+  }, [meta, source, patch]);
+
   /* ---------------- finding the shots ---------------- */
 
   const [running, setRunning] = useState<{ stage: string; fraction: number } | null>(null);
@@ -78,7 +86,7 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
       const found = await detectShots(
         meta.duration,
         start.sampling,
-        start.options,
+        { ...start.options, fps: shotFrameRate(start) },
         async (time) => {
           if (stopping.current) throw new Error('stopped');
           return embedFrame(await reader.read(time));
@@ -128,7 +136,7 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
         url: videoUrl,
         segments: cut.map((shot) => ({ ...shot, deleted: false })),
         crop: { x: 0, y: 0, width: current.video.width - (current.video.width % 2), height: current.video.height - (current.video.height % 2) },
-        fps: current.options.fps,
+        fps: shotFrameRate(current),
         mode: 'clips',
         format,
         onProgress: setRecording,
@@ -282,15 +290,18 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
             <dd>{meta ? `${meta.duration.toFixed(2)}s` : '—'}</dd>
             <dt>Size</dt>
             <dd>{meta ? `${meta.width} × ${meta.height}` : '—'}</dd>
+            <dt>Frames</dt>
+            <dd>{meta ? `${Math.round(meta.duration * shotFrameRate(data))} at ${meta.fps} fps measured` : '—'}</dd>
           </dl>
           <Field label="Frame rate" tip="shots.frameRate" hint="What a cut is found to: the frame it falls on.">
             <input
               type="number"
               min={1}
               max={240}
-              value={data.options.fps}
+              value={shotFrameRate(data)}
+              step="any"
               aria-label="Frame rate"
-              onChange={(event) => setOptions({ fps: Math.max(1, Math.min(240, Number(event.target.value) || 24)) })}
+              onChange={(event) => patch({ frameRate: Math.max(1, Math.min(240, Number(event.target.value) || 24)) })}
             />
           </Field>
         </div>
@@ -391,7 +402,7 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
                 videoUrl={videoUrl}
                 shots={shots}
                 index={viewing}
-                fps={data.options.fps}
+                fps={shotFrameRate(data)}
                 tiles={tileTimes(shots[viewing]!).map((time) => thumbs[time.toFixed(2)])}
                 seek={seek}
                 onSelect={select}
@@ -422,14 +433,14 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
                     onPointerMove={(event) => {
                       const box = event.currentTarget.getBoundingClientRect();
                       const time = shot.start + ((event.clientX - box.left) / box.width) * (shot.end - shot.start);
-                      setHover({ shot: index, time: Math.round(time * data.options.fps) / data.options.fps });
+                      setHover({ shot: index, time: Math.round(time * shotFrameRate(data)) / shotFrameRate(data) });
                     }}
                     onPointerLeave={() => setHover(null)}
                     onClick={(event) => {
                       const box = event.currentTarget.getBoundingClientRect();
                       const time = shot.start + ((event.clientX - box.left) / box.width) * (shot.end - shot.start);
                       if (event.shiftKey) {
-                        splitAt(Math.round(time * data.options.fps) / data.options.fps);
+                        splitAt(Math.round(time * shotFrameRate(data)) / shotFrameRate(data));
                         return;
                       }
                       if (viewing !== index) select(index);
