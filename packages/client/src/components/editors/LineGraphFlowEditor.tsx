@@ -49,7 +49,7 @@ const points = (list: readonly GraphPoint[]) => list.map((point) => `${point.x},
  * to take it out; drag a node to move it, and the lines' ends with it.
  */
 export function LineGraphFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
-  const { setFlowData } = useStudio();
+  const { setFlowData, generateFlow, busyFlows } = useStudio();
   const data = node.data.editor === 'lineGraph' ? (node.data as LineGraphFlowData) : emptyLineGraphFlowData();
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -79,17 +79,38 @@ export function LineGraphFlowEditor({ project, node }: { project: Project; node:
     };
   }, [path, project.id]);
 
-  // Traced a moment after the tracing settings stop moving.
-  const [graph, setGraph] = useState<LineGraph | null>(null);
+  // Traced on Generate — or, with Live on, a moment after the tracing settings
+  // stop moving. Off, nothing is traced until asked: on a big picture tracing
+  // holds the page up.
+  const [traced, setTraced] = useState<{ graph: LineGraph; key: string } | null>(null);
+  const graph = traced?.graph ?? null;
+  const [working, setWorking] = useState(false);
   const optionsKey = JSON.stringify(data.options);
+  const trace = useCallback(() => {
+    if (!picture) return;
+    const options = dataRef.current.options;
+    setTraced({ graph: buildLineGraph(picture, options), key: JSON.stringify(options) });
+  }, [picture]);
   useEffect(() => {
-    if (!picture) {
-      setGraph(null);
-      return undefined;
-    }
-    const timer = window.setTimeout(() => setGraph(buildLineGraph(picture, data.options)), 120);
+    if (!picture) setTraced(null);
+  }, [picture]);
+  useEffect(() => {
+    if (!picture || !data.live || traced?.key === optionsKey) return undefined;
+    const timer = window.setTimeout(trace, 120);
     return () => window.clearTimeout(timer);
-  }, [picture, optionsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [picture, optionsKey, data.live]); // eslint-disable-line react-hooks/exhaustive-deps
+  const behind = Boolean(traced && traced.key !== optionsKey);
+  const busy = busyFlows.includes(node.id);
+  const onGenerate = async () => {
+    if (picture && (!traced || behind)) {
+      setWorking(true);
+      // A frame to paint "Tracing…" before the work holds the page up.
+      await new Promise((resolve) => window.setTimeout(resolve, 20));
+      trace();
+      setWorking(false);
+    }
+    await generateFlow(node.id);
+  };
 
   const basis = graphBasis(artifact?.hash, data.options);
   const edited = data.basis === undefined || data.basis === basis;
@@ -169,7 +190,7 @@ export function LineGraphFlowEditor({ project, node }: { project: Project; node:
   const tallest = Math.max(1, ...histogram);
 
   return (
-    <EditorShell project={project} node={node} banner={blocked ? <div className="vt-sync-banner"><span>{blocked}</span></div> : undefined}>
+    <EditorShell project={project} node={node} onGenerate={onGenerate} banner={blocked ? <div className="vt-sync-banner"><span>{blocked}</span></div> : undefined}>
       <aside className="vt-editor-side">
         <div className="vt-section">
           <h3>Tracing</h3>
@@ -177,9 +198,29 @@ export function LineGraphFlowEditor({ project, node }: { project: Project; node:
           <Slider range="lineGraph.minConfidence" label="Surest pixels only" tip="lineGraph.minConfidence" value={data.options.minConfidence} format={(value) => `${Math.round(value * 100)}%`} onChange={(minConfidence) => setOptions({ minConfidence: Math.round(minConfidence * 100) / 100 })} />
           <Slider range="lineGraph.simplify" label="Simplify" tip="lineGraph.simplify" value={data.options.simplify} format={(value) => `${value.toFixed(1)} px`} onChange={(simplify) => setOptions({ simplify: Math.round(simplify * 10) / 10 })} />
           <Slider range="lineGraph.spur" label="Drop spurs shorter than" tip="lineGraph.spur" value={data.options.spur} format={(value) => `${Math.round(value)} px`} onChange={(spur) => setOptions({ spur: Math.round(spur) })} />
-          <button type="button" className="vt-btn is-ghost is-small" onClick={() => setOptions({ ...DEFAULT_LINE_GRAPH_OPTIONS })}>
-            Defaults
-          </button>
+          <div className="vt-row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+            <button type="button" className={`vt-btn is-small${!traced || (behind && !data.live) ? ' is-primary' : ''}`} disabled={!picture || working || busy} onClick={() => void onGenerate()}>
+              {working ? 'Tracing…' : busy ? 'Generating…' : 'Generate'}
+            </button>
+            <label className={`vt-switch${data.live ? ' is-on' : ''}`} title="Trace again whenever a setting changes">
+              <input type="checkbox" role="switch" checked={Boolean(data.live)} aria-checked={Boolean(data.live)} onChange={(event) => patch({ live: event.target.checked })} />
+              <span className="vt-switch-track" aria-hidden="true" />
+              Live
+            </label>
+            <span className="vt-spacer" />
+            <button type="button" className="vt-btn is-ghost is-small" onClick={() => setOptions({ ...DEFAULT_LINE_GRAPH_OPTIONS })}>
+              Defaults
+            </button>
+          </div>
+          <p className="vt-hint">
+            {data.live
+              ? 'Live: traced again as each setting changes. Generate writes it to the outputs.'
+              : !traced
+                ? 'Generate traces the lines and writes them to the outputs. Turn on Live to see them change as you move a setting.'
+                : behind
+                  ? 'The settings have changed since this was traced. Generate to trace it again and write it.'
+                  : 'Traced with these settings.'}
+          </p>
         </div>
 
         <div className="vt-section">

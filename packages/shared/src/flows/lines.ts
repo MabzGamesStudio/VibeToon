@@ -56,7 +56,32 @@ export interface LineOptions {
    * was found to be; 0 draws the whole width.
    */
   drawWidth?: number;
+  /**
+   * 1, the first algorithm. 2 adds to it: lines are coloured by the way they
+   * run, a wide band between two thinner lines running the same way is not a
+   * line (`sandwich`), and a patch must cover `minArea` pixels.
+   */
+  version?: 1 | 2;
+  /**
+   * Version 2: a band this many times as wide as the lines either side of it,
+   * running the same way, is the inside of a shape between two outlines, not a
+   * line. Lower drops more; 0 drops none.
+   */
+  sandwich?: number;
+  /** Version 2: the fewest pixels a patch must fill to be a line, not a dot. */
+  minArea?: number;
 }
+
+/** Which way a line runs, as version 2 colours it. 0 is no line. */
+export type LineDirection = 0 | 1 | 2 | 3;
+export const LINE_DIRECTION_NAMES = ['none', 'horizontal', 'vertical', 'diagonal'] as const;
+/** Each direction's colour, before it is shifted to blue by the line's width. */
+export const LINE_DIRECTION_COLOURS: Record<1 | 2 | 3, [number, number]> = {
+  // [red, green]: blue is kept for the width.
+  1: [255, 0],
+  2: [0, 255],
+  3: [255, 255],
+};
 
 export const DEFAULT_LINE_OPTIONS: LineOptions = {
   contrast: 18,
@@ -65,6 +90,9 @@ export const DEFAULT_LINE_OPTIONS: LineOptions = {
   ratio: 3,
   chunk: 48,
   drawWidth: 0,
+  version: 1,
+  sandwich: 2,
+  minArea: 6,
 };
 
 export interface LinesFlowData {
@@ -219,6 +247,10 @@ export interface LineResult {
    * across. 0 where there is no line.
    */
   lineWidth: Float32Array;
+  /** Which way each line pixel's line runs (`LINE_DIRECTION_NAMES`); 0 where there is none. */
+  direction: Uint8Array;
+  /** The algorithm that found them. */
+  version: 1 | 2;
   stats: {
     /** Pixels on a line, at any confidence. */
     linePixels: number;
@@ -288,6 +320,8 @@ export interface LineTracePatch {
   meanWidth: number;
   ratio: number;
   needed: number;
+  /** Version 2: the fewest pixels the patch must fill, else null. */
+  minArea: number | null;
   pass: boolean;
   /** 0..1 each, and the score from them. */
   reachScore: number;
@@ -331,7 +365,41 @@ const FAILED: Record<string, string> = {
   'A colour of its own': 'a blend, not a colour',
   'Unlike the colour before it': 'too like the colour before',
   'Unlike the colour after it': 'too like the colour after',
+  'Not a wide band between thinner lines': 'the inside of a shape between two outlines',
 };
+
+/** Whether a run is a crossing by the first seven tests (see `crossingChecks`). */
+function isCrossing(runs: readonly Run[], r: number, options: Required<LineOptions>): boolean {
+  if (r < 1 || r + 1 >= runs.length) return false;
+  const line = runs[r]!;
+  const next = runs[r + 1]!;
+  if (line.end - line.start > options.maxWidth) return false;
+  if (line.sharpIn <= 0 || next.sharpIn <= 0) return false;
+  const before = runs[r - 1]!;
+  if (isBlend(before.colour, line.colour, next.colour)) return false;
+  if (colourDistance(line.colour, before.colour) < options.contrast) return false;
+  return colourDistance(line.colour, next.colour) >= options.contrast;
+}
+
+/**
+ * Version 2: a crossing with a thinner crossing either side of it, in the same
+ * walk, at least `sandwich` times as wide as both — a filled shape between its
+ * outlines, not a line. Null when the test does not apply.
+ */
+function sandwiched(runs: readonly Run[], r: number, options: Required<LineOptions>): { before: number; after: number; across: number } | null {
+  if (options.version !== 2 || !(options.sandwich > 0)) return null;
+  const across = runs[r]!.end - runs[r]!.start;
+  if (!isCrossing(runs, r - 1, options) || !isCrossing(runs, r + 1, options)) return null;
+  const before = runs[r - 1]!.end - runs[r - 1]!.start;
+  const after = runs[r + 1]!.end - runs[r + 1]!.start;
+  return across >= options.sandwich * Math.max(before, after) ? { before, after, across } : null;
+}
+
+/** How many tests a run must pass to be a crossing, for these options. */
+export function crossingCheckCount(options: LineOptions): number {
+  const full = normaliseLineOptions(options);
+  return full.version === 2 && full.sandwich > 0 ? 8 : 7;
+}
 
 /**
  * The tests a run must pass to be a crossing, with their numbers — the same
@@ -356,7 +424,18 @@ export function crossingChecks(runs: readonly Run[], r: number, options: LineOpt
   const unlikeBefore = colourDistance(line.colour, before!.colour);
   if (!add('Unlike the colour before it', unlikeBefore >= options.contrast, `${unlikeBefore.toFixed(0)} apart (needs ${options.contrast}).`)) return checks;
   const unlikeAfter = colourDistance(line.colour, next!.colour);
-  add('Unlike the colour after it', unlikeAfter >= options.contrast, `${unlikeAfter.toFixed(0)} apart (needs ${options.contrast}).`);
+  if (!add('Unlike the colour after it', unlikeAfter >= options.contrast, `${unlikeAfter.toFixed(0)} apart (needs ${options.contrast}).`)) return checks;
+  const full = normaliseLineOptions(options);
+  if (full.version === 2 && full.sandwich > 0) {
+    const inside = sandwiched(runs, r, full);
+    add(
+      'Not a wide band between thinner lines',
+      inside === null,
+      inside
+        ? `${inside.across} px across between lines ${inside.before} and ${inside.after} px across, running the same way: ${full.sandwich}× as wide or more is the inside of a shape.`
+        : `Not ${full.sandwich}× as wide as thinner lines on both sides.`,
+    );
+  }
   return checks;
 }
 
@@ -370,12 +449,16 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
   // How far each line pixel is from the middle of its line, in pixels, read off
   // the walk that gave it its width.
   const centreOffset = new Float32Array(total);
+  // Which way each line pixel's line runs, read off the walk across it.
+  const lineDirection = new Uint8Array(total);
+  const checkCount = crossingCheckCount(options);
   let crossings = 0;
   const chunk = options.chunk;
   const chunksX = Math.ceil(width / chunk);
   const chunksY = Math.ceil(height / chunk);
   // Room round a chunk for the colours either side of a line at its border.
-  const context = options.maxWidth + 3;
+  // Version 2 looks at the lines either side of a band, and their far sides.
+  const context = options.version === 2 ? options.maxWidth * 3 + 5 : options.maxWidth + 3;
   // And for a line to show how long it is, beyond the chunk it was found in.
   const reach = Math.ceil(chunk / 2);
 
@@ -428,7 +511,7 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
               if (index >= 0) {
                 const run = runs.findIndex((candidate) => index >= candidate.start && index < candidate.end);
                 const checks = crossingChecks(runs, run, options);
-                const crossing = checks.every((check) => check.pass) && checks.length === 7;
+                const crossing = checks.every((check) => check.pass) && checks.length === checkCount;
                 note.walk = {
                   points: xs.map((px, k) => ({ x: px, y: ys[k]! })),
                   index,
@@ -445,13 +528,10 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
               const line = runs[r]!;
               const next = runs[r + 1]!;
               const across = line.end - line.start;
-              if (across > options.maxWidth) continue;
-              if (line.sharpIn <= 0 || next.sharpIn <= 0) continue;
-              const before = runs[r - 1]!;
-              // Its own colour: not a blend of the two either side.
-              if (isBlend(before.colour, line.colour, next.colour)) continue;
-              if (colourDistance(line.colour, before.colour) < options.contrast) continue;
-              if (colourDistance(line.colour, next.colour) < options.contrast) continue;
+              // Narrow, sharp both sides, a colour of its own unlike either
+              // side — and, in version 2, not the inside of a shape.
+              if (!isCrossing(runs, r, options)) continue;
+              if (sandwiched(runs, r, options)) continue;
               const sharp = Math.min(line.sharpIn, next.sharpIn);
               let marked = false;
               for (let p = line.start; p < line.end; p += 1) {
@@ -531,6 +611,8 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
             const unit = Math.hypot(ax, ay);
             const length = (maxAlong - minAlong) / unit + 1;
             const ratio = length / Math.max(1, meanWidth);
+            // Version 2: a patch must fill enough pixels to be a line, not a dot.
+            const bigEnough = options.version !== 2 || patch.length >= options.minArea;
             const tracing = note !== null && targetChunk !== null && cx === targetChunk.cx && cy === targetChunk.cy && patch.includes(targetAt);
             if (tracing) {
               const reachWould = Math.min(1, ratio / (options.ratio * 2));
@@ -541,13 +623,14 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
                 meanWidth,
                 ratio,
                 needed: options.ratio,
-                pass: ratio >= options.ratio,
+                minArea: options.version === 2 ? options.minArea : null,
+                pass: ratio >= options.ratio && bigEnough,
                 reachScore: reachWould,
                 sharpScore: sharpWould,
-                score: ratio >= options.ratio ? Math.max(0.2, Math.min(1, sharpWould * 0.5 + reachWould * 0.5)) : 0,
+                score: ratio >= options.ratio && bigEnough ? Math.max(0.2, Math.min(1, sharpWould * 0.5 + reachWould * 0.5)) : 0,
               };
             }
-            if (ratio < options.ratio) continue;
+            if (ratio < options.ratio || !bigEnough) continue;
             const reachScore = Math.min(1, ratio / (options.ratio * 2));
             for (const at of patch) {
               const px = at % width;
@@ -560,6 +643,8 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
               if (lineWidth[at] === 0 || across < lineWidth[at]!) {
                 lineWidth[at] = across;
                 centreOffset[at] = offsetAt[at]! * unit;
+                // Walking across horizontally finds a line running up and down.
+                lineDirection[at] = directionIndex === 0 ? 2 : directionIndex === 1 ? 1 : 3;
               }
               if (note && at === targetAt) {
                 note.score = score;
@@ -589,6 +674,8 @@ function detect(bitmap: Bitmap, input: Partial<LineOptions>, target: { x: number
     height,
     confidence,
     lineWidth,
+    direction: lineDirection,
+    version: options.version,
     stats: { linePixels, crossings, chunks: chunksX * chunksY, ms: Date.now() - started },
   };
   if (!target || !targetChunk) return { result, trace: null };
@@ -623,6 +710,9 @@ export function normaliseLineOptions(input: Partial<LineOptions>): Required<Line
     chunk: Math.max(8, Math.min(1024, Math.round(merged.chunk))),
     joinTolerance: Math.max(1, Math.min(100, input.joinTolerance ?? merged.contrast)),
     drawWidth: Math.max(0, Math.min(64, merged.drawWidth ?? 0)),
+    version: merged.version === 2 ? 2 : 1,
+    sandwich: Math.max(0, Math.min(20, merged.sandwich ?? 2)),
+    minArea: Math.max(1, Math.min(10_000, Math.round(merged.minArea ?? 6))),
   };
 }
 
@@ -647,7 +737,12 @@ export function lineImage(result: LineResult): Bitmap {
     const at = i * 4;
     const sure = result.confidence[i]!;
     const shade = widthShade(result.lineWidth[i]! || 1);
-    out[at] = Math.round(sure * 255 * (1 - shade));
+    // Version 2 colours a line by the way it runs; version 1 is all red. Either
+    // way it is shifted to blue the wider it is, and the blue is the width.
+    const way = result.version === 2 ? result.direction?.[i] ?? 0 : 0;
+    const [red, green] = way ? LINE_DIRECTION_COLOURS[way as 1 | 2 | 3] : [255, 0];
+    out[at] = Math.round(sure * red * (1 - shade));
+    out[at + 1] = Math.round(sure * green * (1 - shade));
     out[at + 2] = Math.round(sure * 255 * shade);
     out[at + 3] = 255;
   }
@@ -664,7 +759,8 @@ export function readLineImage(bitmap: Bitmap): { width: number; height: number; 
   const confidence = new Float32Array(total);
   const lineWidth = new Float32Array(total);
   for (let i = 0; i < total; i += 1) {
-    const r = bitmap.data[i * 4]!;
+    // The brighter of red and green: a version 2 line may be either, or both.
+    const r = Math.max(bitmap.data[i * 4]!, bitmap.data[i * 4 + 1]!);
     const b = bitmap.data[i * 4 + 2]!;
     const sum = r + b;
     if (sum === 0 || bitmap.data[i * 4 + 3]! === 0) continue;
@@ -700,6 +796,13 @@ export function linesReport(result: LineResult, options: LineOptions, source: st
     `| Chunk | ${options.chunk} px |`,
     `| Patch colour tolerance | ${options.joinTolerance ?? options.contrast} |`,
     `| Drawn width | ${options.drawWidth ? `${options.drawWidth} px across the middle` : 'the whole line'} |`,
+    `| Algorithm | version ${options.version ?? 1} |`,
+    ...(options.version === 2
+      ? [
+          `| Wide between thin lines | ${options.sandwich ? `dropped at ×${options.sandwich}` : 'kept'} |`,
+          `| Smallest patch | ${options.minArea ?? 6} px |`,
+        ]
+      : []),
     '',
     '| Confidence at least | Pixels |',
     '| --- | --- |',

@@ -145,6 +145,8 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('lines.chunk', 'Chunk size', LINES, 'What a line is', 8, 256, 8, 'px'),
   def('lines.joinTolerance', 'Patch colour tolerance', LINES, 'What a line is', 1, 100, 1),
   def('lines.drawWidth', 'Drawn width', LINES, 'What is drawn', 0, 32, 1, 'px'),
+  def('lines.sandwich', 'Wide between thin lines', LINES, 'Version 2', 0, 8, 0.1, '×'),
+  def('lines.minArea', 'Smallest patch', LINES, 'Version 2', 1, 400, 1, 'px'),
 
   // Line Graph
   def('lineGraph.minConfidence', 'Surest pixels only', LINE_GRAPH, 'Tracing', 0.05, 1, 0.05),
