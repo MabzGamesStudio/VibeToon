@@ -287,7 +287,7 @@ test('version 2 colours a line by the way it runs, shifted to blue by width, and
   assert.equal(v2.direction[10 * 80 + 20], 1, 'horizontal');
   assert.equal(v2.direction[34 * 80 + 60], 2, 'vertical');
   const image = lineImage(v2);
-  const pixel = (x: number, y: number) => [...image.data.slice((y * 80 + x) * 4, (y * 80 + x) * 4 + 3)];
+  const pixel = (x: number, y: number): [number, number, number] => { const at = (y * 80 + x) * 4; return [image.data[at]!, image.data[at + 1]!, image.data[at + 2]!]; };
   const [hr, hg, hb] = pixel(20, 10);
   assert.ok(hr > 0 && hg === 0 && hb > 0, `horizontal is red shifted to blue: ${pixel(20, 10)}`);
   const [vr, vg] = pixel(60, 34);
