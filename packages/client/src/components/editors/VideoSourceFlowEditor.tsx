@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import {
-  VIDEO_TYPES,
+  VIDEO_FILE_ACCEPT,
   emptyVideoSourceFlowData,
   formatMegabytes,
   summariseVideoSource,
@@ -48,8 +48,11 @@ export function VideoSourceFlowEditor({ project, node }: { project: Project; nod
 
   const onFile = (chosen: File | undefined) => {
     if (!chosen) return;
-    if (chosen.type && !chosen.type.startsWith('video/')) {
-      notify('error', `${chosen.type} is not a video.`);
+    // Some systems give a video no type, or a wrong one (a .ts file as text):
+    // the extension will do, and the server reads the bytes to be sure.
+    const extension = chosen.name.toLowerCase().match(/\.[a-z0-9]+$/)?.[0] ?? '';
+    if (chosen.type && !chosen.type.startsWith('video/') && !VIDEO_FILE_ACCEPT.split(',').includes(extension)) {
+      notify('error', `${chosen.name} is not a video.`);
       return;
     }
     // The file goes as it is: a video can be far too big to read into the page as text.
@@ -92,7 +95,7 @@ export function VideoSourceFlowEditor({ project, node }: { project: Project; nod
           <Field label="From this machine" hint="MP4, WebM, QuickTime, Ogg or Matroska — whatever this browser plays." tip="videoSource.upload">
             <input
               type="file"
-              accept={['video/*', ...Object.keys(VIDEO_TYPES)].join(',')}
+              accept={VIDEO_FILE_ACCEPT}
               onChange={(event) => {
                 onFile(event.target.files?.[0]);
                 event.target.value = '';

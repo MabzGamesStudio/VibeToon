@@ -111,3 +111,28 @@ export async function writeConcatFile(dir: string, clips: VideoClip[]): Promise<
   await writeFile(concatPath, buildConcatFile(clips), 'utf8');
   return concatPath;
 }
+
+/**
+ * Convert a video a browser cannot open (AVI, Windows Media, Flash, an MPEG
+ * stream) to an MP4 one can: H.264 picture, AAC sound, the index at the front
+ * so it can be read from the start. Null when ffmpeg is not installed or the
+ * conversion fails, and the file is kept as it came.
+ */
+export async function convertToMp4(bytes: Uint8Array, workDir: string): Promise<Uint8Array | null> {
+  if (!hasFfmpeg()) return null;
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises');
+  const dir = await mkdtemp(path.join(workDir, 'convert-'));
+  const input = path.join(dir, 'in');
+  const output = path.join(dir, 'out.mp4');
+  try {
+    await writeFile(input, bytes);
+    const ok = await new Promise<boolean>((resolve) => {
+      const child = spawn(FFMPEG_BIN, ['-y', '-i', input, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-c:a', 'aac', '-movflags', '+faststart', output], { stdio: 'ignore' });
+      child.on('error', () => resolve(false));
+      child.on('close', (code) => resolve(code === 0));
+    });
+    return ok ? new Uint8Array(await readFile(output)) : null;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}

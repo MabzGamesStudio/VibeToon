@@ -20,6 +20,7 @@ import {
 } from '@vibetoon/shared';
 import { fetchImage } from './net/fetchImage';
 import { fetchVideo } from './net/fetchVideo';
+import { playableVideo } from './net/playableVideo';
 import { fetchCorpus } from './text/corpusFetch';
 import {
   DEFAULT_LOOKUP_OPTIONS,
@@ -519,7 +520,8 @@ export function createApp(): express.Express {
   );
 
   /** Write uploaded bytes onto a flow's output port, and record them on the flow. */
-  const storeUpload = async (req: Request, requestedName: string | undefined, bytes: Uint8Array) => {
+  const storeUpload = async (req: Request, requestedName: string | undefined, uploaded: Uint8Array) => {
+    let bytes = uploaded;
     const project = await loadProject(param(req, 'id'));
     const node = nodeById(project, param(req, 'flowId'));
     if (!node) throw new HttpError(404, `No flow ${param(req, 'flowId')}`);
@@ -528,8 +530,10 @@ export function createApp(): express.Express {
     if (!port) throw new HttpError(404, `No output port ${param(req, 'portId')} on ${def.label}`);
 
     const kind: ArtifactKind = port.kinds[0]!;
-    const fileName = path.basename(requestedName || port.fileName || `${port.id}.bin`);
+    let fileName = path.basename(requestedName || port.fileName || `${port.id}.bin`);
     if (fileName.startsWith('.')) throw new HttpError(400, 'Invalid file name.');
+    // A video is kept as a browser can play it: converted, if it has to be.
+    if (kind === 'video') ({ bytes, fileName } = await playableVideo(bytes, fileName));
 
     const artifact = await writeArtifact({
       projectId: project.id,

@@ -1,10 +1,14 @@
-import type { CropRect, VideoSegment } from '@vibetoon/shared';
+import type { ClipFormat, CropRect, VideoSegment } from '@vibetoon/shared';
 import { loadVideo, releaseVideo, seek } from '../common/video';
 
-/** The best WebM this browser can record. */
-export function recordingType(): string | undefined {
+/**
+ * What to ask this browser's recorder for: the first of a format's types it
+ * can record, or with no format the best WebM. Undefined when it cannot.
+ */
+export function recordingType(format?: ClipFormat): string | undefined {
   if (typeof MediaRecorder === 'undefined') return undefined;
-  return ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((type) => MediaRecorder.isTypeSupported(type));
+  const types = format ? format.recorderTypes : ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  return types.find((type) => MediaRecorder.isTypeSupported(type));
 }
 
 export interface RenderProgress {
@@ -19,7 +23,7 @@ interface Recorder {
   finished: Promise<Blob>;
 }
 
-function recorderFor(canvas: HTMLCanvasElement, fps: number, type: string): Recorder {
+function recorderFor(canvas: HTMLCanvasElement, fps: number, type: string, contentType: string): Recorder {
   const stream = canvas.captureStream(fps);
   // About a tenth of a bit per pixel per frame: clean for drawn footage.
   const bits = Math.round(Math.min(12_000_000, Math.max(1_000_000, canvas.width * canvas.height * fps * 0.12)));
@@ -29,7 +33,7 @@ function recorderFor(canvas: HTMLCanvasElement, fps: number, type: string): Reco
     if (event.data.size > 0) chunks.push(event.data);
   };
   const finished = new Promise<Blob>((resolve) => {
-    recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
+    recorder.onstop = () => resolve(new Blob(chunks, { type: contentType }));
   });
   return { recorder, finished };
 }
@@ -152,11 +156,14 @@ export async function renderEdit(options: {
   crop: CropRect;
   fps: number;
   mode: 'joined' | 'clips';
+  /** What to record as; the best WebM when not given. */
+  format?: ClipFormat;
   onProgress(progress: RenderProgress): void;
   stopped(): boolean;
 }): Promise<Blob[]> {
-  const type = recordingType();
-  if (!type) throw new Error('this browser cannot record video');
+  const type = recordingType(options.format);
+  if (!type) throw new Error(options.format ? `this browser cannot record ${options.format.label}` : 'this browser cannot record video');
+  const contentType = options.format?.contentType ?? 'video/webm';
   const video = await loadVideo(options.url);
   // In the page, if only just: a video the browser thinks nobody can see may
   // have its decoding stopped while its clock runs on, and it would record the
@@ -172,7 +179,7 @@ export async function renderEdit(options: {
   const blobs: Blob[] = [];
   try {
     if (options.mode === 'joined') {
-      const { recorder, finished } = recorderFor(canvas, options.fps, type);
+      const { recorder, finished } = recorderFor(canvas, options.fps, type, contentType);
       for (const segment of options.segments) {
         if (options.stopped()) break;
         await playThrough(video, context, options.crop, segment, recorder, (seconds) => options.onProgress({ done: before + seconds, total, clip: 0 }), options.stopped);
@@ -183,7 +190,7 @@ export async function renderEdit(options: {
     } else {
       for (const [index, segment] of options.segments.entries()) {
         if (options.stopped()) break;
-        const { recorder, finished } = recorderFor(canvas, options.fps, type);
+        const { recorder, finished } = recorderFor(canvas, options.fps, type, contentType);
         await playThrough(video, context, options.crop, segment, recorder, (seconds) => options.onProgress({ done: before + seconds, total, clip: index }), options.stopped);
         before += segment.end - segment.start;
         if (recorder.state !== 'inactive') recorder.stop();

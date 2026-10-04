@@ -82,3 +82,19 @@ test('the notes say where it came from, and ask for credit for a fetched one', (
   assert.match(credited, /CC BY 4\.0, Example Films/);
   assert.match(videoSourceReport('Clip', emptyVideoSourceFlowData()), /No video yet/);
 });
+
+test('more video formats are recognised, and the ones a browser cannot open are marked for converting', async () => {
+  const { sniffVideoType, videoNeedsConversion, clipFormat, clipExtension } = await import('../src/flows/videoSource');
+  const bytes = (head: number[], length = 400) => { const b = new Uint8Array(length); b.set(head); return b; };
+  assert.equal(sniffVideoType(bytes([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x41, 0x56, 0x49, 0x20])), 'video/x-msvideo');
+  assert.equal(sniffVideoType(bytes([0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11])), 'video/x-ms-asf');
+  assert.equal(sniffVideoType(bytes([0x46, 0x4c, 0x56, 0x01])), 'video/x-flv');
+  assert.equal(sniffVideoType(bytes([0x00, 0x00, 0x01, 0xba])), 'video/mpeg');
+  const ts = bytes([0x47]); ts[188] = 0x47; ts[376] = 0x47;
+  assert.equal(sniffVideoType(ts), 'video/mp2t');
+  assert.equal(videoNeedsConversion('video/x-msvideo'), true);
+  assert.equal(videoNeedsConversion('video/webm'), false);
+  assert.equal(videoNeedsConversion(undefined), false);
+  assert.equal(clipFormat(undefined).id, 'webm-vp9');
+  assert.equal(clipExtension('mp4-h264'), 'mp4');
+});

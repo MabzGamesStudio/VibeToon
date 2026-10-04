@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Bitmap } from '@vibetoon/shared';
+import { VIDEO_FILE_ACCEPT, type Bitmap } from '@vibetoon/shared';
 
 /** A video element ready to be read from, at a URL, its length known. */
 export async function loadVideo(url: string): Promise<HTMLVideoElement> {
@@ -196,7 +196,7 @@ export function VideoUpload({
       {replace ? 'Replace the video' : 'Upload a video'}
       <input
         type="file"
-        accept="video/*"
+        accept={VIDEO_FILE_ACCEPT}
         style={{ display: 'none' }}
         onChange={(event) => {
           const file = event.target.files?.[0];

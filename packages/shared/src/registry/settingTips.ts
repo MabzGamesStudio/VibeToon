@@ -905,10 +905,6 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     what: 'How many pixels across the middle of each line are drawn in the output, however wide the line was found to be. 0 draws every line at its full width.',
     examples: ['0 — each line as wide as it was found.', '1–2 — a thin centre line for every stroke, whatever its width.', '4 — every stroke drawn 4 px wide, or its own width if thinner.'],
   },
-  'lines.version': {
-    what: 'Which algorithm finds the lines. Version 2 is version 1 and then more: each line coloured by the way it runs (red horizontal, green vertical, yellow diagonal, all shifted to blue the wider they are), a wide band between two thinner lines running the same way dropped, and patches too small to be more than a dot dropped.',
-    examples: ['1 — the first algorithm, red to blue by width.', '2 — coloured by direction, with the two extra tests.'],
-  },
   'lines.sandwich': {
     what: 'Version 2. A band at least this many times as wide as the lines on both sides of it, running the same way, is taken to be the inside of a shape between two outlines, not a line. Lower drops more; 0 drops none.',
     examples: ['0 — off: keep every band.', '2 — a good default: a fill twice as wide as its outlines is dropped.', '5 — only very wide fills between thin outlines are dropped.'],

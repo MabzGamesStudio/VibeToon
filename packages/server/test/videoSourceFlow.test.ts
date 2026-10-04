@@ -170,3 +170,23 @@ test('a raw upload with no bytes, or a path for a name, is refused', async () =>
   assert.equal(sneaky.status, 200, 'the name is cut to its last part');
   assert.equal(((await sneaky.json()) as { artifact: ArtifactRef }).artifact.fileName, 'settings.json');
 });
+
+test('a video a browser cannot play is converted to MP4 with ffmpeg, or refused with what to do', async () => {
+  const { hasFfmpeg } = await import('../src/render/video');
+  // An AVI header and nothing playable after it.
+  const avi = new Uint8Array(2048);
+  avi.set([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x41, 0x56, 0x49, 0x20]);
+  const response = await fetch(`${base}/api/projects/${project.id}/flows/${SOURCE}/outputs/video?name=${encodeURIComponent('old film.avi')}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/octet-stream' },
+    body: avi,
+  });
+  if (hasFfmpeg()) {
+    // A real ffmpeg cannot make a film of a bare header either: it says so.
+    assert.ok(response.status === 200 || response.status === 422, await response.clone().text());
+    if (response.status === 200) assert.match(((await response.json()) as { artifact: ArtifactRef }).artifact.fileName, /\.mp4$/);
+  } else {
+    assert.equal(response.status, 415);
+    assert.match(((await response.json()) as { error: string }).error, /AVI, which a browser cannot play.*ffmpeg/);
+  }
+});

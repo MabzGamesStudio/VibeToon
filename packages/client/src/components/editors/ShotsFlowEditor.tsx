@@ -5,6 +5,7 @@ import {
   embedFrame,
   emptyShotsFlowData,
   joinShots,
+  clipFormat,
   shotClipName,
   shotClipsWanted,
   shotsKey,
@@ -25,6 +26,7 @@ import { Field } from '../common/Field';
 import { Slider } from '../common/Slider';
 import { FrameReader, VideoUpload, clock, loadVideo, releaseVideo, useFileUpload, useVideoMeta } from '../common/video';
 import { EditorShell } from './EditorShell';
+import { ClipFormatPicker } from './ClipFormatPicker';
 import { ShotViewer } from './ShotViewer';
 import { blobDataUrl, recordingType, renderEdit, type RenderProgress } from './renderVideo';
 
@@ -112,8 +114,9 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
       await generateFlow(node.id);
       return;
     }
-    if (!recordingType()) {
-      notify('error', 'This browser cannot record video, so only the shots are written.');
+    const format = clipFormat(current.clipFormat);
+    if (!recordingType(format)) {
+      notify('error', `This browser cannot record ${format.label}, so only the shots are written. Pick another format under What comes out.`);
       await generateFlow(node.id);
       return;
     }
@@ -127,6 +130,7 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
         crop: { x: 0, y: 0, width: current.video.width - (current.video.width % 2), height: current.video.height - (current.video.height % 2) },
         fps: current.options.fps,
         mode: 'clips',
+        format,
         onProgress: setRecording,
         stopped: () => stopRecording.current,
       });
@@ -134,7 +138,7 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
         notify('info', 'Stopped. Nothing was written.');
         return;
       }
-      const attachments = await Promise.all(blobs.map(async (blob, index) => ({ name: `shots/${shotClipName(index)}`, data: await blobDataUrl(blob) })));
+      const attachments = await Promise.all(blobs.map(async (blob, index) => ({ name: `shots/${shotClipName(index, format.extension)}`, data: await blobDataUrl(blob) })));
       await generateFlow(node.id, attachments);
     } catch (reason) {
       notify('error', `Could not record the shots: ${(reason as Error).message}`);
@@ -348,6 +352,7 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
             <input type="checkbox" checked={clipsWanted} disabled={clipsWiredTo.length > 0} onChange={(event) => patch({ clips: event.target.checked })} />
             Each shot as a video of its own
           </label>
+          {clipsWanted ? <ClipFormatPicker label="Each clip as" value={data.clipFormat} onChange={(clipFormat) => patch({ clipFormat })} /> : null}
           {clipsWiredTo.length > 0 ? (
             <p className="vt-faint" style={{ fontSize: 11 }}>
               On, because Shot clips is wired to {clipsWiredTo.join(', ')}.

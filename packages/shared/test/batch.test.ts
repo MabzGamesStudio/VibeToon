@@ -264,3 +264,8 @@ test('keys become safe folder names, and a view of an item is never kept', () =>
   const saved = migrateProject({ ...project, nodes: project.nodes.map((n) => (n.id === 'bg' ? { ...bg, itemOf: 'clip-01.webm' } : n)) });
   assert.equal(saved.nodes[1]!.itemOf, undefined);
 });
+
+test('planned clip names follow the format they are to be recorded in', () => {
+  const node = { id: 's', kind: 'animation.video.shots', name: 'Shot Split', outputs: [], data: { editor: 'shots', video: { duration: 4 }, cuts: [2], clipFormat: 'mp4-h264' } } as never;
+  assert.deepEqual(plannedEntries(node, 'clips'), ['shot-01.mp4', 'shot-02.mp4']);
+});
