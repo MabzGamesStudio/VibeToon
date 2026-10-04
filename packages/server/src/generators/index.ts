@@ -18,6 +18,7 @@ import { generateResize } from './resize';
 import { generateCrop } from './crop';
 import { generateLines } from './lines';
 import { generateVideoBackground } from './videoBackground';
+import { generateBatchSelect } from './batchSelect';
 import { generateShots } from './shots';
 import { generateVideoSource } from './videoSource';
 import { generateVideoEdit } from './videoEdit';
@@ -68,6 +69,7 @@ const GENERATORS: Record<string, Generator> = {
   'art.crop': generateCrop,
   'art.lines': generateLines,
   'art.video.background': generateVideoBackground,
+  'production.batch.select': generateBatchSelect,
   'animation.video.shots': generateShots,
   'animation.video.source': generateVideoSource,
   'animation.video.edit': generateVideoEdit,

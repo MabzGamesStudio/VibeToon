@@ -36,13 +36,18 @@ export function emptyVideoSourceFlowData(): VideoSourceFlowData {
   return { editor: 'videoSource', source: null, description: '', credit: '' };
 }
 
-/** Formats a browser can generally play, and the extension each is stored with. */
+/** Every video format a file can be recognised as, and the extension each is stored with. */
 export const VIDEO_TYPES: Record<string, string> = {
   'video/mp4': 'mp4',
   'video/webm': 'webm',
   'video/quicktime': 'mov',
   'video/ogg': 'ogv',
   'video/x-matroska': 'mkv',
+  'video/x-msvideo': 'avi',
+  'video/x-ms-asf': 'wmv',
+  'video/x-flv': 'flv',
+  'video/mp2t': 'ts',
+  'video/mpeg': 'mpg',
 };
 
 const LABEL: Record<string, string> = {
@@ -51,7 +56,61 @@ const LABEL: Record<string, string> = {
   'video/quicktime': 'QuickTime',
   'video/ogg': 'Ogg',
   'video/x-matroska': 'Matroska',
+  'video/x-msvideo': 'AVI',
+  'video/x-ms-asf': 'Windows Media',
+  'video/x-flv': 'Flash Video',
+  'video/mp2t': 'MPEG transport stream',
+  'video/mpeg': 'MPEG',
 };
+
+/**
+ * Formats a browser can play (what is inside still has to be a codec it
+ * knows). Anything else is converted to MP4 when it arrives, where ffmpeg is
+ * installed, so every flow that reads a video can read it.
+ */
+export const BROWSER_VIDEO_TYPES: ReadonlySet<string> = new Set(['video/mp4', 'video/webm', 'video/quicktime', 'video/ogg', 'video/x-matroska']);
+
+/** True for a format a browser cannot open at all, which is converted on arrival. */
+export function videoNeedsConversion(contentType: string | undefined): boolean {
+  return contentType !== undefined && contentType in VIDEO_TYPES && !BROWSER_VIDEO_TYPES.has(contentType);
+}
+
+/** The file extensions a video can come in, for a file picker. */
+export const VIDEO_FILE_ACCEPT = ['video/*', '.mp4', '.m4v', '.mov', '.qt', '.webm', '.mkv', '.ogv', '.ogg', '.avi', '.wmv', '.asf', '.flv', '.ts', '.mts', '.m2ts', '.mpg', '.mpeg', '.3gp', '.3g2'].join(',');
+
+/**
+ * Formats a clip can be recorded in, in the browser. Each lists the types to
+ * ask the browser's recorder for, best first; one the browser cannot record
+ * is offered greyed out.
+ */
+export interface ClipFormat {
+  id: ClipFormatId;
+  label: string;
+  extension: string;
+  /** The type the file is labelled with. */
+  contentType: string;
+  /** What to ask the recorder for, best first. */
+  recorderTypes: readonly string[];
+}
+
+export type ClipFormatId = 'webm-vp9' | 'webm-vp8' | 'webm-av1' | 'mp4-h264' | 'mkv-h264';
+
+export const CLIP_FORMATS: readonly ClipFormat[] = [
+  { id: 'webm-vp9', label: 'WebM (VP9)', extension: 'webm', contentType: 'video/webm', recorderTypes: ['video/webm;codecs=vp9'] },
+  { id: 'webm-vp8', label: 'WebM (VP8)', extension: 'webm', contentType: 'video/webm', recorderTypes: ['video/webm;codecs=vp8', 'video/webm'] },
+  { id: 'webm-av1', label: 'WebM (AV1)', extension: 'webm', contentType: 'video/webm', recorderTypes: ['video/webm;codecs=av01', 'video/webm;codecs=av1'] },
+  { id: 'mp4-h264', label: 'MP4 (H.264)', extension: 'mp4', contentType: 'video/mp4', recorderTypes: ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/mp4'] },
+  { id: 'mkv-h264', label: 'Matroska (H.264)', extension: 'mkv', contentType: 'video/x-matroska', recorderTypes: ['video/x-matroska;codecs=avc1', 'video/x-matroska'] },
+];
+
+/** The extension a clip in this format is written with. */
+export function clipExtension(id: string | undefined): string {
+  return clipFormat(id).extension;
+}
+
+export function clipFormat(id: string | undefined): ClipFormat {
+  return CLIP_FORMATS.find((format) => format.id === id) ?? CLIP_FORMATS[0]!;
+}
 
 export function videoTypeLabel(contentType: string): string {
   return LABEL[contentType] ?? contentType;
@@ -75,6 +134,14 @@ export function sniffVideoType(bytes: Uint8Array): string | undefined {
     return head.includes('webm') ? 'video/webm' : 'video/x-matroska';
   }
   if (at(0, 0x4f, 0x67, 0x67, 0x53)) return 'video/ogg';
+  // RIFF....AVI
+  if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x41, 0x56, 0x49, 0x20)) return 'video/x-msvideo';
+  // ASF, which WMV is.
+  if (at(0, 0x30, 0x26, 0xb2, 0x75, 0x8e, 0x66, 0xcf, 0x11)) return 'video/x-ms-asf';
+  if (at(0, 0x46, 0x4c, 0x56, 0x01)) return 'video/x-flv';
+  // MPEG program stream; a transport stream syncs on 0x47 every 188 bytes.
+  if (at(0, 0x00, 0x00, 0x01, 0xba)) return 'video/mpeg';
+  if (bytes.length > 376 && bytes[0] === 0x47 && bytes[188] === 0x47 && bytes[376] === 0x47) return 'video/mp2t';
   // An old QuickTime file can start with a moov or mdat atom.
   if (at(4, 0x6d, 0x6f, 0x6f, 0x76) || at(4, 0x6d, 0x64, 0x61, 0x74) || at(4, 0x77, 0x69, 0x64, 0x65)) return 'video/quicktime';
   return undefined;

@@ -279,3 +279,46 @@ test('patch colour tolerance: a stroke that changes colour along its length join
   assert.ok(at(loose, 40, 20) > 0, 'one patch once the colours may join');
   assert.equal(normaliseLineOptions({ contrast: 30 }).joinTolerance, 30, 'missing, it follows the sharp change');
 });
+
+test('version 2 colours a line by the way it runs, shifted to blue by width, and reads back the same', () => {
+  // A 2 px horizontal stroke (rows 10–11) and a 2 px vertical one (columns 60–61).
+  const picture = paint(80, 48, (x, y) => ((y === 10 || y === 11) && x < 40) || ((x === 60 || x === 61) && y > 20) ? BLACK : WHITE);
+  const v2 = detectLines(picture, { ...DEFAULT_LINE_OPTIONS, version: 2 });
+  assert.equal(v2.direction[10 * 80 + 20], 1, 'horizontal');
+  assert.equal(v2.direction[34 * 80 + 60], 2, 'vertical');
+  const image = lineImage(v2);
+  const pixel = (x: number, y: number): [number, number, number] => { const at = (y * 80 + x) * 4; return [image.data[at]!, image.data[at + 1]!, image.data[at + 2]!]; };
+  const [hr, hg, hb] = pixel(20, 10);
+  assert.ok(hr > 0 && hg === 0 && hb > 0, `horizontal is red shifted to blue: ${pixel(20, 10)}`);
+  const [vr, vg] = pixel(60, 34);
+  assert.ok(vg > 0 && vr === 0, `vertical is green: ${pixel(60, 34)}`);
+  const back = readLineImage(image);
+  assert.ok(Math.abs(back.confidence[10 * 80 + 20]! - v2.confidence[10 * 80 + 20]!) < 0.02);
+  assert.ok(Math.abs(back.lineWidth[34 * 80 + 60]! - v2.lineWidth[34 * 80 + 60]!) < 0.6);
+  // Version 1 is as it was: red to blue, no green.
+  const v1 = lineImage(detectLines(picture, DEFAULT_LINE_OPTIONS));
+  assert.equal(v1.data[(34 * 80 + 60) * 4 + 1], 0);
+});
+
+test('version 2 drops a wide band between two thinner lines running the same way', () => {
+  // Down column 40: white, 2 px black, 8 px grey, 2 px black, white — a filled shape and its outlines.
+  const GREY: Rgb = [150, 150, 150];
+  const picture = paint(80, 60, (_x, y) => (y >= 20 && y < 22) || (y >= 30 && y < 32) ? BLACK : y >= 22 && y < 30 ? GREY : WHITE);
+  const options = { ...DEFAULT_LINE_OPTIONS, maxWidth: 10 };
+  assert.ok(at(detectLines(picture, options), 40, 25) > 0, 'version 1 keeps the band');
+  const v2 = detectLines(picture, { ...options, version: 2, sandwich: 2 });
+  assert.equal(at(v2, 40, 25), 0, 'version 2 drops it');
+  assert.ok(at(v2, 40, 20) > 0 && at(v2, 40, 31) > 0, 'and keeps the outlines');
+  assert.ok(at(detectLines(picture, { ...options, version: 2, sandwich: 0 }), 40, 25) > 0, 'sandwich 0 keeps it');
+  assert.ok(at(detectLines(picture, { ...options, version: 2, sandwich: 5 }), 40, 25) > 0, 'only 4× as wide: kept at ×5');
+  const trace = explainLinePixel(picture, { ...options, version: 2, sandwich: 2 }, 40, 25);
+  const across = trace.directions.find((direction) => direction.walk?.checks.some((check) => check.label === 'Not a wide band between thinner lines' && !check.pass));
+  assert.ok(across, 'Explain a pixel says why');
+});
+
+test('version 2 drops patches smaller than the smallest patch', () => {
+  // A 2 × 8 px dash: long enough for ×3, 16 px of fill.
+  const picture = paint(60, 40, (x, y) => (y === 20 || y === 21) && x >= 20 && x < 28 ? BLACK : WHITE);
+  assert.ok(at(detectLines(picture, { ...DEFAULT_LINE_OPTIONS, version: 2, minArea: 10 }), 24, 20) > 0);
+  assert.equal(at(detectLines(picture, { ...DEFAULT_LINE_OPTIONS, version: 2, minArea: 40 }), 24, 20), 0);
+});

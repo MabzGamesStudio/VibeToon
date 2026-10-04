@@ -71,6 +71,7 @@ export type EditorId =
   | 'videoSource'
   | 'videoEdit'
   | 'lineGraph'
+  | 'batchSelect'
   | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */

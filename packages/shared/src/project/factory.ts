@@ -1,3 +1,4 @@
+import { emptyBatchSelectFlowData } from '../flows/batchSelect';
 import { emptyBriefData } from '../flows/brief';
 import { emptyDialogData } from '../flows/dialog';
 import { emptyStoryboardData } from '../flows/storyboard';
@@ -122,6 +123,8 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyVideoEditFlowData();
     case 'lineGraph':
       return emptyLineGraphFlowData();
+    case 'batchSelect':
+      return emptyBatchSelectFlowData();
     default:
       return emptyBriefData(def);
   }

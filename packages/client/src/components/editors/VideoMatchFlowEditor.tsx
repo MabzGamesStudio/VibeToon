@@ -22,6 +22,7 @@ import {
   type VideoFrame,
   type VideoMatchFlowData,
   type VideoSampling,
+  VIDEO_FILE_ACCEPT,
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useStudio } from '../../state/store';
@@ -319,7 +320,7 @@ export function VideoMatchFlowEditor({ project, node }: { project: Project; node
       {source && !source.wired ? 'Replace the video' : 'Upload a video'}
       <input
         type="file"
-        accept="video/*"
+        accept={VIDEO_FILE_ACCEPT}
         style={{ display: 'none' }}
         onChange={(event) => {
           const file = event.target.files?.[0];

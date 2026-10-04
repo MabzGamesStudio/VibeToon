@@ -32,7 +32,7 @@ export async function generateVideoEdit(ctx: GenerationContext): Promise<Generat
     await writeArtifact({ projectId: ctx.project.id, flowId: ctx.node.id, port: 'edit', kind: 'json', fileName: 'edit.json', content: editFile(data) }),
   ];
 
-  const joined = ctx.attachments.find((attachment) => /^edited\.(webm|mp4)$/.test(attachment.name));
+  const joined = ctx.attachments.find((attachment) => /^edited\.(webm|mp4|mkv)$/.test(attachment.name));
   const clips = ctx.attachments.filter((attachment) => attachment.name.startsWith('clips/')).sort((a, b) => (a.name < b.name ? -1 : 1));
   if (data.output === 'joined' && joined) {
     outputs.push(await writeArtifact({ projectId: ctx.project.id, flowId: ctx.node.id, port: 'video', kind: 'video', fileName: joined.name, content: joined.bytes }));
@@ -56,5 +56,9 @@ export async function generateVideoEdit(ctx: GenerationContext): Promise<Generat
     ctx.warn('The edit has changed since the video was last recorded.');
   }
   ctx.log(summariseEdit(data));
+  // Which edit the files were recorded from is set here, in the run that writes
+  // them: set by the editor afterwards, it changed the data the run's signature
+  // was taken from, and the flow came out of its own Generate out of date.
+  if ((joined || clips.length > 0) && data.rendered !== editKey(data)) return { outputs, data: { ...data, rendered: editKey(data) } };
   return { outputs };
 }

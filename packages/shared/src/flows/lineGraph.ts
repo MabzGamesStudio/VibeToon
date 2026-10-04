@@ -458,6 +458,8 @@ export interface LineGraphFlowData {
   selected: string[];
   /** Show the filled areas under the lines. */
   showFill: boolean;
+  /** Trace again whenever a setting changes. Off, only Generate traces. */
+  live?: boolean;
 }
 
 export const MAX_GRAPH_WIDTH = FULL_BLUE_WIDTH;

@@ -203,6 +203,16 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
             A thin band of one colour, with a sharp change into it and a sharp change out of it, longer than it is wide.
             One colour meeting another is an edge, and a gradient changes gently: neither is a line.
           </p>
+          <div className="vt-row" style={{ gap: 8, alignItems: 'center', margin: '4px 0 8px' }}>
+            <span className="vt-faint" title="Version 2 is version 1, then lines coloured by the way they run, wide bands between thin lines dropped, and small patches dropped.">Algorithm</span>
+            <div className="vt-facet-values" role="radiogroup" aria-label="Algorithm version">
+              {([1, 2] as const).map((version) => (
+                <button key={version} type="button" className={`vt-chip${(data.options.version ?? 1) === version ? ' is-on' : ''}`} aria-pressed={(data.options.version ?? 1) === version} onClick={() => setOptions({ version })}>
+                  Version {version}
+                </button>
+              ))}
+            </div>
+          </div>
           <Slider
             range="lines.contrast"
             label="Sharp change"
@@ -251,6 +261,26 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
             format={(value) => (Math.round(value) === 0 ? 'whole line' : `${Math.round(value)} px`)}
             onChange={(drawWidth) => setOptions({ drawWidth: Math.round(drawWidth) })}
           />
+          {data.options.version === 2 ? (
+            <>
+              <Slider
+                range="lines.sandwich"
+                label="Wide between thin lines"
+                tip="lines.sandwich"
+                value={data.options.sandwich ?? 2}
+                format={(value) => (value <= 0 ? 'kept' : `×${value.toFixed(1)}`)}
+                onChange={(sandwich) => setOptions({ sandwich: Math.round(sandwich * 10) / 10 })}
+              />
+              <Slider
+                range="lines.minArea"
+                label="Smallest patch"
+                tip="lines.minArea"
+                value={data.options.minArea ?? 6}
+                format={(value) => `${Math.round(value)} px`}
+                onChange={(minArea) => setOptions({ minArea: Math.round(minArea) })}
+              />
+            </>
+          ) : null}
           <Slider
             range="lines.chunk"
             label="Chunk size"
@@ -281,12 +311,32 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
           <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
             {working ? 'Looking…' : result ? summariseLines(result.lines) : '—'}
           </p>
-          <div className="vt-lines-legend" aria-hidden="true">
-            <span>thin</span>
-            <i />
-            <span>{FULL_BLUE_WIDTH} px +</span>
-          </div>
-          <p className="vt-faint" style={{ fontSize: 11 }}>Black is no line. Brighter is surer.</p>
+          {data.options.version === 2 ? (
+            <div className="vt-lines-ways" aria-hidden="true">
+              {(
+                [
+                  ['Horizontal', '#ff0000', '#0000ff'],
+                  ['Vertical', '#00ff00', '#0000ff'],
+                  ['Diagonal', '#ffff00', '#0000ff'],
+                ] as const
+              ).map(([label, from, to]) => (
+                <div key={label} className="vt-lines-legend">
+                  <span style={{ minWidth: 74 }}>{label}</span>
+                  <i style={{ background: `linear-gradient(90deg, ${from}, ${to})` }} />
+                  <span>{FULL_BLUE_WIDTH} px +</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="vt-lines-legend" aria-hidden="true">
+              <span>thin</span>
+              <i />
+              <span>{FULL_BLUE_WIDTH} px +</span>
+            </div>
+          )}
+          <p className="vt-faint" style={{ fontSize: 11 }}>
+            Black is no line. Brighter is surer{data.options.version === 2 ? '; bluer is wider.' : '.'}
+          </p>
         </div>
       </aside>
 
@@ -366,7 +416,9 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
           </div>
         </Stage>
         <p className="vt-faint" style={{ marginTop: 8, fontSize: 11 }}>
-          Black is no line. A line is red when thin and blue when wide, brighter the surer. Toggle Original to compare, or lay the lines over the picture.
+          {data.options.version === 2
+            ? 'Black is no line. A line is red when horizontal, green when vertical and yellow when diagonal, shifted to blue the wider it is, and brighter the surer. Toggle Original to compare, or lay the lines over the picture.'
+            : 'Black is no line. A line is red when thin and blue when wide, brighter the surer. Toggle Original to compare, or lay the lines over the picture.'}
           {debug ? ' Click a pixel to see why it is, or is not, on a line.' : ''}
         </p>
         {debug && source ? (

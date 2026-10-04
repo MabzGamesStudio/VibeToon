@@ -4,6 +4,7 @@ import {
   DEFAULT_SHOT_OPTIONS,
   DEFAULT_VIDEO_SAMPLING,
   clampEditView,
+  clipFormat,
   clipName,
   detectShots,
   editShotCuts,
@@ -48,6 +49,7 @@ import { FrameReader, VideoUpload, clock, loadVideo, releaseVideo, useFileUpload
 import { svgPoint, useFitScale } from './CropFlowEditor';
 import { EditorShell } from './EditorShell';
 import { blobDataUrl, recordingType, renderEdit, type RenderProgress } from './renderVideo';
+import { ClipFormatPicker } from './ClipFormatPicker';
 
 const HANDLE_AT: Record<CropHandle, [number, number]> = {
   nw: [0, 0],
@@ -401,8 +403,9 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
       await generateFlow(node.id);
       return;
     }
-    if (!recordingType()) {
-      notify('error', 'This browser cannot record video, so only the edit is written.');
+    const format = clipFormat(current.clipFormat);
+    if (!recordingType(format)) {
+      notify('error', `This browser cannot record ${format.label}, so only the edit is written. Pick another format under What comes out.`);
       await generateFlow(node.id);
       return;
     }
@@ -410,16 +413,15 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
     player.current?.pause();
     setProgress({ done: 0, total: editedDuration(current), clip: 0 });
     try {
-      const blobs = await renderEdit({ url: videoUrl, segments: kept, crop: box, fps: current.fps, mode: current.output, onProgress: setProgress, stopped: () => stopping.current });
+      const blobs = await renderEdit({ url: videoUrl, segments: kept, crop: box, fps: current.fps, mode: current.output, format, onProgress: setProgress, stopped: () => stopping.current });
       if (stopping.current) {
         notify('info', 'Stopped. Nothing was written.');
         return;
       }
       const attachments =
         current.output === 'joined'
-          ? [{ name: 'edited.webm', data: await blobDataUrl(blobs[0]!) }]
-          : await Promise.all(blobs.map(async (blob, index) => ({ name: `clips/${clipName(index)}`, data: await blobDataUrl(blob) })));
-      patch({ rendered: editKey(current) });
+          ? [{ name: `edited.${format.extension}`, data: await blobDataUrl(blobs[0]!) }]
+          : await Promise.all(blobs.map(async (blob, index) => ({ name: `clips/${clipName(index, format.extension)}`, data: await blobDataUrl(blob) })));
       await generateFlow(node.id, attachments);
     } catch (reason) {
       notify('error', `Could not record the edit: ${(reason as Error).message}`);
@@ -592,6 +594,7 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
               </button>
             ))}
           </div>
+          <ClipFormatPicker value={data.clipFormat} onChange={(clipFormat) => patch({ clipFormat })} />
           <Field label="Frame rate" tip="videoEdit.fps" hint="Frames a second it is recorded at, and what a split snaps to.">
             <input type="number" min={1} max={60} value={data.fps} aria-label="Frame rate" onChange={(event) => patch({ fps: Math.max(1, Math.min(60, Number(event.target.value) || 30)) })} />
           </Field>

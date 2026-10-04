@@ -40,6 +40,16 @@ Wire its *Video* into any flow that takes one.
 
 ---
 
+## Any video comes in
+
+The file picker of every flow that reads a video takes any video file — MP4,
+WebM, QuickTime, Ogg, Matroska, AVI, Windows Media, Flash, MPEG streams —
+by its type or its extension. A browser can play the first five; the others
+are **converted to MP4 as they arrive** (uploaded or fetched) when ffmpeg is
+installed (set `VIBETOON_FFMPEG` if it is not on the `PATH`). Without ffmpeg
+such a file is turned away with what to do, rather than kept where no flow
+could play it.
+
 # Video Edit
 
 `animation.video.edit` · takes a **Video** (or upload one) · gives **`edited.webm`** or **`clips/`**, and **`edit.json`**
@@ -111,6 +121,14 @@ it, drag a handle to move that side or corner, or drag outside it to draw a new
 one; or type its left, top, width and height. Everything outside it is dimmed.
 The crop is the same for every frame, and its sides are kept even, which video
 encoders need.
+
+## Recorded as
+
+**Recorded as** (under *What comes out*) picks the format the edit, or each
+clip, is written in: WebM (VP9, VP8 or AV1), MP4 (H.264) or Matroska (H.264).
+One this browser cannot record is greyed out. The run that writes the files
+records which edit they came from, so the flow is up to date after its own
+Generate.
 
 ## What comes out
 

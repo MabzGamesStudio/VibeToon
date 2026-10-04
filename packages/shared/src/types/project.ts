@@ -27,6 +27,7 @@ import type { ShotsFlowData } from '../flows/shots';
 import type { VideoSourceFlowData } from '../flows/videoSource';
 import type { VideoEditFlowData } from '../flows/videoEdit';
 import type { LineGraphFlowData } from '../flows/lineGraph';
+import type { BatchSelectFlowData } from '../flows/batchSelect';
 import type { RigFlowData } from '../flows/rig';
 import type { TextFlowData } from './text';
 
@@ -226,7 +227,8 @@ export type FlowData =
   | ShotsFlowData
   | VideoSourceFlowData
   | VideoEditFlowData
-  | LineGraphFlowData;
+  | LineGraphFlowData
+  | BatchSelectFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph

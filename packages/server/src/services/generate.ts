@@ -91,7 +91,7 @@ async function runGenerator(
     const nextNode: FlowNode = {
       ...node,
       data: result.data ?? node.data,
-      outputs: mergeOutputs(node.outputs, result.outputs),
+      outputs: mergeOutputs(node.outputs.filter((ref) => !result.cleared?.includes(ref.port)), result.outputs),
     };
     const withNode: Project = {
       ...project,

@@ -1,3 +1,4 @@
+import type { ClipFormatId } from './videoSource';
 import type { Bitmap } from './cutout';
 import type { FlowNode, Project } from '../types/project';
 import { DEFAULT_VIDEO_SAMPLING, frameTimes, type VideoSampling } from './videoMatch';
@@ -231,6 +232,8 @@ export interface ShotsFlowData {
   clips: boolean;
   /** The shots the clips on the port were recorded from, to tell when they are behind. */
   recorded?: string;
+  /** What each clip is recorded as (`CLIP_FORMATS`); WebM (VP9) when not set. */
+  clipFormat?: ClipFormatId;
 }
 
 export function emptyShotsFlowData(): ShotsFlowData {
@@ -263,7 +266,8 @@ export function shotClipsWanted(project: Project, node: FlowNode): boolean {
 
 /** A key for the shots as cut: when it changes, the clips recorded from them are behind. */
 export function shotsKey(data: ShotsFlowData): string {
-  return JSON.stringify({ video: data.video?.hash, cuts: data.cuts });
+  // A clip recorded in another format is behind too.
+  return JSON.stringify({ video: data.video?.hash, cuts: data.cuts, ...(data.clipFormat && data.clipFormat !== 'webm-vp9' ? { format: data.clipFormat } : {}) });
 }
 
 export function normaliseShotOptions(input: Partial<ShotOptions>): ShotOptions {

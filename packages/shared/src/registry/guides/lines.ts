@@ -115,6 +115,14 @@ It is never below 20% once the pixel has passed every test, so a faint but real 
       body: `The picture is read in square chunks, each with a margin of the widest line plus three pixels, so the colours either side of a line on the border are seen. Chunks keep each walk short and local: a walk across a whole large picture would see so many colours that a small line could be merged into something far away.`,
     },
     {
+      heading: 'Version 2',
+      body: `Version 2 runs version 1 and then does three more things.
+
+- **Direction.** Each line pixel took its width from the walk that crossed it narrowest, and that walk says which way the line runs: walking across finds an up-and-down line, walking down finds a level one, and the diagonal walks find diagonal ones. The line is drawn red (horizontal), green (vertical) or yellow (diagonal), shifted to blue by its width. The Line Graph reads the brighter of red and green plus blue as the confidence, so it reads either version.
+- **Wide between thin lines.** A filled shape between two outlines looks, along a walk, like thin line – wide band – thin line: all three sharp-sided, all three a colour of their own. A band that is at least **Wide between thin lines** times as wide as the crossings on both sides of it, in the same walk, is the inside of the shape, and is not a line.
+- **Smallest patch.** After the crossings are joined into patches — every neighbour, diagonals included — a patch must fill at least **Smallest patch** pixels, so a dot is not a line however its sides look.`,
+    },
+    {
       heading: 'What it gets wrong',
       body: `- A line drawn with a soft brush, fading in over several pixels, has no sharp change: raise **Flatness** and lower **Sharp change**, or it is not found.
 - Two lines closer together than their width are read as one wider line.
@@ -127,6 +135,11 @@ It is never below 20% once the pixel has passed every test, so a faint but real 
     { name: 'Widest line', effect: 'The widest run that can be a line. Wider is an area.' },
     { name: 'Longer than wide by', effect: 'How many times longer than wide a patch must be. Higher drops dashes and specks; too high drops short strokes.' },
     { name: 'Chunk size', effect: 'The side of the squares the picture is read in. Smaller is more local; a line must still fit its length within about a chunk and a half.' },
+    { name: 'Patch colour tolerance', effect: 'How different neighbouring crossings may be and still join one patch for the longer-than-wide test. Higher joins a stroke that shades along its length.' },
+    { name: 'Drawn width', effect: 'Draw only this many pixels across the middle of each line; 0 draws the whole width.' },
+    { name: 'Algorithm', effect: 'Version 1, or version 2: coloured by direction, wide bands between thin lines dropped, small patches dropped.' },
+    { name: 'Wide between thin lines (v2)', effect: 'A band this many times as wide as thinner lines on both sides of it, running the same way, is dropped as the inside of a shape. 0 keeps it.' },
+    { name: 'Smallest patch (v2)', effect: 'The fewest pixels a patch, joined 8 ways, must fill to be a line rather than a dot.' },
   ],
   cost: 'Each pixel is visited once per walk (four times) for the runs, and again when patches are joined: time grows with the number of pixels. A million pixels take well under a second.',
   resources: [

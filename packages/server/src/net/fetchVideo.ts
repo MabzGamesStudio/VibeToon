@@ -1,6 +1,7 @@
 import { sniffVideoType, videoNameFrom } from '@vibetoon/shared';
 import { recordApiCall } from '../logs';
 import { HttpError } from '../storage';
+import { playableVideo } from './playableVideo';
 import { guardedUrl } from './guardedUrl';
 
 /** The largest video a link may bring in. */
@@ -78,9 +79,16 @@ export async function fetchVideo(url: string, fetchImpl: typeof fetch = fetch): 
       422,
       looksLikeHtml
         ? 'That address returned a web page, not a video. Use the address of the video file itself — a page that plays a video is not the video.'
-        : 'That address returned something that is not a video this studio can read (MP4, WebM, QuickTime, Ogg or Matroska).',
+        : 'That address returned something that is not a video this studio can read (MP4, WebM, QuickTime, Ogg, Matroska, AVI, Windows Media, Flash or MPEG).',
     );
   }
   log('ok', { status: response.status, bytes: bytes.byteLength });
-  return { bytes, contentType, fileName: videoNameFrom(parsed, contentType), url: parsed.toString() };
+  // Kept as a browser can play it: converted to MP4 if it has to be.
+  const playable = await playableVideo(bytes, videoNameFrom(parsed, contentType));
+  return {
+    bytes: playable.bytes,
+    contentType: playable.convertedFrom ? 'video/mp4' : contentType,
+    fileName: playable.fileName,
+    url: parsed.toString(),
+  };
 }

@@ -1,3 +1,4 @@
+import { clipExtension, type ClipFormatId } from './videoSource';
 import { clampRect, type CropRect } from './crop';
 
 /**
@@ -40,6 +41,8 @@ export interface VideoEditFlowData {
   rendered?: string;
   /** The shot cuts found in the video, by time, and which video they were found in. */
   shots?: { hash?: string; cuts: number[] };
+  /** What the edit, or each clip, is recorded as (`CLIP_FORMATS`); WebM (VP9) when not set. */
+  clipFormat?: ClipFormatId;
 }
 
 export const DEFAULT_EDIT_FPS = 30;
@@ -182,7 +185,7 @@ export function videoCropRect(data: VideoEditFlowData): CropRect | null {
 
 /** A key for an edit: when it changes, what was rendered is out of date. */
 export function editKey(data: VideoEditFlowData): string {
-  return JSON.stringify({ video: data.video?.hash, crop: videoCropRect(data), keep: keptSegments(data), output: data.output, fps: data.fps });
+  return JSON.stringify({ video: data.video?.hash, crop: videoCropRect(data), keep: keptSegments(data), output: data.output, fps: data.fps, ...(data.clipFormat && data.clipFormat !== 'webm-vp9' ? { format: data.clipFormat } : {}) });
 }
 
 export function clipName(index: number, extension = 'webm'): string {
@@ -202,7 +205,7 @@ export function editFile(data: VideoEditFlowData): string {
       crop: videoCropRect(data),
       output: data.output,
       fps: data.fps,
-      keep: kept.map((segment, index) => ({ start: segment.start, end: segment.end, ...(data.output === 'clips' ? { clip: clipName(index) } : {}) })),
+      keep: kept.map((segment, index) => ({ start: segment.start, end: segment.end, ...(data.output === 'clips' ? { clip: clipName(index, clipExtension(data.clipFormat)) } : {}) })),
       deleted: editSegments(data, data.video?.duration ?? 0)
         .filter((segment) => segment.deleted)
         .map((segment) => ({ start: segment.start, end: segment.end })),

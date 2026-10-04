@@ -391,6 +391,24 @@ itself; **over the picture** lays the lines over it. A PNG is read on the server
 as well; any other format is worked out in the editor and sent with the run. A
 picture a million pixels in size takes well under a second.
 
+## Version 2
+
+**Algorithm** picks the version. Version 2 is version 1, then:
+
+- **Coloured by direction.** A line is red when it runs horizontally, green
+  when it runs vertically and yellow when it runs diagonally — the direction
+  of the walk across it that found it narrowest — and shifted to blue the
+  wider it is, brighter the surer. The Line Graph reads it back as before:
+  the brighter of red and green, plus blue, is the confidence, and the blue
+  share the width.
+- **Wide between thin lines.** A band with a thinner line on each side of it,
+  running the same way, at least this many times as wide as both, is the
+  inside of a shape between its outlines, not a line, and is dropped (0
+  keeps it). Explain a pixel shows this as an eighth check.
+- **Smallest patch.** A patch — crossings joined to their neighbours, the
+  diagonal ones included — must fill at least this many pixels to be a line
+  rather than a dot.
+
 ## Explain a pixel
 
 Press **Explain a pixel** over the picture and click any pixel (a drag still
@@ -573,6 +591,11 @@ five-entry palette; this one leaves 5.
 
 Any palette color can be switched off, which is how you ask a narrow question of
 a wide palette. The editor shows how many pixels landed on each.
+
+
+Tracing a big picture takes a while, so it is done when **Generate** is
+pressed, not as a setting moves — unless **Live** is on (it is off to begin
+with), when it is traced again a moment after each setting stops moving.
 
 ## Reading a palette
 

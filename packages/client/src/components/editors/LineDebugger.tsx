@@ -339,10 +339,22 @@ function WalkStages({ source, trace, direction, colour }: { source: Bitmap; trac
                 <dd>
                   {patch.length.toFixed(1)} ÷ {Math.max(1, patch.meanWidth).toFixed(2)} = <b>{patch.ratio.toFixed(2)}×</b> (needs {patch.needed}×)
                 </dd>
+                {patch.minArea !== null ? (
+                  <>
+                    <dt>Fills</dt>
+                    <dd>
+                      {patch.pixels.length} px (needs {patch.minArea})
+                    </dd>
+                  </>
+                ) : null}
               </dl>
               <RatioBar ratio={patch.ratio} needed={patch.needed} />
               <p className={`vt-line-because ${patch.pass ? 'is-yes' : 'is-no'}`}>
-                {patch.pass ? 'Long enough: a stroke, not a speck.' : 'Too short for its width — a speck or a dash — so this walk gives the pixel nothing.'}
+                {patch.pass
+                  ? 'Long enough, and big enough: a stroke, not a speck.'
+                  : patch.ratio >= patch.needed && patch.minArea !== null && patch.pixels.length < patch.minArea
+                    ? `It fills only ${patch.pixels.length} pixel(s), fewer than ${patch.minArea}: a dot, not a line.`
+                    : 'Too short for its width — a speck or a dash — so this walk gives the pixel nothing.'}
               </p>
             </>
           ) : (
