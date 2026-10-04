@@ -5,7 +5,7 @@ import {
   backgroundReport,
   commonestBackground,
   emptyVideoBackgroundFlowData,
-  frameTimes,
+  clipFrameTimes,
   nearestFrame,
   newId,
   videoSourceOf,
@@ -24,7 +24,8 @@ import { useStudio } from '../../state/store';
 import { pngDataUrl } from '../common/pixels';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
-import { FrameReader, VideoUpload, clock, loadVideo, releaseVideo, useFileUpload, useVideoMeta } from '../common/video';
+import { VideoUpload, clock, useFileUpload } from '../common/video';
+import { openClip, useClipProbe, type OpenClip } from '../common/clip';
 import { paintBitmap, svgPoint, useFitScale } from './CropFlowEditor';
 import { EditorShell } from './EditorShell';
 
@@ -73,9 +74,11 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
 
   const source = videoSourceOf(project, node);
   const videoUrl = source ? api.artifactUrl(project.id, source.artifact.path) : null;
-  const { meta, error: videoError } = useVideoMeta(videoUrl);
+  // The clip is probed for where its frames are; the times read are worked out inside that.
+  const { probe, error: videoError } = useClipProbe(videoUrl);
+  const meta = probe?.meta ?? null;
   const upload = useFileUpload((fileName, body) => uploadOutput(node.id, 'source', fileName, body), (message) => notify('error', message));
-  const times = useMemo(() => (meta ? frameTimes(meta.duration, data.sampling) : []), [meta, data.sampling]);
+  const times = useMemo(() => (probe ? clipFrameTimes(probe.span, data.sampling) : []), [probe, data.sampling]);
 
   /* ---------------- reading the frames ---------------- */
 
@@ -87,28 +90,29 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
     stopping.current = false;
     const size = backgroundFrameSize(meta, times.length);
     setRunning({ done: 0, total: times.length });
-    let video: HTMLVideoElement;
+    // Each frame is taken from the clip at its time, and only once it is the
+    // frame the clip shows then (see `openClip`).
+    let clip: OpenClip;
     try {
-      video = await loadVideo(videoUrl);
+      clip = await openClip(videoUrl);
     } catch (reason) {
       setRunning(null);
       notify('error', `Could not read the video: ${(reason as Error).message}`);
       return [];
     }
-    const reader = new FrameReader(video, size.width, size.height);
-    const thumbs = new FrameReader(video, 96, Math.max(1, Math.round((96 * size.height) / size.width)));
+    const thumbHeight = Math.max(1, Math.round((96 * size.height) / size.width));
     const got: ReadFrame[] = [];
     try {
       for (const time of times) {
         if (stopping.current) break;
-        const bitmap = await reader.read(time);
-        got.push({ time, bitmap, thumb: await thumbs.thumbnail(time, 0.6) });
+        const { bitmap } = await clip.frame(time, size.width, size.height);
+        got.push({ time, bitmap, thumb: clip.thumbnail(96, thumbHeight) });
         setRunning({ done: got.length, total: times.length });
       }
     } catch (reason) {
       notify('error', `Could not read every frame: ${(reason as Error).message}`);
     } finally {
-      releaseVideo(video);
+      clip.close();
       setRunning(null);
     }
     if (got.length === 0) return [];
