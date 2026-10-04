@@ -6,6 +6,7 @@ import {
   commonestBackground,
   emptyVideoBackgroundFlowData,
   clipFrameTimes,
+  clipLength,
   nearestFrame,
   newId,
   videoSourceOf,
@@ -86,20 +87,24 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
   const [running, setRunning] = useState<{ done: number; total: number } | null>(null);
   const stopping = useRef(false);
   const read = useCallback(async (): Promise<ReadFrame[]> => {
-    if (!videoUrl || !meta || !source) return [];
+    if (!videoUrl || !source) return [];
     stopping.current = false;
-    const size = backgroundFrameSize(meta, times.length);
-    setRunning({ done: 0, total: times.length });
-    // Each frame is taken from the clip at its time, and only once it is the
-    // frame the clip shows then (see `openClip`).
+    // Each frame is taken from the clip at its time, once the clip shows it
+    // (see `openClip`). The times are worked out from the clip opened here,
+    // not from the one probed for the editor: going from one item of a batch
+    // to the next, that can still be the item before, and its times laid on
+    // this clip bunched every frame into the start of it or past its end.
     let clip: OpenClip;
     try {
       clip = await openClip(videoUrl);
     } catch (reason) {
-      setRunning(null);
       notify('error', `Could not read the video: ${(reason as Error).message}`);
       return [];
     }
+    const times = clipFrameTimes(clip.span, dataRef.current.sampling);
+    const clipMeta = { duration: clipLength(clip.span), width: clip.width, height: clip.height };
+    const size = backgroundFrameSize(clipMeta, times.length);
+    setRunning({ done: 0, total: times.length });
     const thumbHeight = Math.max(1, Math.round((96 * size.height) / size.width));
     const got: ReadFrame[] = [];
     try {
@@ -120,13 +125,13 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
     const was = dataRef.current;
     const sameVideo = was.video?.hash === source.artifact.hash && was.frameSize?.width === size.width && was.frameSize?.height === size.height;
     patch({
-      video: { hash: source.artifact.hash, duration: meta.duration, width: meta.width, height: meta.height },
+      video: { hash: source.artifact.hash, duration: clipMeta.duration, width: clipMeta.width, height: clipMeta.height },
       frameSize: size,
       // Marks are in frame pixels, so they only carry over at the same size.
       ...(sameVideo ? {} : { marks: [], current: null }),
     });
     return got;
-  }, [meta, notify, patch, source, times, videoUrl]);
+  }, [notify, patch, source, videoUrl]);
 
   /* ---------------- the background ---------------- */
 

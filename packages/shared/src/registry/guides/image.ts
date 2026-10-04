@@ -385,8 +385,8 @@ export const VIDEO_BACKGROUND_GUIDE: AlgorithmGuide = {
       kind: 'loop',
       title: 'For each time',
       steps: [
-        { kind: 'step', title: 'Seek to a quarter of a frame past it, and wait for a frame to be shown' },
-        { kind: 'decision', title: 'Is the frame shown the one asked for?', no: 'Seek again, to the middle of it.' },
+        { kind: 'step', title: 'Seek to a quarter of a frame past it', detail: 'And wait for the seek to finish, however long a recorded clip takes to decode to it.' },
+        { kind: 'step', title: 'Wait for the frame to be shown', detail: 'It is the last frame at or before the time: the right one. Each read has its frame before the next seek.' },
         { kind: 'step', title: 'Draw it', detail: 'No bigger than all the frames together fit in 40 million pixels.' },
       ],
     },
@@ -413,7 +413,7 @@ export const VIDEO_BACKGROUND_GUIDE: AlgorithmGuide = {
   ],
   pseudocode: `span   = probe(clip)            # first shown, last shown, frame length
 times  = clip_frame_times(span, fps or total)   # on the clip's own frames
-frames = [frame_shown_at(clip, t) for t in times]   # checked against t
+frames = [frame_shown_at(clip, t) for t in times]   # seek, wait for it, then copy
 # each at the budgeted size
 for each pixel p:
   groups = []                                # (sum of colours, count)
