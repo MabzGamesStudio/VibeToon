@@ -1,4 +1,5 @@
 import type { AlgorithmGuide } from '../guides';
+import { BATCH_SELECT_GUIDE } from './batch';
 import { CROP_GUIDE, CUTOUT_GUIDE, PALETTE_FILTER_GUIDE, PALETTE_GUIDE, RESIZE_GUIDE, VIDEO_BACKGROUND_GUIDE } from './image';
 import { LINES_GUIDE } from './lines';
 import { BIND_GUIDE, FACE_GUIDE, PARTS_GUIDE, POSE_GUIDE, RIG_GUIDE } from './rig';
@@ -15,6 +16,7 @@ export const ALGORITHM_GUIDES: readonly AlgorithmGuide[] = [
   RIG_GUIDE, BIND_GUIDE, POSE_GUIDE, PARTS_GUIDE, FACE_GUIDE,
   CORPUS_GUIDE, LEXICON_GUIDE, DICTIONARY_GUIDE, GRAMMAR_GUIDE, RANDOM_TEXT_GUIDE,
   TIMELINE_GUIDE, WORLD_MAP_GUIDE, STORYBOARD_GUIDE,
+  BATCH_SELECT_GUIDE,
 ];
 
 export function guideFor(kind: string): AlgorithmGuide | undefined {

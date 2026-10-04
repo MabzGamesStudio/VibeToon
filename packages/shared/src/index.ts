@@ -49,6 +49,7 @@ export * from './flows/crop';
 export * from './flows/lines';
 export * from './flows/videoBackground';
 export * from './flows/clipFrames';
+export * from './flows/batchSelect';
 export * from './flows/shots';
 export * from './flows/videoSource';
 export * from './flows/videoEdit';

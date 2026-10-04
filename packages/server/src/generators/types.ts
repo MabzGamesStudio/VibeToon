@@ -31,6 +31,11 @@ export interface GenerationResult {
   outputs: ArtifactRef[];
   /** Set when the generator also updated the flow's own editor state. */
   data?: FlowData;
+  /**
+   * Ports this run left empty on purpose, whose old files must go: what is
+   * not written otherwise stays, as an upload on a flow's own port should.
+   */
+  cleared?: string[];
 }
 
 export type Generator = (ctx: GenerationContext) => Promise<GenerationResult>;

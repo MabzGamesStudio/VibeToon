@@ -269,6 +269,10 @@ export function normaliseFlowData(data: FlowData): FlowData {
         selected: data.selected ?? null,
       };
     }
+    case 'batchSelect': {
+      if (Array.isArray(data.excluded) && typeof data.filter === 'string') return data;
+      return { ...data, excluded: Array.isArray(data.excluded) ? data.excluded : [], filter: typeof data.filter === 'string' ? data.filter : '' };
+    }
     case 'lineGraph': {
       const base = emptyLineGraphFlowData();
       const options = fill(data.options, DEFAULT_LINE_GRAPH_OPTIONS);

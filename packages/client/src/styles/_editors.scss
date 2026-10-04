@@ -4262,3 +4262,74 @@ input.is-invalid {
     background: #fff;
   }
 }
+
+/* ---------------- Batch Select ---------------- */
+
+.vt-select-main {
+  overflow: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.vt-select-source h4 {
+  margin: 0;
+  font-size: 13px;
+}
+.vt-select-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.vt-select-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border: 2px solid $line;
+  border-radius: 6px;
+  background: $bg-2;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  opacity: 0.55;
+  &.is-on {
+    border-color: $accent;
+    background: $accent-soft;
+    opacity: 1;
+  }
+  &.is-waiting {
+    border-style: dashed;
+  }
+}
+.vt-select-preview {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: 4px;
+  background: repeating-conic-gradient(#2a2c33 0% 25%, #22242a 0% 50%) 50% / 12px 12px;
+  img,
+  video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: none;
+  }
+}
+.vt-select-none {
+  font-size: 11px;
+  opacity: 0.7;
+}
+.vt-select-label {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  input {
+    margin: 0 2px 0 0;
+    vertical-align: -2px;
+    pointer-events: none;
+  }
+}

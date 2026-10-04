@@ -1206,6 +1206,22 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     ],
   },
   {
+    kind: 'production.batch.select',
+    category: 'production',
+    label: 'Batch Select',
+    summary: 'Any number of batches or folders in, combined into one: tick the items to keep. The ticked ones go on as one batch, and the rest on a port of their own.',
+    inputs: [
+      input('items', 'Items', ['imageSet', 'videoSet', 'audioSet'], 'Folders or batches to choose from: wire in as many as you like, and their items are listed together.'),
+    ],
+    outputs: [
+      output('selected', 'Selected', ['imageSet', 'videoSet', 'audioSet'], 'selected', 'The items ticked, as one folder: into a flow that takes one file, a batch.'),
+      output('rest', 'The rest', ['imageSet', 'videoSet', 'audioSet'], 'rest', 'The items left out, as a folder of their own.'),
+      output('report', 'Report', ['markdown'], 'selection.md', 'What was chosen, from where.'),
+    ],
+    editor: 'batchSelect',
+    maturity: 'editor',
+  },
+  {
     kind: 'production.assets',
     category: 'production',
     label: 'Asset Library',
