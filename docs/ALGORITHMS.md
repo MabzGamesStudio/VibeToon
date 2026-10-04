@@ -763,47 +763,45 @@ flowchart TD
   s3["Plan the times"]
   s2 --> s3
   subgraph s4["↻ For each time"]
-    s5["Seek to a quarter of a frame past it, and wait for a frame to be shown"]
-    s6{"Is the frame shown the one asked for?"}
-    s7["Seek again, to the middle of it."]
-    s6 -- no --> s7
+    s5["Seek to a quarter of a frame past it"]
+    s6["Wait for the frame to be shown"]
     s5 --> s6
-    s8["Draw it"]
-    s6 --> s8
+    s7["Draw it"]
+    s6 --> s7
   end
-  s8 -. next .-> s5
+  s7 -. next .-> s5
   s3 --> s5
-  subgraph s9["↻ For each pixel"]
-    subgraph s10["↻ For each frame"]
-      s11["Join the first group within the tolerance of its average, or start a group"]
+  subgraph s8["↻ For each pixel"]
+    subgraph s9["↻ For each frame"]
+      s10["Join the first group within the tolerance of its average, or start a group"]
     end
-    s11 -. next .-> s11
-    s12["Take the biggest group"]
+    s10 -. next .-> s10
+    s11["Take the biggest group"]
+    s10 --> s11
+    s12{"In at least the agreement share of the frames?"}
+    s13["No colour is common enough: the pixel is clear."]
+    s12 -- no --> s13
     s11 --> s12
-    s13{"In at least the agreement share of the frames?"}
-    s14["No colour is common enough: the pixel is clear."]
-    s13 -- no --> s14
-    s12 --> s13
-    s15["The pixel is the group’s average colour"]
-    s13 --> s15
+    s14["The pixel is the group’s average colour"]
+    s12 --> s14
   end
-  s15 -. next .-> s11
-  s8 --> s11
-  subgraph s16["↻ For each mark, in the order made"]
-    s17["Paint in: take its frame’s pixels; erase: clear them"]
+  s14 -. next .-> s10
+  s7 --> s10
+  subgraph s15["↻ For each mark, in the order made"]
+    s16["Paint in: take its frame’s pixels; erase: clear them"]
   end
-  s17 -. next .-> s17
-  s15 --> s17
-  s18(["background.png, and the report"])
-  s17 --> s18
+  s16 -. next .-> s16
+  s14 --> s16
+  s17(["background.png, and the report"])
+  s16 --> s17
 ```
 
 - *In:* The video
 - Probe the clip — When its first and last frames are shown, and how long a frame lasts — as the browser shows them, not as a header says.
 - Plan the times — So many in all from the first frame to the last, or so many a second from the first; each on one of the clip’s frames, none twice.
 - **↻ For each time**
-  - Seek to a quarter of a frame past it, and wait for a frame to be shown
-  - **Is the frame shown the one asked for?** *If not:* Seek again, to the middle of it.
+  - Seek to a quarter of a frame past it — And wait for the seek to finish, however long a recorded clip takes to decode to it.
+  - Wait for the frame to be shown — It is the last frame at or before the time: the right one. Each read has its frame before the next seek.
   - Draw it — No bigger than all the frames together fit in 40 million pixels.
 - **↻ For each pixel**
   - **↻ For each frame**
@@ -820,7 +818,7 @@ flowchart TD
 ```
 span   = probe(clip)            # first shown, last shown, frame length
 times  = clip_frame_times(span, fps or total)   # on the clip's own frames
-frames = [frame_shown_at(clip, t) for t in times]   # checked against t
+frames = [frame_shown_at(clip, t) for t in times]   # seek, wait for it, then copy
 # each at the budgeted size
 for each pixel p:
   groups = []                                # (sum of colours, count)

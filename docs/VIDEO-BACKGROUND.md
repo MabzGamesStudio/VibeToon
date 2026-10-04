@@ -20,11 +20,20 @@ Video ──▶ Video Background ──▶ background.png
    sampled **so many in all**, spread evenly from the first frame to the last
    (both included), or **so many a second** from the first frame, each time
    snapped to one of the clip's own frames, and no frame read twice.
-   Each frame is taken by seeking to it and waiting until the browser has
-   **shown** a frame, then checking that frame's own time is the one asked
-   for (it is sought again if not). The video is in the page while it is read,
-   since a browser may stop decoding one it thinks nobody sees and hand back
-   the same frame over and over.
+   Each frame is taken by seeking to it, waiting — however long it takes —
+   for the seek to finish, and then for the frame to be shown; the picture is
+   then the last frame at or before that time, which is the right one. A
+   recording made in a browser has frames when the page managed to draw one,
+   not on an even beat, so a frame's own time is reported but never insisted
+   on: insisting on it, and giving up after a moment, is what took a frame
+   left over from the seek before and froze the frames from about a second in.
+   Each read has its frame before the next seek starts. The video is in the
+   page while it is read, since a browser may stop decoding one it thinks
+   nobody sees.
+
+   Clips recorded here (Shot Split, Video Edit) ask for a whole picture every
+   half second. Without one, a recording has a whole picture only at its
+   start, and every seek decodes from there, slower the further in.
 2. **Every pixel, across every frame.** The colours a pixel has are gathered
    into groups of the same colour, within the **tolerance**. The biggest group
    is the colour it has **most often**, and the pixel takes that colour (the

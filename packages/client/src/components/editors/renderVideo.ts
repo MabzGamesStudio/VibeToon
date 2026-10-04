@@ -27,7 +27,10 @@ function recorderFor(canvas: HTMLCanvasElement, fps: number, type: string, conte
   const stream = canvas.captureStream(fps);
   // About a tenth of a bit per pixel per frame: clean for drawn footage.
   const bits = Math.round(Math.min(12_000_000, Math.max(1_000_000, canvas.width * canvas.height * fps * 0.12)));
-  const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: bits });
+  // A whole picture every half second: a recording otherwise has one only at
+  // its start, and every seek into it decodes from there, slower the further in.
+  // (Browsers that do not know the option ignore it.)
+  const recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: bits, videoKeyFrameIntervalDuration: 500 } as MediaRecorderOptions);
   const chunks: Blob[] = [];
   recorder.ondataavailable = (event) => {
     if (event.data.size > 0) chunks.push(event.data);

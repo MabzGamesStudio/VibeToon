@@ -48,28 +48,69 @@ function once(target: EventTarget, name: string, timeout: number): Promise<boole
   });
 }
 
-/** The next frame the browser presents, and its time; null if none comes. */
-function presented(video: FrameVideo, timeout: number): Promise<number | null> {
-  if (typeof video.requestVideoFrameCallback !== 'function') return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const handle = video.requestVideoFrameCallback!((_now, metadata) => {
-      window.clearTimeout(timer);
-      resolve(metadata.mediaTime);
+/**
+ * Every frame the browser shows, counted, with the time of the last one —
+ * kept running while the clip is open, so a read can tell a frame shown since
+ * its seek began from one shown before.
+ */
+class Presented {
+  count = 0;
+  time = -1;
+  private handle = 0;
+  private waiting: Array<() => void> = [];
+  constructor(private readonly video: FrameVideo) {
+    if (typeof video.requestVideoFrameCallback !== 'function') return;
+    const watch = (_now: number, metadata: { mediaTime: number }) => {
+      this.count += 1;
+      this.time = metadata.mediaTime;
+      const waiting = this.waiting;
+      this.waiting = [];
+      for (const wake of waiting) wake();
+      this.handle = video.requestVideoFrameCallback!(watch);
+    };
+    this.handle = video.requestVideoFrameCallback(watch);
+  }
+  get supported(): boolean {
+    return typeof this.video.requestVideoFrameCallback === 'function';
+  }
+  /** Resolves at the next frame shown, or after `timeout` ms. */
+  next(timeout: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = window.setTimeout(resolve, timeout);
+      this.waiting.push(() => {
+        window.clearTimeout(timer);
+        resolve();
+      });
     });
-    const timer = window.setTimeout(() => {
-      video.cancelVideoFrameCallback?.(handle);
-      resolve(null);
-    }, timeout);
-  });
+  }
+  stop(): void {
+    this.video.cancelVideoFrameCallback?.(this.handle);
+    for (const wake of this.waiting) wake();
+    this.waiting = [];
+  }
 }
 
-/** Seek, and the time of the frame that is then shown (or, failing that, where the clock is). */
-async function showAt(video: FrameVideo, time: number): Promise<number> {
-  const shown = presented(video, 400);
-  const sought = once(video, 'seeked', 4000);
+/**
+ * Seek to `time`, and the time of the frame then shown.
+ *
+ * When the seek is done the picture is, by definition, the right one: the
+ * last frame at or before `time`. In a clip recorded in a browser that may be
+ * well before it — frames come when the page managed to draw one, not on an
+ * even beat — so the frame's own time is reported, never insisted on. Waiting
+ * for it to equal the time asked for is what went wrong before: the wait gave
+ * up, and a frame shown late from the seek before was taken instead. Here the
+ * wait is only for the frame to be shown (a moment after the seek, or not at
+ * all when it was already showing), and each read has its frame before the
+ * next seek begins, so nothing late can be taken for it.
+ */
+async function showAt(video: FrameVideo, shown: Presented, time: number): Promise<number> {
+  const before = shown.count;
+  const sought = once(video, 'seeked', 30_000);
   video.currentTime = time;
-  await sought;
-  return (await shown) ?? video.currentTime;
+  if (!(await sought)) throw new Error(`the video did not reach ${time.toFixed(2)}s`);
+  if (!shown.supported) return video.currentTime;
+  if (shown.count === before) await shown.next(250);
+  return shown.count > before ? shown.time : video.currentTime;
 }
 
 export async function openClip(url: string): Promise<OpenClip> {
@@ -109,9 +150,10 @@ export async function openClip(url: string): Promise<OpenClip> {
     const end = Number.isFinite(video.duration) ? video.duration : video.seekable.length ? video.seekable.end(video.seekable.length - 1) : 0;
     if (!(end > 0)) throw new Error('the video has no length');
 
+    const shown = new Presented(video);
     // How long a frame lasts: play a moment and see the frames go by.
     const seen: number[] = [];
-    await showAt(video, 0);
+    await showAt(video, shown, 0);
     if (typeof video.requestVideoFrameCallback === 'function') {
       let handle = 0;
       const watch = (_now: number, metadata: { mediaTime: number }) => {
@@ -132,8 +174,8 @@ export async function openClip(url: string): Promise<OpenClip> {
     const frame = frameLengthOf(seen, 1 / 30);
 
     // The first frame and the last, as shown.
-    const first = Math.max(0, await showAt(video, 0));
-    let last = await showAt(video, Math.max(first, end - frame / 2));
+    const first = Math.max(0, await showAt(video, shown, 0));
+    let last = await showAt(video, shown, Math.max(first, end - frame / 2));
     if (!(last >= first) || last > end) last = Math.max(first, end - frame);
     const span: ClipSpan = { first, last, frame };
 
@@ -155,11 +197,7 @@ export async function openClip(url: string): Promise<OpenClip> {
       async frame(time, width, height) {
         const wanted = snapToClipFrame(span, time);
         // A quarter of a frame in, so a seek that rounds lands on this frame, not the one before.
-        let shownAt = await showAt(video, Math.min(end, wanted + frame / 4));
-        if (Math.abs(shownAt - wanted) > frame * 0.6) {
-          // Not the frame asked for: try once more, from the middle of it.
-          shownAt = await showAt(video, Math.min(end, wanted + frame / 2));
-        }
+        const shownAt = await showAt(video, shown, Math.min(end, wanted + frame / 4));
         draw(width, height);
         const pixels = context.getImageData(0, 0, width, height);
         return { bitmap: { width, height, data: pixels.data }, shownAt };
@@ -171,7 +209,10 @@ export async function openClip(url: string): Promise<OpenClip> {
         thumb.getContext('2d')!.drawImage(video, 0, 0, width, height);
         return thumb.toDataURL('image/jpeg', quality);
       },
-      close,
+      close() {
+        shown.stop();
+        close();
+      },
     };
   } catch (reason) {
     close();
