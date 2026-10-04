@@ -12,9 +12,19 @@ Video ──▶ Video Background ──▶ background.png
 
 ## How it is worked out
 
-1. **The frames.** The clip is sampled **so many in all** (spread evenly over
-   it) or **so many a second**. The first is at the start, and none is at the
-   very end, which is so often black.
+1. **The frames.** The clip is first **probed** for where its frames really
+   are: the time its first frame is shown at, the time its last frame is, and
+   how long a frame lasts, all as the browser shows them. A header is not
+   trusted for this — a clip recorded in a browser often has no length in it,
+   and one cut from a longer video may not start at 0. The clip is then
+   sampled **so many in all**, spread evenly from the first frame to the last
+   (both included), or **so many a second** from the first frame, each time
+   snapped to one of the clip's own frames, and no frame read twice.
+   Each frame is taken by seeking to it and waiting until the browser has
+   **shown** a frame, then checking that frame's own time is the one asked
+   for (it is sought again if not). The video is in the page while it is read,
+   since a browser may stop decoding one it thinks nobody sees and hand back
+   the same frame over and over.
 2. **Every pixel, across every frame.** The colours a pixel has are gathered
    into groups of the same colour, within the **tolerance**. The biggest group
    is the colour it has **most often**, and the pixel takes that colour (the

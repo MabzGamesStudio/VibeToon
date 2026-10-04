@@ -112,6 +112,27 @@ is not every video's.
 Video Rig Match has to be taken in and matched in its editor, item by item; its
 Generate all runs on the server and says so for each item that has not been.
 
+## Choosing items: Batch Select
+
+**Batch Select** (Production) takes any number of folders or batches on its
+*Items* input and lists every item of every one, with a picture of each. Click
+an item to tick or untick it; *Tick all*, *Untick all* and *Invert* act on the
+items shown, which a name filter narrows, and each wire has *All* and *None*
+of its own.
+
+- What is ticked goes out on **Selected** as one folder — so into a flow that
+  takes one file, one batch — and what is not on **The rest**.
+- A batch flow wired in arrives gathered: Batch Select runs once, over all of
+  them, rather than becoming a batch itself.
+- Choices are kept by where an item came from and its key, and it is the
+  unticked ones that are stored: an item that arrives later is ticked.
+- Items of a batch are named for the item they are — the backgrounds of
+  `shot-01` and `shot-02` are `shot-01.png` and `shot-02.png` — and a name two
+  wires share is given the name of the flow it came from.
+- A folder holds one kind of file: items of another kind than the first made
+  are set aside and said so. Items not made yet upstream are left out until
+  they are.
+
 ## What comes out
 
 A batch flow's output port stands for all its items: its hash changes when any

@@ -215,7 +215,9 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   See [docs/VIDEO-RIG-MATCH.md](docs/VIDEO-RIG-MATCH.md).
 - **Video source and video edit.** A video from this machine or a link, kept
   with the project; then crop it, split it into segments and delete the ones
-  not wanted, and write the rest as one video or a clip each.
+  not wanted, and write the rest as one video or a clip each, as WebM, MP4 or
+  Matroska. Any video file comes in; one a browser cannot play (AVI, Windows
+  Media, Flash, MPEG) is converted to MP4 on arrival where ffmpeg is installed.
   See [docs/VIDEO-EDIT.md](docs/VIDEO-EDIT.md).
 - **Video background.** A clip in, its background out: each pixel's most
   common colour over the sampled frames (colours within a tolerance counting as
@@ -231,7 +233,8 @@ Set `VIBETOON_DATA` to keep them somewhere else.
   drawn as a bundle. The flow it goes into runs once for each item and makes a
   batch of its own, on down the graph; into an input that takes a folder, the
   items are gathered back into one. Open a batch flow to edit every item at once
-  or one on its own, and Generate all. Any flow can be a batch.
+  or one on its own, and Generate all. Any flow can be a batch. **Batch
+  Select** combines any number of batches and keeps the items you tick.
   See [docs/BATCHES.md](docs/BATCHES.md).
 - **Custom flows.** Build an arrangement of flows on a graph of its own, or save
   one already on the graph, and use it again as one named flow in the palette. Each use has its own copies of the flows inside, so its

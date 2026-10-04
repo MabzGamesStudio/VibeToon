@@ -379,7 +379,17 @@ export const VIDEO_BACKGROUND_GUIDE: AlgorithmGuide = {
     'The clip is sampled into frames. For every pixel, its colours across the frames are grouped — a colour joins the first group whose average it is within the tolerance of — and the biggest group is the pixel’s most common colour. If that group holds at least the agreement share of the frames, the pixel takes the group’s average colour; otherwise no colour is common enough and it is clear. Regions and strokes marked on single frames are then laid on in order.',
   steps: [
     { kind: 'input', title: 'The video' },
-    { kind: 'step', title: 'Sample frames', detail: 'So many a second, or so many in all; read no bigger than all of them together fit in 40 million pixels.' },
+    { kind: 'step', title: 'Probe the clip', detail: 'When its first and last frames are shown, and how long a frame lasts — as the browser shows them, not as a header says.' },
+    { kind: 'step', title: 'Plan the times', detail: 'So many in all from the first frame to the last, or so many a second from the first; each on one of the clip’s frames, none twice.' },
+    {
+      kind: 'loop',
+      title: 'For each time',
+      steps: [
+        { kind: 'step', title: 'Seek to a quarter of a frame past it, and wait for a frame to be shown' },
+        { kind: 'decision', title: 'Is the frame shown the one asked for?', no: 'Seek again, to the middle of it.' },
+        { kind: 'step', title: 'Draw it', detail: 'No bigger than all the frames together fit in 40 million pixels.' },
+      ],
+    },
     {
       kind: 'loop',
       title: 'For each pixel',
@@ -401,7 +411,10 @@ export const VIDEO_BACKGROUND_GUIDE: AlgorithmGuide = {
     },
     { kind: 'output', title: 'background.png, and the report' },
   ],
-  pseudocode: `frames = sample(video, fps or total), each at the budgeted size
+  pseudocode: `span   = probe(clip)            # first shown, last shown, frame length
+times  = clip_frame_times(span, fps or total)   # on the clip's own frames
+frames = [frame_shown_at(clip, t) for t in times]   # checked against t
+# each at the budgeted size
 for each pixel p:
   groups = []                                # (sum of colours, count)
   for f in frames:
@@ -446,5 +459,5 @@ for mark in marks (in order):
     { title: 'Background subtraction', url: 'https://en.wikipedia.org/wiki/Background_subtraction', note: 'The wider problem of separating a still background from what moves over it.' },
     { title: 'Mode (statistics)', url: 'https://en.wikipedia.org/wiki/Mode_(statistics)', note: 'The most common value, which is what each pixel takes.' },
   ],
-  source: ['packages/shared/src/flows/videoBackground.ts — commonestBackground, applyMarks, backgroundFrameSize'],
+  source: ['packages/shared/src/flows/videoBackground.ts — commonestBackground, applyMarks, backgroundFrameSize', 'packages/shared/src/flows/clipFrames.ts — clipFrameTimes, snapToClipFrame, frameLengthOf', 'packages/client/src/components/common/clip.ts — openClip, useClipProbe'],
 };

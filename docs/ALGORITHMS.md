@@ -37,6 +37,7 @@ studio: open a flow and press **How it works**.
 - Timeline — Partial times, laid out in lanes
 - World Map — Terrain from noise, climate from latitude
 - Storyboard — A board from a script, merged without losing sketches
+- Batch Select — Batches in, the items you tick out
 
 ## Line Detection
 
@@ -178,6 +179,14 @@ It is never below 20% once the pixel has passed every test, so a faint but real 
 
 The picture is read in square chunks, each with a margin of the widest line plus three pixels, so the colours either side of a line on the border are seen. Chunks keep each walk short and local: a walk across a whole large picture would see so many colours that a small line could be merged into something far away.
 
+### Version 2
+
+Version 2 runs version 1 and then does three more things.
+
+- **Direction.** Each line pixel took its width from the walk that crossed it narrowest, and that walk says which way the line runs: walking across finds an up-and-down line, walking down finds a level one, and the diagonal walks find diagonal ones. The line is drawn red (horizontal), green (vertical) or yellow (diagonal), shifted to blue by its width. The Line Graph reads the brighter of red and green plus blue as the confidence, so it reads either version.
+- **Wide between thin lines.** A filled shape between two outlines looks, along a walk, like thin line – wide band – thin line: all three sharp-sided, all three a colour of their own. A band that is at least **Wide between thin lines** times as wide as the crossings on both sides of it, in the same walk, is the inside of the shape, and is not a line.
+- **Smallest patch.** After the crossings are joined into patches — every neighbour, diagonals included — a patch must fill at least **Smallest patch** pixels, so a dot is not a line however its sides look.
+
 ### What it gets wrong
 
 - A line drawn with a soft brush, fading in over several pixels, has no sharp change: raise **Flatness** and lower **Sharp change**, or it is not found.
@@ -193,6 +202,11 @@ The picture is read in square chunks, each with a margin of the widest line plus
 | Widest line | The widest run that can be a line. Wider is an area. |
 | Longer than wide by | How many times longer than wide a patch must be. Higher drops dashes and specks; too high drops short strokes. |
 | Chunk size | The side of the squares the picture is read in. Smaller is more local; a line must still fit its length within about a chunk and a half. |
+| Patch colour tolerance | How different neighbouring crossings may be and still join one patch for the longer-than-wide test. Higher joins a stroke that shades along its length. |
+| Drawn width | Draw only this many pixels across the middle of each line; 0 draws the whole width. |
+| Algorithm | Version 1, or version 2: coloured by direction, wide bands between thin lines dropped, small patches dropped. |
+| Wide between thin lines (v2) | A band this many times as wide as thinner lines on both sides of it, running the same way, is dropped as the inside of a shape. 0 keeps it. |
+| Smallest patch (v2) | The fewest pixels a patch, joined 8 ways, must fill to be a line rather than a dot. |
 
 **Cost:** Each pixel is visited once per walk (four times) for the runs, and again when patches are joined: time grows with the number of pixels. A million pixels take well under a second.
 
@@ -744,35 +758,53 @@ The clip is sampled into frames. For every pixel, its colours across the frames 
 ```mermaid
 flowchart TD
   s1(["The video"])
-  s2["Sample frames"]
+  s2["Probe the clip"]
   s1 --> s2
-  subgraph s3["↻ For each pixel"]
-    subgraph s4["↻ For each frame"]
-      s5["Join the first group within the tolerance of its average, or start a group"]
-    end
-    s5 -. next .-> s5
-    s6["Take the biggest group"]
+  s3["Plan the times"]
+  s2 --> s3
+  subgraph s4["↻ For each time"]
+    s5["Seek to a quarter of a frame past it, and wait for a frame to be shown"]
+    s6{"Is the frame shown the one asked for?"}
+    s7["Seek again, to the middle of it."]
+    s6 -- no --> s7
     s5 --> s6
-    s7{"In at least the agreement share of the frames?"}
-    s8["No colour is common enough: the pixel is clear."]
-    s7 -- no --> s8
-    s6 --> s7
-    s9["The pixel is the group’s average colour"]
-    s7 --> s9
+    s8["Draw it"]
+    s6 --> s8
   end
-  s9 -. next .-> s5
-  s2 --> s5
-  subgraph s10["↻ For each mark, in the order made"]
-    s11["Paint in: take its frame’s pixels; erase: clear them"]
+  s8 -. next .-> s5
+  s3 --> s5
+  subgraph s9["↻ For each pixel"]
+    subgraph s10["↻ For each frame"]
+      s11["Join the first group within the tolerance of its average, or start a group"]
+    end
+    s11 -. next .-> s11
+    s12["Take the biggest group"]
+    s11 --> s12
+    s13{"In at least the agreement share of the frames?"}
+    s14["No colour is common enough: the pixel is clear."]
+    s13 -- no --> s14
+    s12 --> s13
+    s15["The pixel is the group’s average colour"]
+    s13 --> s15
   end
-  s11 -. next .-> s11
-  s9 --> s11
-  s12(["background.png, and the report"])
-  s11 --> s12
+  s15 -. next .-> s11
+  s8 --> s11
+  subgraph s16["↻ For each mark, in the order made"]
+    s17["Paint in: take its frame’s pixels; erase: clear them"]
+  end
+  s17 -. next .-> s17
+  s15 --> s17
+  s18(["background.png, and the report"])
+  s17 --> s18
 ```
 
 - *In:* The video
-- Sample frames — So many a second, or so many in all; read no bigger than all of them together fit in 40 million pixels.
+- Probe the clip — When its first and last frames are shown, and how long a frame lasts — as the browser shows them, not as a header says.
+- Plan the times — So many in all from the first frame to the last, or so many a second from the first; each on one of the clip’s frames, none twice.
+- **↻ For each time**
+  - Seek to a quarter of a frame past it, and wait for a frame to be shown
+  - **Is the frame shown the one asked for?** *If not:* Seek again, to the middle of it.
+  - Draw it — No bigger than all the frames together fit in 40 million pixels.
 - **↻ For each pixel**
   - **↻ For each frame**
     - Join the first group within the tolerance of its average, or start a group
@@ -786,7 +818,10 @@ flowchart TD
 ### Pseudocode
 
 ```
-frames = sample(video, fps or total), each at the budgeted size
+span   = probe(clip)            # first shown, last shown, frame length
+times  = clip_frame_times(span, fps or total)   # on the clip's own frames
+frames = [frame_shown_at(clip, t) for t in times]   # checked against t
+# each at the budgeted size
 for each pixel p:
   groups = []                                # (sum of colours, count)
   for f in frames:
@@ -836,7 +871,7 @@ A character that never moves off part of the background leaves it clear, or wron
 - [Background subtraction](https://en.wikipedia.org/wiki/Background_subtraction) — The wider problem of separating a still background from what moves over it.
 - [Mode (statistics)](https://en.wikipedia.org/wiki/Mode_(statistics)) — The most common value, which is what each pixel takes.
 
-*Code:* `packages/shared/src/flows/videoBackground.ts — commonestBackground, applyMarks, backgroundFrameSize`
+*Code:* `packages/shared/src/flows/videoBackground.ts — commonestBackground, applyMarks, backgroundFrameSize`, `packages/shared/src/flows/clipFrames.ts — clipFrameTimes, snapToClipFrame, frameLengthOf`, `packages/client/src/components/common/clip.ts — openClip, useClipProbe`
 
 ## Shot Split
 
@@ -3206,6 +3241,92 @@ The editor shows the plan (adds, updates, orphans, removals) before anything is 
 - [Three-way merge (Wikipedia)](https://en.wikipedia.org/wiki/Merge_(version_control)#Three-way_merge) — The same problem as merging a changed script into a drawn board: keep both sides’ work.
 
 *Code:* `packages/shared/src/flows/storyboard.ts`, `packages/shared/src/flows/dialog.ts`, `packages/server/src/generators/storyboard.ts`
+
+## Batch Select
+
+**Batches in, the items you tick out** · `production.batch.select`
+
+Every folder or batch wired into Items is listed, item by item. A batch flow’s items arrive gathered into one folder; a folder arrives whole. You untick what you do not want. The ticked items are copied into one folder on Selected, which a flow taking one file runs as a batch, and the rest into another. Choices are kept by where an item came from and its own key, and it is the unticked ones that are stored, so an item that arrives later is ticked.
+
+### The steps
+
+```mermaid
+flowchart TD
+  s1(["Any number of folders or batches on Items"])
+  subgraph s2["↻ For each wire, in the order it was made"]
+    s3["List its items"]
+    s4["Key each one: source flow, port and item key"]
+    s3 --> s4
+    s5["Name each one"]
+    s4 --> s5
+  end
+  s5 -. next .-> s3
+  s1 --> s3
+  s6{"Has the item been made?"}
+  s7["Left out, and the report says so."]
+  s6 -- no --> s7
+  s5 --> s6
+  s8{"Is it the same kind as the first item made?"}
+  s9["Set aside: a folder holds one kind of file."]
+  s8 -- no --> s9
+  s6 --> s8
+  s10{"Is it ticked (not in the left-out list)?"}
+  s11["It goes on The rest."]
+  s10 -- no --> s11
+  s8 --> s10
+  s12(["Selected and The rest, each one folder; selection.md"])
+  s10 --> s12
+```
+
+- *In:* Any number of folders or batches on Items
+- **↻ For each wire, in the order it was made**
+  - List its items — A folder’s files, or a batch flow’s items (gathered), or the items it will make (not made yet).
+  - Key each one: source flow, port and item key
+  - Name each one — A batch item after the item it is (shot-01.png); a name already taken gets the source’s name in front.
+- **Has the item been made?** *If not:* Left out, and the report says so.
+- **Is it the same kind as the first item made?** *If not:* Set aside: a folder holds one kind of file.
+- **Is it ticked (not in the left-out list)?** *If not:* It goes on The rest.
+- *Out:* Selected and The rest, each one folder; selection.md
+
+### Pseudocode
+
+```
+items = []
+for wire in wires into "items":
+    for item in items_of(wire):              # folder entries, or a batch gathered
+        key  = f"{wire.from_node}:{wire.from_port}/{item.key}"
+        name = item.file if item.file == item.key else stem(item.key) + ext(item.file)
+        if name taken: name = f"{wire.source_name}-{name}"
+        items.append(key, name, item)
+
+kind = kind of the first item made
+for item in items:
+    if not made(item):        waiting.append(item); continue
+    if item.kind != kind:     other_kind.append(item); continue
+    (rest if item.key in excluded else selected).append(item)
+
+write_folder("selected", selected); write_folder("rest", rest)
+```
+
+### Why the unticked are stored, not the ticked
+
+A batch grows: split the video again and a shot appears. Storing what was left out means a new item arrives ticked and goes on through the graph, which is what usually wants to happen; storing what was ticked would leave every new item out until it was noticed.
+
+### Gathered, not batched
+
+Items takes folders only. So a batch flow wired in does not make Batch Select a batch of its own — its items arrive gathered, one folder holding every item’s file — and Batch Select runs once, over all of them, as choosing between items needs.
+
+### Names that stay apart
+
+Every item of a Video Background is background.png, so items of a batch are named for the item they are: the backgrounds of shot-01 and shot-02 are shot-01.png and shot-02.png. Two Shot Splits both have a shot-01.webm, so the second is named for the flow it came from.
+
+**Try it:** Wire two Shot Splits’ clips into one Batch Select, untick a few shots, and wire Selected into a Video Background.
+
+### Further reading
+
+- [Batches in VibeToon](https://github.com/MabzGamesStudio/VibeToon/blob/main/docs/BATCHES.md) — How folders become batches and are gathered again.
+
+*Code:* `packages/shared/src/flows/batchSelect.ts — selectSources, splitSelection, setSelected, invertSelected`, `packages/server/src/generators/batchSelect.ts — generateBatchSelect`
 
 ## Flows with no algorithm
 

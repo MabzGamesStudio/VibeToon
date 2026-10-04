@@ -728,6 +728,15 @@ Dailies notes that feed back into the flows upstream.
 - **Out:** Notes `notes.md`
 - **Fields:** Works, Fix, Questions
 
+### Batch Select
+
+`production.batch.select` · **bespoke editor**
+
+Any number of batches or folders in, combined into one: tick the items to keep. The ticked ones go on as one batch, and the rest on a port of their own.
+
+- **In:** Items
+- **Out:** Selected `selected`, The rest `rest`, Report `selection.md`
+
 ### Asset Library
 
 `production.assets` · brief editor
@@ -749,4 +758,4 @@ An arrangement of flows saved under a name and used again as one, each use with 
 
 ---
 
-61 flow kinds.
+62 flow kinds.

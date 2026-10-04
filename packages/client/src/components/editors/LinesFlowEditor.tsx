@@ -416,7 +416,9 @@ export function LinesFlowEditor({ project, node }: { project: Project; node: Flo
           </div>
         </Stage>
         <p className="vt-faint" style={{ marginTop: 8, fontSize: 11 }}>
-          Black is no line. A line is red when thin and blue when wide, brighter the surer. Toggle Original to compare, or lay the lines over the picture.
+          {data.options.version === 2
+            ? 'Black is no line. A line is red when horizontal, green when vertical and yellow when diagonal, shifted to blue the wider it is, and brighter the surer. Toggle Original to compare, or lay the lines over the picture.'
+            : 'Black is no line. A line is red when thin and blue when wide, brighter the surer. Toggle Original to compare, or lay the lines over the picture.'}
           {debug ? ' Click a pixel to see why it is, or is not, on a line.' : ''}
         </p>
         {debug && source ? (

@@ -109,7 +109,11 @@ the **Shot clips** port. Wire that into a flow that takes one video, such as
 Video Background, and it is a **batch**: each shot goes through that flow on its
 own, and you get a background for each. See [BATCHES.md](BATCHES.md).
 
-- The shots are played through and recorded as WebM, as Video Edit does, so it
+- **Each clip as** picks the format: WebM (VP9, VP8 or AV1), MP4 (H.264) or
+  Matroska (H.264). Formats this browser cannot record are greyed out. The
+  clips are named for the format (`shot-01.mp4`), and changing it marks the
+  clips as behind until they are recorded again.
+- The shots are played through and recorded, as Video Edit does, so it
   takes as long as the video. A progress bar shows the shot being recorded, and
   **Stop** stops without writing anything.
 - The sound is not kept.
