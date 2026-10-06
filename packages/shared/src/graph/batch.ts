@@ -346,6 +346,8 @@ export const ITEM_FIELDS: Partial<Record<string, readonly string[]>> = {
   rigMatch: ['bound', 'boundHash', 'picture', 'imageHash', 'fit', 'report', 'selected'],
   videoMatch: ['bound', 'boundHash', 'video', 'frameSize', 'frames', 'matchedAt'],
   videoBackground: ['video', 'frameSize', 'marks', 'current'],
+  videoForeground: ['video', 'background', 'current'],
+  characterSplit: ['frames', 'names', 'dropped', 'joined', 'current', 'frame'],
   shots: ['video', 'cuts', 'detected', 'edits', 'selected', 'recorded', 'frameRate', 'frameRateFor'],
   videoEdit: ['video', 'segments', 'selected', 'rendered', 'shots', 'fps', 'fpsFor'],
 };

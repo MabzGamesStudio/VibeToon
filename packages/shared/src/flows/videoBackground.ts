@@ -171,36 +171,55 @@ export interface BackgroundProgress {
 
 /* ---------------- 1. steadying ---------------- */
 
-interface Level {
+/** A picture's brightness at one size; `valid`, when given, is 0 where the picture is clear and has nothing to match. */
+export interface BrightnessLevel {
   w: number;
   h: number;
   data: Uint8Array;
+  valid?: Uint8Array;
 }
+type Level = BrightnessLevel;
 
-/** A frame's brightness, and halved again and again: coarse to look far, fine to be exact. */
-function brightnessLevels(frame: Bitmap, levels: number): Level[] {
+/**
+ * A picture's brightness, and halved again and again: coarse to look far,
+ * fine to be exact. With `clearIsMissing`, its see-through pixels are left out
+ * of any match (a background with holes where nothing could be put back).
+ */
+export function brightnessLevels(frame: Bitmap, levels: number, clearIsMissing = false): BrightnessLevel[] {
   const { width: w, height: h, data } = frame;
   const base = new Uint8Array(w * h);
   for (let p = 0, q = 0; p < w * h; p += 1, q += 4) base[p] = (data[q]! * 77 + data[q + 1]! * 150 + data[q + 2]! * 29) >> 8;
-  const out: Level[] = [{ w, h, data: base }];
+  let valid: Uint8Array | undefined;
+  if (clearIsMissing) {
+    valid = new Uint8Array(w * h);
+    let missing = 0;
+    for (let p = 0; p < w * h; p += 1) {
+      valid[p] = data[p * 4 + 3]! >= 128 ? 1 : 0;
+      missing += 1 - valid[p]!;
+    }
+    if (missing === 0) valid = undefined;
+  }
+  const out: Level[] = [{ w, h, data: base, ...(valid ? { valid } : {}) }];
   while (out.length < levels) {
     const prev = out[out.length - 1]!;
     const nw = prev.w >> 1;
     const nh = prev.h >> 1;
     const next = new Uint8Array(nw * nh);
+    const nextValid = prev.valid ? new Uint8Array(nw * nh) : undefined;
     for (let y = 0; y < nh; y += 1) {
       for (let x = 0; x < nw; x += 1) {
         const i = y * 2 * prev.w + x * 2;
         next[y * nw + x] = (prev.data[i]! + prev.data[i + 1]! + prev.data[i + prev.w]! + prev.data[i + prev.w + 1]! + 2) >> 2;
+        if (nextValid) nextValid[y * nw + x] = prev.valid![i]! & prev.valid![i + 1]! & prev.valid![i + prev.w]! & prev.valid![i + prev.w + 1]!;
       }
     }
-    out.push({ w: nw, h: nh, data: next });
+    out.push({ w: nw, h: nh, data: next, ...(nextValid ? { valid: nextValid } : {}) });
   }
   return out;
 }
 
 /** Halve while the picture stays at least 80 × 24, at most five times. */
-function levelCount(width: number, height: number): number {
+export function levelCount(width: number, height: number): number {
   let levels = 1;
   let w = width;
   let h = height;
@@ -232,7 +251,9 @@ function mismatchAt(a: Level, b: Level, sx: number, sy: number, sparse: boolean)
   const y1 = Math.min(h, h - sy);
   if ((x1 - x0) * (y1 - y0) < 0.3 * w * h) return Infinity;
   let n = 0;
+  let looked = 0;
   let sum = 0;
+  const valid = a.valid;
   // Sparse, every other pixel as on a chessboard: half the work, and still
   // every row and column looked at, so a shift of one pixel either way shows.
   const step = sparse ? 2 : 1;
@@ -240,12 +261,16 @@ function mismatchAt(a: Level, b: Level, sx: number, sy: number, sparse: boolean)
     const rowA = y * w;
     const rowB = (y + sy) * w + sx;
     for (let x = sparse ? x0 + ((x0 + y) & 1) : x0; x < x1; x += step) {
+      looked += 1;
+      if (valid && !valid[rowA + x]) continue;
       const d = a.data[rowA + x]! - b.data[rowB + x]!;
       const v = d < 0 ? -d : d;
       sum += v < MISMATCH_CAP ? v : MISMATCH_CAP;
       n += 1;
     }
   }
+  // Too little of it has anything to match: no match at all.
+  if (n < 0.1 * looked) return Infinity;
   return sum / Math.max(1, n);
 }
 
@@ -255,7 +280,7 @@ function mismatchAt(a: Level, b: Level, sx: number, sy: number, sparse: boolean)
  * pixels from the guess. A shift no better than the guess by more than noise
  * is not taken.
  */
-function bestShift(ref: Level[], cur: Level[], guess: FrameOffset, radius: number): FrameOffset {
+export function bestShift(ref: BrightnessLevel[], cur: BrightnessLevel[], guess: FrameOffset, radius: number): FrameOffset {
   const top = ref.length - 1;
   let sx = Math.round(guess.dx / 2 ** top);
   let sy = Math.round(guess.dy / 2 ** top);

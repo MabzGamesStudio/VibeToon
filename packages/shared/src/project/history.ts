@@ -87,6 +87,8 @@ const PASSIVE: { keep: Record<string, string[]>; restore: Record<string, string[
     parts: ['current', 'showOthers', 'brush'],
     face: ['current', 'isolate', 'paint'],
     videoBackground: ['current', 'tool', 'brush'],
+    videoForeground: ['current'],
+    characterSplit: ['current', 'frame'],
     lineGraph: ['showFill'],
     batchSelect: ['filter'],
     // Facts about a file on the server, which undo does not reach: winding

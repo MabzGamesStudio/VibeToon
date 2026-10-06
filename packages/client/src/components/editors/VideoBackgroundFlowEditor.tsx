@@ -31,6 +31,7 @@ import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
 import { VideoUpload, clock, useFileUpload } from '../common/video';
 import { openVideoFrames, useVideoFrameTimes, type VideoFrames } from '../common/frames';
+import { inSlices, utf8Base64 } from '../common/slices';
 import { paintBitmap, svgPoint, useFitScale } from './CropFlowEditor';
 import { EditorShell } from './EditorShell';
 
@@ -40,14 +41,6 @@ interface ReadFrame {
   thumb: string;
 }
 
-/** Base64 of a UTF-8 string, for a markdown attachment. */
-function utf8Base64(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
 /** A see-through tint over what is already background, on a frame where the background sits at `offset`. */
 function tintOf(result: BackgroundResult, offset: FrameOffset): Bitmap {
   const { width, height } = result.image;
@@ -55,26 +48,6 @@ function tintOf(result: BackgroundResult, offset: FrameOffset): Bitmap {
   const out = new Uint8ClampedArray(width * height * 4);
   for (let p = 0; p < width * height; p += 1) if (shown[p]) out.set([60, 200, 120, 90], p * 4);
   return { width, height, data: out };
-}
-
-/**
- * Run the background's work a slice at a time, letting the page draw and
- * take clicks between slices: reading a few seconds of frames and comparing
- * them takes a second or two, and must not freeze the screen while it does.
- * Null if it was called off.
- */
-async function inSlices<T>(work: Generator<BackgroundProgress, T>, onProgress: (progress: BackgroundProgress) => void, cancelled: () => boolean): Promise<T | null> {
-  let began = performance.now();
-  for (;;) {
-    const next = work.next();
-    if (next.done) return next.value;
-    if (performance.now() - began > 24) {
-      onProgress(next.value);
-      await new Promise((resolve) => window.setTimeout(resolve, 0));
-      if (cancelled()) return null;
-      began = performance.now();
-    }
-  }
 }
 
 const optionsOf = (data: VideoBackgroundFlowData): BackgroundOptions => ({

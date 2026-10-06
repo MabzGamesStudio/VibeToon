@@ -160,14 +160,19 @@ export interface ClipWriter {
   cancel(): Promise<void>;
 }
 
-export async function startClip(format: ClipFormat, width: number, height: number, fps: number): Promise<ClipWriter> {
+/**
+ * `seeThrough` keeps the canvas's transparency in the file (WebM with VP8 or
+ * VP9, which carry it alongside the picture): a character on clear stays on
+ * clear.
+ */
+export async function startClip(format: ClipFormat, width: number, height: number, fps: number, seeThrough = false): Promise<ClipWriter> {
   const codec = CODEC[format.id];
   if (!codec) throw new Error(`${format.label} cannot be written frame by frame`);
   const canvas = new OffscreenCanvas(Math.max(2, width - (width % 2)), Math.max(2, height - (height % 2)));
   const context = canvas.getContext('2d')!;
   const target = new BufferTarget();
   const output = new Output({ format: outputFormat(format), target });
-  const source = new CanvasSource(canvas, { codec, quality: QUALITY_VERY_HIGH, keyFrameInterval: 1, latencyMode: 'quality' });
+  const source = new CanvasSource(canvas, { codec, quality: QUALITY_VERY_HIGH, keyFrameInterval: 1, latencyMode: 'quality', ...(seeThrough ? { alpha: 'keep' as const } : {}) });
   output.addVideoTrack(source, { frameRate: fps });
   await output.start();
   let written = 0;

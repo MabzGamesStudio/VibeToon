@@ -29,6 +29,8 @@ import { CropFlowEditor } from './CropFlowEditor';
 import { LinesFlowEditor } from './LinesFlowEditor';
 import { BatchSelectFlowEditor } from './BatchSelectFlowEditor';
 import { VideoBackgroundFlowEditor } from './VideoBackgroundFlowEditor';
+import { VideoForegroundFlowEditor } from './VideoForegroundFlowEditor';
+import { CharacterSplitFlowEditor } from './CharacterSplitFlowEditor';
 import { ShotsFlowEditor } from './ShotsFlowEditor';
 import { VideoSourceFlowEditor } from './VideoSourceFlowEditor';
 import { VideoEditFlowEditor } from './VideoEditFlowEditor';
@@ -134,6 +136,10 @@ function editorFor(project: Project, node: FlowNode): JSX.Element {
       return <LinesFlowEditor project={project} node={node} />;
     case 'videoBackground':
       return <VideoBackgroundFlowEditor project={project} node={node} />;
+    case 'videoForeground':
+      return <VideoForegroundFlowEditor project={project} node={node} />;
+    case 'characterSplit':
+      return <CharacterSplitFlowEditor project={project} node={node} />;
     case 'batchSelect':
       return <BatchSelectFlowEditor project={project} node={node} />;
     case 'shots':

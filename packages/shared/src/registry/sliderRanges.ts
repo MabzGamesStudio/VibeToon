@@ -47,6 +47,8 @@ const RESIZE = ['art.resize'];
 const CROP = ['art.crop'];
 const LINES = ['art.lines'];
 const BACKGROUND = ['art.video.background'];
+const FOREGROUND = ['art.video.foreground'];
+const CHARACTERS = ['art.video.characters'];
 const SHOTS = ['animation.video.shots'];
 const LINE_GRAPH = ['art.lines.graph'];
 const FACE = ['animation.face'];
@@ -163,6 +165,18 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('videoBackground.patch', 'Patch', BACKGROUND, 'What counts as the background', 4, 64, 1, 'px'),
   def('videoBackground.agreement', 'Agreement', BACKGROUND, 'What counts as the background', 5, 100, 1, '%'),
   def('videoBackground.brush', 'Brush', BACKGROUND, 'Put more in by hand', 1, 120, 1, 'px'),
+  def('videoForeground.fps', 'Frames a second', FOREGROUND, 'Frames', 0.1, 30, 0.1, 'a second'),
+  def('videoForeground.total', 'Frames in all', FOREGROUND, 'Frames', 2, 300, 1, 'frames'),
+  def('videoForeground.maxShift', 'Most it moves between frames', FOREGROUND, 'Taking the background out', 1, 200, 1, 'px'),
+  def('videoForeground.tolerance', 'Tolerance', FOREGROUND, 'Taking the background out', 0, 60, 1),
+  def('videoForeground.speck', 'Drop specks under', FOREGROUND, 'Taking the background out', 0, 2000, 1, 'px'),
+  def('videoForeground.holes', 'Fill holes up to', FOREGROUND, 'Taking the background out', 0, 20000, 10, 'px'),
+  def('videoForeground.grow', 'Grow', FOREGROUND, 'Taking the background out', 0, 6, 1, 'px'),
+  def('characterSplit.join', 'Join pieces within', CHARACTERS, 'Finding the characters', 1, 40, 1, 'px'),
+  def('characterSplit.minArea', 'Smallest piece', CHARACTERS, 'Finding the characters', 1, 5000, 1, 'px'),
+  def('characterSplit.sameness', 'Sameness', CHARACTERS, 'Finding the characters', 30, 99, 1, '%'),
+  def('characterSplit.maxMove', 'Most a character moves', CHARACTERS, 'Finding the characters', 5, 600, 1, 'px'),
+  def('characterSplit.minFrames', 'Least frames', CHARACTERS, 'Finding the characters', 1, 20, 1, 'frames'),
 
   // Shot Split
   def('shots.fps', 'Compare every', SHOTS, 'Finding the cuts', 0.1, 10, 0.05, 'a second'),

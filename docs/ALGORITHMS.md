@@ -15,6 +15,8 @@ studio: open a flow and press **How it works**.
 - Palette Filter — Filtering against a palette: keep what matches, or snap everything to it
 - Image Extraction — Cutting out: fills, cuts and regions replayed into a mask
 - Video Background — A background from a video: lined up, what never changes, and what moved rebuilt patch by patch
+- Video Foreground — What moves in front: each frame lined up with the background, and what matches it made clear
+- Character Split — Characters from what moves: colour embeddings where they are apart, and pixel likelihoods where they touch
 - Shot Split — Finding cuts: compare samples, then binary-search each cut to the frame
 - Video Edit — Editing a video: segments, a crop, and writing it frame by frame
 - Video Source — Bringing a video in: checked by its bytes, fetched safely
@@ -928,6 +930,258 @@ The background is drawn where the frames were in the middle, so it lines up with
 - [Mode (statistics)](https://en.wikipedia.org/wiki/Mode_(statistics)) — The most common value: what each patch’s biggest group is.
 
 *Code:* `packages/shared/src/flows/videoBackground.ts — steadyWork, backgroundWork, applyMarks, backgroundInFrame, backgroundFrameSize`, `packages/shared/src/flows/clipFrames.ts — pickFrameTimes, gridFrameTimes`, `packages/client/src/components/common/frames.ts — openVideoFrames, useVideoFrameTimes`
+
+## Video Foreground
+
+**What moves in front: each frame lined up with the background, and what matches it made clear** · `art.video.foreground`
+
+The video’s frames are read at the background’s size. Each is lined up with the background — a camera that shakes or pans moves the scene in the frame — and then every pixel whose colour is within the tolerance of the background behind it (or of a neighbour of that, for an edge that wavers by a pixel) is made clear. Specks are dropped, holes filled and the rest grown a pixel, so what is left is the characters on clear.
+
+### The steps
+
+```mermaid
+flowchart TD
+  s1(["The video, and its background"])
+  s2["Pick the frames"]
+  s1 --> s2
+  s3["Read each at the background’s size"]
+  s2 --> s3
+  subgraph s4["↻ For each frame"]
+    s5["Line it up with the background"]
+    subgraph s6["↻ For each pixel"]
+      s7{"Is there background behind it?"}
+      s8["Nothing to compare: kept or cleared, as “where the background is clear” says."]
+      s7 -- no --> s8
+      s9{"Within the tolerance of the background there, or of a neighbour of it?"}
+      s10["Something in front: kept."]
+      s9 -- no --> s10
+      s7 --> s9
+      s11["Background: clear"]
+      s9 --> s11
+    end
+    s11 -. next .-> s7
+    s5 --> s7
+    s12["Drop specks"]
+    s11 --> s12
+    s13["Fill holes"]
+    s12 --> s13
+    s14["Grow"]
+    s13 --> s14
+  end
+  s14 -. next .-> s5
+  s3 --> s5
+  s15(["frames/frame-0001-at-0.000s.png …, foreground.json and the report"])
+  s14 --> s15
+```
+
+- *In:* The video, and its background
+- Pick the frames — So many in all or so many a second, from the frames the file holds; no more than fit at the background’s size.
+- Read each at the background’s size — Decoded from the file, or shown and drawn where this browser cannot decode it.
+- **↻ For each frame**
+  - Line it up with the background — The shift that matches best — coarse to fine, near where the frame before sat, the background’s clear pixels left out.
+  - **↻ For each pixel**
+    - **Is there background behind it?** *If not:* Nothing to compare: kept or cleared, as “where the background is clear” says.
+    - **Within the tolerance of the background there, or of a neighbour of it?** *If not:* Something in front: kept.
+    - Background: clear
+  - Drop specks — Pieces smaller than the speck size.
+  - Fill holes — Clear patches inside what is kept, up to the hole size, not touching the edge.
+  - Grow — A pixel or two all round, for the soft edge.
+- *Out:* frames/frame-0001-at-0.000s.png …, foreground.json and the report
+
+### Pseudocode
+
+```
+bg = background picture                       # Video Background's, say
+frames = [read(video, t, size(bg)) for t in pick(times, sampling)]
+guess = (0, 0)
+for f in frames:
+  offset = best_shift(bg, f, near=guess, within=most_it_moves)   # see Video Background
+  guess = offset
+  for each pixel q of f:
+    p = q - offset                                # the background behind it
+    if bg has nothing at p: keep[q] = (where_clear == keep); continue
+    keep[q] = no pixel b in bg[p and its 8 neighbours] with |f[q] - b| <= tolerance
+  remove pieces of keep smaller than speck
+  fill holes in keep up to holes, not touching the edge
+  grow keep by grow pixels
+  out = f where keep, clear elsewhere
+```
+
+### Against the background, not against the other frames
+
+Something standing still for the whole shot never changes from frame to frame, so comparing frames with each other would lose it. Comparing each frame with a picture of the scene alone — the background Video Background makes, or any plate with nothing in front — keeps a character whether it moves or not, as long as it is not in the background picture itself.
+
+### Lined up first
+
+A camera that shakes or pans moves the whole scene in the frame, and an unaligned comparison would take every edge for something in front. Each frame is lined up with the background the way Video Background lines frames up with each other: the shift that matches best, each pixel’s difference capped so the character in front cannot pull it, searched coarse to fine near where the frame before sat. Where Video Background left the background clear, those pixels are left out of the match.
+
+### A pixel’s neighbours
+
+Compression noise and a camera lined up to the nearest pixel make edges waver by a pixel. A frame pixel counts as background when it matches the background pixel behind it or any of that pixel’s eight neighbours, so a wavering edge is not taken for a thin character — while a character, whose colours are nowhere near the background’s, is.
+
+### Tidying
+
+What differs from the background is rarely exactly the characters: noise leaves specks, and a character’s colour that happens to match the wall behind it leaves holes. Pieces smaller than **Drop specks under** are removed; clear patches inside what is kept, no bigger than **Fill holes up to** and not touching the frame’s edge, are filled; and what is left is grown by **Grow** pixels, so the soft anti-aliased edge where a character meets the background comes with it.
+
+### Where the background is clear
+
+Where Video Background could not put anything back — a character stood there all the shot — or where a camera move shows past the background’s edge, there is nothing to compare with. **Keep the frame** keeps those pixels (usually right: what was never seen behind is likely the character); **Clear it** clears them.
+
+### Settings
+
+| Setting | What it changes |
+| --- | --- |
+| Frames in all / a second | How many frames are taken apart. |
+| Follow the camera, Most it moves between frames | Line each frame up with the background first, and how far to look. |
+| Tolerance | How far from the background’s colour is still background. |
+| Drop specks under | Smaller pieces in front are dropped. |
+| Fill holes up to | Smaller holes in what is kept are filled. |
+| Grow | What is kept grows by this much all round. |
+| Where the background is clear | Keep or clear the pixels with nothing behind them to compare. |
+
+**Cost:** Lining up as Video Background does; then nine comparisons a pixel, and a few passes to tidy — a fraction of a second a frame, worked a slice at a time.
+
+**Try it:** Pick a frame and switch between What is kept, The frame and The mask; raise the tolerance until the noise goes and the character stays whole.
+
+### Further reading
+
+- [Background subtraction](https://en.wikipedia.org/wiki/Background_subtraction) — Taking a known background away to leave what is in front.
+- [Connected-component labeling](https://en.wikipedia.org/wiki/Connected-component_labeling) — How specks and holes are found.
+- [Mathematical morphology](https://en.wikipedia.org/wiki/Mathematical_morphology) — Growing a mask by a pixel: a dilation.
+
+*Code:* `packages/shared/src/flows/videoForeground.ts — alignToBackgroundWork, foregroundOf, foregroundWork`, `packages/shared/src/flows/videoBackground.ts — bestShift, brightnessLevels`
+
+## Character Split
+
+**Characters from what moves: colour embeddings where they are apart, and pixel likelihoods where they touch** · `art.video.characters`
+
+Each foreground frame is cut into pieces — kept pixels in touching patches — and each piece gets an embedding: the share of its pixels in each of 216 colours. Pieces are grouped by embedding, the frames where characters are apart first; a group that is a blend of two others is two characters touching, not a character. Each piece then goes to its group’s character; a piece two characters could share — a blend, or one where another character is expected from the frames either side — is split pixel by pixel, to the character likeliest there by its colours and by how near its patch is to where that character was.
+
+### The steps
+
+```mermaid
+flowchart TD
+  s1(["Frames with only the characters left (Video Foreground)"])
+  subgraph s2["↻ For each frame"]
+    s3["Find its pieces"]
+    s4["Embed each piece"]
+    s3 --> s4
+  end
+  s4 -. next .-> s3
+  s1 --> s3
+  s5["Group pieces by embedding"]
+  s4 --> s5
+  s6["Find blends"]
+  s5 --> s6
+  s7["The characters are the groups that are not blends"]
+  s6 --> s7
+  subgraph s8["↻ For each frame, each piece"]
+    s9["Who could it be?"]
+    s10{"One?"}
+    s11["Split it: each pixel to the likeliest."]
+    s10 -- no --> s11
+    s9 --> s10
+    s12["All of it is that character’s"]
+    s10 --> s12
+  end
+  s12 -. next .-> s9
+  s7 --> s9
+  s13["Split a shared piece"]
+  s12 --> s13
+  s14["Leave out characters in too few frames"]
+  s13 --> s14
+  s15(["A clip, a sheet and the frames of each character, characters.json and the report"])
+  s14 --> s15
+```
+
+- *In:* Frames with only the characters left (Video Foreground)
+- **↻ For each frame**
+  - Find its pieces — Patches “Join pieces within” across that hold kept pixels, touching patches together; pieces under the smallest left out.
+  - Embed each piece — A soft histogram over 6 × 6 × 6 colours: the share of the piece in each.
+- Group pieces by embedding — Frames with the most pieces first. A piece joins the group whose mean embedding is at least the sameness alike (Bhattacharyya), or starts one.
+- Find blends — A group whose mean is best explained as a mix of two others (by 4% or more), where those two are not apart, is two characters together.
+- The characters are the groups that are not blends
+- **↻ For each frame, each piece**
+  - Who could it be? — Its group’s character; a blend’s two; any character not apart in this frame that the frames either side expect where the piece is.
+  - **One?** *If not:* Split it: each pixel to the likeliest.
+  - All of it is that character’s
+- Split a shared piece — Likelihood = that character’s share of the pixel’s colour × nearness of the pixel to where it was (its pixels in the nearest frame, moved by its motion; Gaussian in distance). Then a stray pixel follows its neighbours.
+- Leave out characters in too few frames
+- *Out:* A clip, a sheet and the frames of each character, characters.json and the report
+
+### Pseudocode
+
+```
+for f, frame in frames:
+  pieces[f] = connected patches of kept pixels (patch = join px), area >= smallest
+  for piece: piece.embedding = soft_histogram(piece colours, 6x6x6) / area
+
+groups = []
+for piece in pieces sorted by (pieces in its frame desc, area desc):
+  g = argmax_g bhattacharyya(piece.embedding, mean(g))
+  if similarity >= sameness: g.add(piece) else: groups += Group(piece)
+
+for C in groups:                                  # two characters touching?
+  for A, B in other groups:
+    w, s = best mix(mean(A), mean(B)) for mean(C)
+    if s >= sameness and s - max(sim(C,A), sim(C,B)) >= 0.04 and A, B rarely apart where C is:
+      C.blend_of = (A, B)
+characters = groups that are not blends
+
+for f, piece:
+  who = {piece's character} | blend_of | {c expected near piece in f, not apart elsewhere in f}
+  if len(who) == 1: give all pixels to it
+  else for pixel p in piece:
+    owner[p] = argmax_c log(c.embedding[colour(p)]) + log(exp(-d_c(p)^2 / 2 sigma^2))
+    # d_c(p): distance to c's pixels in the nearest frame it was apart, moved by its motion
+drop characters in < least frames
+```
+
+### An embedding that is the colours
+
+A cartoon character is mostly its colours: its skin, its clothes, its hair, in roughly the same shares whichever way it turns. So a piece’s embedding is a histogram of its colours over a 6 × 6 × 6 grid of the colour cube, each pixel shared between the eight grid colours round it so that compression noise does not move it from one bin to another. Two embeddings are compared with the Bhattacharyya coefficient — the sum, over the colours, of the square root of the two shares multiplied — 1 for the same mix, near 0 for none in common.
+
+### Learnt where they are apart
+
+Where two characters are apart, each is a piece of its own and its embedding is clean. So the grouping starts from the frames with the most pieces in them: those set what each character looks like, and pieces from frames where characters run together join them afterwards. A piece that is two characters together has the colours of both, in the shares of how much of each shows, so its group’s mean is a blend of their two means; a group that is explained far better as such a blend than as either one — and whose two are not seen apart in the same frames — is taken for two characters together, not a third character.
+
+### Shared out by colour and by place
+
+A piece two characters could be in is split pixel by pixel. For each pixel, each character’s likelihood is its share of that pixel’s colour, times how near the pixel is to where that character was — its own pixels in the nearest frame where it was apart, moved on by how its centre was moving, with nearness falling off as a Gaussian of the distance. Colour decides where the characters differ (a red shirt against a blue one); place decides where they share colours (two heads of the same skin), which is why a character must be seen apart somewhere near in time. A pixel that went against all its neighbours follows them.
+
+### What it cannot know
+
+- Where two characters overlap in the same colours, which one is in front cannot be told from colour or place: the pixels there may go to either.
+- Two characters dressed alike are one group unless they are apart in the same frames; raise Sameness, or leave one out and join by hand.
+- A character never seen apart from another, in any frame, has no clean embedding: it is found only if its blend can be explained by the others.
+
+### What comes out
+
+For each character: its frames, the size the frames were, clear but for it (`character-1-frame-0001-at-0.000s.png`); a sheet of them side by side, cut to the box round everything it does; and a see-through WebM clip of that box from its first frame to its last, clear in frames where it is not. The clips folder (and the sheets folder) into a flow that takes one video (or one picture) is a batch: one item per character. `characters.json` lists every character, its colours and embedding, and every frame it is in, with its box and whether it was split there.
+
+### Settings
+
+| Setting | What it changes |
+| --- | --- |
+| Join pieces within | Pixels this close are one piece. |
+| Smallest piece | Smaller pieces are left out. |
+| Sameness | How alike two pieces’ colours must be to be one character. |
+| Most a character moves | How far round a piece another character is looked for. |
+| Least frames | Fewer, and a character is left out. |
+| Name, Leave out, Is … | By hand: name a character, leave it out, or join it to another. |
+
+**Cost:** Pieces: one pass over each frame. Grouping: pieces × groups × 216. Blends: groups³ × 216 × 19. Splitting: for each shared piece, a distance map per character over the piece’s box, and one score per pixel per character.
+
+**Try it:** Pick a frame where two characters touch: each pixel is tinted the colour of the character it went to. “Show only” one character to see its frames on their own.
+
+### Further reading
+
+- [Color histogram](https://en.wikipedia.org/wiki/Color_histogram) — A picture as the share of each colour in it: the embedding.
+- [Bhattacharyya distance](https://en.wikipedia.org/wiki/Bhattacharyya_distance) — How alike two embeddings are: the coefficient is the sum of the square roots of their products.
+- [Distance transform](https://en.wikipedia.org/wiki/Distance_transform) — How far each pixel is from where a character was: a two-pass chamfer.
+- [Multiple object tracking](https://en.wikipedia.org/wiki/Video_tracking) — The wider problem of following several things through a video.
+
+*Code:* `packages/shared/src/flows/characterSplit.ts — framePieces, embedPixels, embeddingSimilarity, bestBlend, characterWork, applyCharacterEdits, chamferDistance`
 
 ## Shot Split
 
