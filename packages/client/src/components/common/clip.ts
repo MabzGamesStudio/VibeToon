@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
 import { findTheEnd } from './video';
-import { clipLength, frameLengthOf, snapToClipFrame, type Bitmap, type ClipSpan } from '@vibetoon/shared';
+import { frameRateOf, gridFrameTimes, spanOfFacts, type VideoFacts } from '@vibetoon/shared';
 
 /**
- * A video clip opened to have its frames taken out, one at a time, each the
- * frame shown at the time asked for.
+ * A video opened in a video element to have its frames taken out, one at a
+ * time, each the frame shown at the time asked for — for a file this browser
+ * cannot decode from its packets (see `media.ts`; `frames.ts` picks which).
  *
  * Three things a video element does not do on its own are done here:
  *
@@ -12,21 +12,17 @@ import { clipLength, frameLengthOf, snapToClipFrame, type Bitmap, type ClipSpan 
  *   nobody sees, and then hands over the last frame it had, however far the
  *   clock has moved. So the element sits in the page, 2 px in a corner.
  * - **The clip says where its frames are.** Its first frame, its last frame
- *   and how long a frame lasts are found by showing them (`span`), not read
- *   from a header that a recorded clip often leaves without a length.
+ *   and how long a frame lasts are found by showing them, not read from a
+ *   header that a recorded clip often leaves without a length.
  * - **A frame is taken only once it is the one shown.** After a seek the
- *   picture is drawn only when the browser says a frame was presented, and
- *   that frame's own time is checked against the time asked for; a frame
- *   that is not the one asked for is sought again.
+ *   picture is drawn only when the browser says a frame was presented.
  */
-export interface OpenClip {
-  span: ClipSpan;
-  width: number;
-  height: number;
-  /** The frame shown at `time`, at this size, and the time it was shown at. */
-  frame(time: number, width: number, height: number): Promise<{ bitmap: Bitmap; shownAt: number }>;
-  /** The same frame, small, as a JPEG for showing. */
-  thumbnail(width: number, height: number, quality?: number): string;
+export interface ElementVideo {
+  facts: VideoFacts;
+  /** When each frame is shown, on the grid the measured frame rate makes. */
+  frameTimes(): Promise<number[]>;
+  /** The frame shown at each of `times`, handed to `use` one at a time, as the video element showing it. */
+  read(times: readonly number[], use: (frame: { time: number; shownAt: number; image: CanvasImageSource }) => void | Promise<void>, stopped?: () => boolean): Promise<void>;
   close(): void;
 }
 
@@ -114,7 +110,7 @@ async function showAt(video: FrameVideo, shown: Presented, time: number): Promis
   return shown.count > before ? shown.time : video.currentTime;
 }
 
-export async function openClip(url: string): Promise<OpenClip> {
+export async function openElementVideo(url: string): Promise<ElementVideo> {
   const video = document.createElement('video') as FrameVideo;
   video.muted = true;
   video.playsInline = true;
@@ -147,56 +143,47 @@ export async function openClip(url: string): Promise<OpenClip> {
       let handle = 0;
       const watch = (_now: number, metadata: { mediaTime: number }) => {
         seen.push(metadata.mediaTime);
-        if (seen.length < 12) handle = video.requestVideoFrameCallback!(watch);
+        if (seen.length < 16) handle = video.requestVideoFrameCallback!(watch);
       };
       handle = video.requestVideoFrameCallback(watch);
       try {
         await video.play();
         const until = performance.now() + Math.min(1500, end * 1000);
-        while (seen.length < 12 && performance.now() < until && !video.ended) await new Promise((resolve) => window.setTimeout(resolve, 30));
+        while (seen.length < 16 && performance.now() < until && !video.ended) await new Promise((resolve) => window.setTimeout(resolve, 30));
       } catch {
-        // Not allowed to play: the frame length falls back below.
+        // Not allowed to play: the frame rate falls back below.
       }
       video.pause();
       video.cancelVideoFrameCallback?.(handle);
     }
-    const frame = frameLengthOf(seen, 1 / 30);
+    const fps = frameRateOf(seen, 30);
+    const frame = 1 / fps;
 
     // The first frame and the last, as shown.
     const first = Math.max(0, await showAt(video, shown, 0));
     let last = await showAt(video, shown, Math.max(first, end - frame / 2));
     if (!(last >= first) || last > end) last = Math.max(first, end - frame);
-    const span: ClipSpan = { first, last, frame };
-
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d', { willReadFrequently: true })!;
-    const draw = (width: number, height: number) => {
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
-      }
-      context.clearRect(0, 0, width, height);
-      context.drawImage(video, 0, 0, width, height);
+    const facts: VideoFacts = {
+      first,
+      duration: Math.max(end, last + frame),
+      last,
+      frames: Math.floor((last - first) / frame + 1e-6) + 1,
+      fps,
+      width: video.videoWidth,
+      height: video.videoHeight,
+      exact: false,
     };
 
     return {
-      span,
-      width: video.videoWidth,
-      height: video.videoHeight,
-      async frame(time, width, height) {
-        const wanted = snapToClipFrame(span, time);
-        // A quarter of a frame in, so a seek that rounds lands on this frame, not the one before.
-        const shownAt = await showAt(video, shown, Math.min(end, wanted + frame / 4));
-        draw(width, height);
-        const pixels = context.getImageData(0, 0, width, height);
-        return { bitmap: { width, height, data: pixels.data }, shownAt };
-      },
-      thumbnail(width, height, quality = 0.6) {
-        const thumb = document.createElement('canvas');
-        thumb.width = width;
-        thumb.height = height;
-        thumb.getContext('2d')!.drawImage(video, 0, 0, width, height);
-        return thumb.toDataURL('image/jpeg', quality);
+      facts,
+      frameTimes: async () => gridFrameTimes(spanOfFacts(facts)),
+      async read(times, use, stopped) {
+        for (const time of times) {
+          if (stopped?.()) return;
+          // A quarter of a frame in, so a seek that rounds lands on this frame, not the one before.
+          const shownAt = await showAt(video, shown, Math.min(end, time + frame / 4));
+          await use({ time, shownAt, image: video });
+        }
       },
       close() {
         shown.stop();
@@ -207,34 +194,4 @@ export async function openClip(url: string): Promise<OpenClip> {
     close();
     throw reason;
   }
-}
-
-export interface ClipProbe {
-  span: ClipSpan;
-  /** The clip's length, first frame to the end of the last, and its size. */
-  meta: { duration: number; width: number; height: number };
-}
-
-/** A clip's span and size, probed once for each URL. */
-export function useClipProbe(url: string | null): { probe: ClipProbe | null; error: string | null } {
-  const [probe, setProbe] = useState<ClipProbe | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    setProbe(null);
-    setError(null);
-    if (!url) return undefined;
-    let cancelled = false;
-    openClip(url)
-      .then((clip) => {
-        if (!cancelled) setProbe({ span: clip.span, meta: { duration: clipLength(clip.span), width: clip.width, height: clip.height } });
-        clip.close();
-      })
-      .catch((reason: Error) => {
-        if (!cancelled) setError(reason.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-  return { probe, error };
 }

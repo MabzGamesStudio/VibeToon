@@ -1,4 +1,7 @@
-import type { ClipFormat, CropRect, VideoSegment } from '@vibetoon/shared';
+import { useEffect, useState } from 'react';
+import { CLIP_FORMATS, type ClipFormat, type ClipFormatId, type CropRect, type VideoSegment } from '@vibetoon/shared';
+import { openVideoFrames } from '../common/frames';
+import { canEncodeExactly, finishRecording, startClip } from '../common/media';
 import { loadVideo, releaseVideo, seek } from '../common/video';
 
 /**
@@ -11,8 +14,39 @@ export function recordingType(format?: ClipFormat): string | undefined {
   return types.find((type) => MediaRecorder.isTypeSupported(type));
 }
 
+/**
+ * How this browser can write a format: frame by frame from the video's own
+ * frames (`exact`), only by recording the page as the video plays
+ * (`recorded`), or not at all.
+ */
+export type FormatSupport = 'exact' | 'recorded' | 'none';
+
+let supportFound: Promise<Record<ClipFormatId, FormatSupport>> | null = null;
+
+/** How every format can be written here, found once. */
+export function formatSupport(): Promise<Record<ClipFormatId, FormatSupport>> {
+  supportFound ??= Promise.all(
+    CLIP_FORMATS.map(async (format) => [format.id, (await canEncodeExactly(format)) ? 'exact' : recordingType(format) ? 'recorded' : 'none'] as const),
+  ).then((pairs) => Object.fromEntries(pairs) as Record<ClipFormatId, FormatSupport>);
+  return supportFound;
+}
+
+export function useFormatSupport(): Record<ClipFormatId, FormatSupport> | null {
+  const [support, setSupport] = useState<Record<ClipFormatId, FormatSupport> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void formatSupport().then((found) => {
+      if (!cancelled) setSupport(found);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return support;
+}
+
 export interface RenderProgress {
-  /** Seconds of the edit recorded so far, and in all. */
+  /** Seconds of the edit written so far, and in all. */
   done: number;
   total: number;
   clip: number;
@@ -149,21 +183,12 @@ async function playThrough(
 }
 
 /**
- * Record the kept segments of a video through a crop: as one video, one after
- * another, or as a clip for each. Played at normal speed, so it takes as long
- * as the edit lasts.
+ * Record the kept segments of a video through a crop as it plays: the way
+ * left for a browser that cannot encode a format frame by frame. Played at
+ * normal speed, so it takes as long as the edit lasts, and a frame is caught
+ * whenever the page draws one, so the frames are not evenly spaced.
  */
-export async function renderEdit(options: {
-  url: string;
-  segments: VideoSegment[];
-  crop: CropRect;
-  fps: number;
-  mode: 'joined' | 'clips';
-  /** What to record as; the best WebM when not given. */
-  format?: ClipFormat;
-  onProgress(progress: RenderProgress): void;
-  stopped(): boolean;
-}): Promise<Blob[]> {
+async function recordEdit(options: RenderOptions): Promise<Blob[]> {
   const type = recordingType(options.format);
   if (!type) throw new Error(options.format ? `this browser cannot record ${options.format.label}` : 'this browser cannot record video');
   const contentType = options.format?.contentType ?? 'video/webm';
@@ -205,6 +230,93 @@ export async function renderEdit(options: {
     releaseVideo(video);
   }
   return blobs;
+}
+
+export interface RenderOptions {
+  url: string;
+  segments: VideoSegment[];
+  crop: CropRect;
+  fps: number;
+  mode: 'joined' | 'clips';
+  /** What to write as; the best WebM when not given. */
+  format?: ClipFormat;
+  onProgress(progress: RenderProgress): void;
+  stopped(): boolean;
+}
+
+export interface Rendered {
+  blobs: Blob[];
+  /** How it was written: frame by frame, or recorded as it played. */
+  how: 'exact' | 'recorded';
+  /** Whether the frames were decoded from the file, or shown in a video element to be drawn. */
+  decoded: boolean;
+}
+
+/** The sides of a crop, made even: video needs them so. */
+function evenSize(crop: CropRect): { width: number; height: number } {
+  const width = Math.max(2, Math.round(crop.width));
+  const height = Math.max(2, Math.round(crop.height));
+  return { width: width - (width % 2), height: height - (height % 2) };
+}
+
+/**
+ * Write the kept segments of a video through a crop: as one video, one after
+ * another, or as a clip for each.
+ *
+ * Frame by frame wherever this browser can encode the format: frame `i` of a
+ * segment is the frame the source shows in the middle of the `i`-th
+ * 1/fps-long slot from its start — decoded from the file, or shown and drawn
+ * where the file cannot be decoded here — and is written at exactly
+ * `i / fps`. Nothing is dropped however slow the page is, the frames are
+ * evenly spaced at the source's own rate, a segment of `n / fps` seconds has
+ * `n` frames, and the file has its length in its header, an index and a whole
+ * picture every second (see `startClip`). Otherwise it is recorded as it
+ * plays, and the recording copied into a file with its length and an index.
+ */
+export async function renderEdit(options: RenderOptions): Promise<Rendered> {
+  const format = options.format ?? CLIP_FORMATS[0]!;
+  const size = evenSize(options.crop);
+  if (await canEncodeExactly(format, size.width, size.height)) {
+    const frames = await openVideoFrames(options.url);
+    const fps = Math.max(1, options.fps);
+    const total = options.segments.reduce((sum, segment) => sum + Math.max(0, segment.end - segment.start), 0);
+    const groups = options.mode === 'joined' ? [options.segments] : options.segments.map((segment) => [segment]);
+    const blobs: Blob[] = [];
+    let before = 0;
+    try {
+      for (const [clip, group] of groups.entries()) {
+        if (options.stopped()) return { blobs: [], how: 'exact', decoded: frames.facts.exact };
+        const writer = await startClip(format, size.width, size.height, fps);
+        for (const segment of group) {
+          const count = Math.max(1, Math.round((segment.end - segment.start) * fps));
+          const times = Array.from({ length: count }, (_, index) => Math.min(frames.facts.duration, segment.start + (index + 0.5) / fps));
+          const startedAt = writer.frames();
+          await frames.read(
+            times,
+            async ({ image }) => {
+              writer.context.drawImage(image, options.crop.x, options.crop.y, options.crop.width, options.crop.height, 0, 0, size.width, size.height);
+              await writer.add();
+              options.onProgress({ done: before + (writer.frames() - startedAt) / fps, total, clip });
+            },
+            options.stopped,
+          );
+          if (options.stopped()) {
+            await writer.cancel();
+            return { blobs: [], how: 'exact', decoded: frames.facts.exact };
+          }
+          // A time the file had no frame for keeps the last picture: the segment keeps its length.
+          while (writer.frames() - startedAt < count) await writer.add();
+          before += segment.end - segment.start;
+        }
+        blobs.push(await writer.finish());
+      }
+      return { blobs, how: 'exact', decoded: frames.facts.exact };
+    } finally {
+      frames.close();
+    }
+  }
+  const recorded = await recordEdit({ ...options, format });
+  return { blobs: await Promise.all(recorded.map((blob) => finishRecording(blob, format))), how: 'recorded', decoded: false };
 }
 
 export function blobDataUrl(blob: Blob): Promise<string> {

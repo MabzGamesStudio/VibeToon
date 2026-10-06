@@ -242,14 +242,27 @@ export function normaliseFlowData(data: FlowData): FlowData {
       const base = emptyVideoBackgroundFlowData();
       const sampling = fill(data.sampling, DEFAULT_VIDEO_SAMPLING);
       const whole =
-        Array.isArray(data.marks) && typeof data.tolerance === 'number' && typeof data.agreement === 'number' && typeof data.brush === 'number' && typeof data.tool === 'string' && data.current !== undefined;
+        Array.isArray(data.marks) &&
+        typeof data.tolerance === 'number' &&
+        typeof data.agreement === 'number' &&
+        typeof data.brush === 'number' &&
+        typeof data.tool === 'string' &&
+        data.current !== undefined &&
+        typeof data.steady === 'boolean' &&
+        typeof data.maxShift === 'number' &&
+        typeof data.rebuild === 'boolean' &&
+        typeof data.patch === 'number';
       if (!sampling.filled && whole) return data;
+      // Made before the background was rebuilt from patches: its agreement, if left at the old default
+      // (a share of frames for each pixel's commonest colour), becomes the new one for patches.
+      const beforePatches = typeof data.steady !== 'boolean' && data.agreement === 50;
       return {
         ...base,
         ...data,
         sampling: sampling.value,
         marks: Array.isArray(data.marks) ? data.marks : [],
         current: data.current ?? null,
+        ...(beforePatches ? { agreement: base.agreement } : {}),
       };
     }
     case 'videoSource': {

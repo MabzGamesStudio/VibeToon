@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { VIDEO_FILE_ACCEPT, frameRateOf, type Bitmap } from '@vibetoon/shared';
+import { VIDEO_FILE_ACCEPT, type Bitmap } from '@vibetoon/shared';
 
 /** A video element ready to be read from, at a URL, its length known. */
 export async function loadVideo(url: string): Promise<HTMLVideoElement> {
@@ -51,46 +51,6 @@ export async function findTheEnd(video: HTMLVideoElement): Promise<number> {
   const end = Math.max(Number.isFinite(video.duration) ? video.duration : 0, Number.isFinite(seekable) ? seekable : 0);
   await seek(video, 0);
   return end;
-}
-
-type FrameCallbackVideo = HTMLVideoElement & {
-  requestVideoFrameCallback?(callback: (now: number, metadata: { mediaTime: number }) => void): number;
-  cancelVideoFrameCallback?(handle: number): void;
-};
-
-/**
- * Frames a second, measured: the video plays a moment, muted and in the page,
- * and the times of the frames it shows are read (see `frameRateOf`). A header
- * or a guess is not used: a shot's frames are numbered by this.
- */
-export async function measureFrameRate(video: HTMLVideoElement, fallback = 30): Promise<number> {
-  const watched = video as FrameCallbackVideo;
-  if (typeof watched.requestVideoFrameCallback !== 'function') return fallback;
-  const placed = !video.isConnected;
-  if (placed) {
-    Object.assign(video.style, { position: 'fixed', right: '0', bottom: '0', width: '2px', height: '2px', pointerEvents: 'none', zIndex: '-1' });
-    document.body.appendChild(video);
-  }
-  const seen: number[] = [];
-  let handle = 0;
-  const watch = (_now: number, metadata: { mediaTime: number }) => {
-    seen.push(metadata.mediaTime);
-    if (seen.length < 16) handle = watched.requestVideoFrameCallback!(watch);
-  };
-  handle = watched.requestVideoFrameCallback(watch);
-  try {
-    video.muted = true;
-    await video.play();
-    const until = performance.now() + 1500;
-    while (seen.length < 16 && performance.now() < until && !video.ended) await new Promise((resolve) => window.setTimeout(resolve, 30));
-  } catch {
-    // Not allowed to play: the fallback stands.
-  }
-  video.pause();
-  watched.cancelVideoFrameCallback?.(handle);
-  if (placed) video.remove();
-  await seek(video, 0);
-  return frameRateOf(seen, fallback);
 }
 
 export function seek(video: HTMLVideoElement, time: number): Promise<void> {
@@ -147,41 +107,6 @@ export class FrameReader {
     this.context.drawImage(this.video, 0, 0, this.width, this.height);
     return this.canvas.toDataURL('image/jpeg', quality);
   }
-}
-
-export interface VideoMeta {
-  duration: number;
-  width: number;
-  height: number;
-  /** Frames a second, measured from the frames shown. */
-  fps: number;
-}
-
-/** A video's length and size, read once for each URL. */
-export function useVideoMeta(url: string | null): { meta: VideoMeta | null; error: string | null } {
-  const [meta, setMeta] = useState<VideoMeta | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    setMeta(null);
-    setError(null);
-    if (!url) return undefined;
-    let cancelled = false;
-    loadVideo(url)
-      .then(async (video) => {
-        const seekable = video.seekable.length > 0 ? video.seekable.end(video.seekable.length - 1) : 0;
-        const duration = Math.max(Number.isFinite(video.duration) ? video.duration : 0, Number.isFinite(seekable) ? seekable : 0);
-        const fps = await measureFrameRate(video);
-        if (!cancelled) setMeta({ duration, width: video.videoWidth, height: video.videoHeight, fps });
-        releaseVideo(video);
-      })
-      .catch((reason: Error) => {
-        if (!cancelled) setError(reason.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-  return { meta, error };
 }
 
 /**

@@ -36,35 +36,85 @@ export function snapToClipFrame(span: ClipSpan, time: number): number {
   return Math.min(span.last, Math.round((span.first + index * frame) * 1e6) / 1e6);
 }
 
+/** Where a clip's frames are, as the frames of a grid: the first, one every `frame`, to the last. */
+export function gridFrameTimes(span: ClipSpan): number[] {
+  if (!(span.frame > 0) || !(span.last >= span.first)) return [];
+  const frames = Math.min(200_000, Math.floor((span.last - span.first) / span.frame + 1e-6) + 1);
+  return Array.from({ length: frames }, (_, index) => Math.round((span.first + index * span.frame) * 1e6) / 1e6);
+}
+
 /**
- * The times to read, each on one of the clip's frames, first to last.
+ * The frames to read, out of the frames a clip has — each given by the time
+ * it is shown, first to last:
  *
- * - **Frames in all**: that many, spread evenly from the first frame to the
- *   last, both included — so the whole clip is covered, ends and all.
- * - **Frames a second**: one every 1/fps seconds from the first frame, while
- *   there are frames.
+ * - **Frames in all**: that many, spread evenly through them by count, the
+ *   first and the last both included.
+ * - **Frames a second**: one every 1/fps seconds from the first frame, each
+ *   the frame nearest that time.
  *
- * Two that land on the same frame are read once: a short clip asked for more
- * frames than it has gives each of its frames once.
+ * Only frames the clip has are picked, and each at most once: a clip asked for
+ * more frames than it has gives each of its frames once, and a clip whose
+ * frames are unevenly spaced (one a browser recorded as it played) gives its
+ * own frames, never one frame twice for two times that fall in a long one.
+ */
+export function pickFrameTimes(frameTimes: readonly number[], sampling: VideoSampling): number[] {
+  const count = frameTimes.length;
+  if (count === 0) return [];
+  const picked: number[] = [];
+  if (sampling.mode === 'total') {
+    const wanted = Math.max(1, Math.min(MAX_CLIP_FRAMES, Math.round(sampling.total), count));
+    if (wanted === 1) return [frameTimes[Math.round((count - 1) / 2)]!];
+    // At least a frame apart, so no two land on the same frame.
+    for (let index = 0; index < wanted; index += 1) picked.push(frameTimes[Math.round((index * (count - 1)) / (wanted - 1))]!);
+    return picked;
+  }
+  const step = 1 / Math.max(0.01, sampling.fps);
+  const first = frameTimes[0]!;
+  const last = frameTimes[count - 1]!;
+  let at = 0;
+  for (let index = 0; picked.length < MAX_CLIP_FRAMES; index += 1) {
+    const time = first + index * step;
+    if (time > last + 1e-6) break;
+    // The nearest frame: the one at or before the time, or the next if that is nearer (or as near).
+    while (at + 1 < count && frameTimes[at + 1]! <= time + 1e-9) at += 1;
+    const after = at + 1 < count ? at + 1 : at;
+    const nearest = frameTimes[after]! - time <= time - frameTimes[at]! + 1e-9 ? after : at;
+    const chosen = frameTimes[nearest]!;
+    if (picked.length === 0 || chosen > picked[picked.length - 1]!) picked.push(chosen);
+  }
+  return picked;
+}
+
+/**
+ * The times to read, each on one of the clip's frames, first to last, for a
+ * clip known only by its span: its frames taken to be on an even grid (see
+ * `gridFrameTimes` and `pickFrameTimes`).
  */
 export function clipFrameTimes(span: ClipSpan, sampling: VideoSampling): number[] {
-  if (!(span.frame > 0) || !(span.last >= span.first)) return [];
-  const frames = Math.floor((span.last - span.first) / span.frame + 1e-6) + 1;
-  const wanted: number[] = [];
-  if (sampling.mode === 'total') {
-    const count = Math.max(1, Math.min(MAX_CLIP_FRAMES, Math.round(sampling.total), frames));
-    if (count === 1) wanted.push((span.first + span.last) / 2);
-    else for (let index = 0; index < count; index += 1) wanted.push(span.first + ((span.last - span.first) * index) / (count - 1));
-  } else {
-    const step = 1 / Math.max(0.01, sampling.fps);
-    for (let time = span.first; time <= span.last + 1e-6 && wanted.length < MAX_CLIP_FRAMES; time += step) wanted.push(time);
-  }
-  const times: number[] = [];
-  for (const time of wanted) {
-    const snapped = snapToClipFrame(span, time);
-    if (times.length === 0 || snapped - times[times.length - 1]! > span.frame / 2) times.push(snapped);
-  }
-  return times;
+  return pickFrameTimes(gridFrameTimes(span), sampling);
+}
+
+/**
+ * What a video is, frame by frame, as read from it: when its first frame is
+ * shown and its last, when the last one ends, how many frames it has and how
+ * many a second. `exact` when read from the file's own packets; otherwise
+ * measured by playing it, and the count worked out from the rate.
+ */
+export interface VideoFacts {
+  first: number;
+  /** When the last frame ends: the video's length. */
+  duration: number;
+  last: number;
+  frames: number;
+  fps: number;
+  width: number;
+  height: number;
+  exact: boolean;
+}
+
+/** The span of a video's frames, from its facts. */
+export function spanOfFacts(facts: VideoFacts): ClipSpan {
+  return { first: facts.first, last: facts.last, frame: 1 / Math.max(1e-3, facts.fps) };
 }
 
 /** Frame rates video is made at; a measured rate within 3% of one is taken to be it. */
@@ -87,11 +137,15 @@ export function frameRateOf(shownAt: readonly number[], fallback = 30): number {
   if (gaps.length === 0) return fallback;
   gaps.sort((a, b) => a - b);
   const middle = gaps.length % 2 ? gaps[(gaps.length - 1) / 2]! : (gaps[gaps.length / 2 - 1]! + gaps[gaps.length / 2]!) / 2;
-  const rate = 1 / middle;
+  return snapFrameRate(1 / middle);
+}
+
+/** A measured frame rate, as the standard rate it is near (within 3%), else to two places. */
+export function snapFrameRate(rate: number): number {
+  if (!(rate > 0) || !Number.isFinite(rate)) return 30;
   // The nearest standard rate, if it is close: 30 and 29.97 are both within 3% of each other.
   const nearest = [...STANDARD_FRAME_RATES].sort((a, b) => Math.abs(a - rate) - Math.abs(b - rate))[0]!;
-  const standard = Math.abs(nearest - rate) / nearest < 0.03 ? nearest : undefined;
-  return standard ?? Math.round(rate * 100) / 100;
+  return Math.abs(nearest - rate) / nearest < 0.03 ? nearest : Math.round(rate * 100) / 100;
 }
 
 /** How long a frame lasts, from the same: one over `frameRateOf`. */

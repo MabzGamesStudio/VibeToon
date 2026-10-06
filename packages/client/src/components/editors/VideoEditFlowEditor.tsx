@@ -45,10 +45,11 @@ import { api } from '../../api/client';
 import { useBatchRun, waitUntil } from '../../state/batchRun';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
-import { FrameReader, VideoUpload, clock, loadVideo, releaseVideo, useFileUpload, useFrameThumbnails, useVideoMeta } from '../common/video';
+import { FrameReader, VideoUpload, clock, loadVideo, releaseVideo, useFileUpload, useFrameThumbnails } from '../common/video';
+import { useVideoMeta } from '../common/frames';
 import { svgPoint, useFitScale } from './CropFlowEditor';
 import { EditorShell } from './EditorShell';
-import { blobDataUrl, recordingType, renderEdit, type RenderProgress } from './renderVideo';
+import { blobDataUrl, formatSupport, renderEdit, type RenderProgress } from './renderVideo';
 import { ClipFormatPicker } from './ClipFormatPicker';
 
 const HANDLE_AT: Record<CropHandle, [number, number]> = {
@@ -407,8 +408,8 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
       return;
     }
     const format = clipFormat(current.clipFormat);
-    if (!recordingType(format)) {
-      notify('error', `This browser cannot record ${format.label}, so only the edit is written. Pick another format under What comes out.`);
+    if ((await formatSupport())[format.id] === 'none') {
+      notify('error', `This browser cannot write ${format.label}, so only the edit is written. Pick another format under What comes out.`);
       await generateFlow(node.id);
       return;
     }
@@ -416,24 +417,26 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
     player.current?.pause();
     setProgress({ done: 0, total: editedDuration(current), clip: 0 });
     try {
-      const blobs = await renderEdit({ url: videoUrl, segments: kept, crop: box, fps: current.fps, mode: current.output, format, onProgress: setProgress, stopped: () => stopping.current });
+      const rendered = await renderEdit({ url: videoUrl, segments: kept, crop: box, fps: current.fps, mode: current.output, format, onProgress: setProgress, stopped: () => stopping.current });
       if (stopping.current) {
         notify('info', 'Stopped. Nothing was written.');
         return;
       }
+      if (rendered.how === 'recorded') notify('info', `This browser cannot encode ${format.label} frame by frame, so the edit was recorded as it played: its frames may not be evenly spaced.`);
+      const blobs = rendered.blobs;
       const attachments =
         current.output === 'joined'
           ? [{ name: `edited.${format.extension}`, data: await blobDataUrl(blobs[0]!) }]
           : await Promise.all(blobs.map(async (blob, index) => ({ name: `clips/${clipName(index, format.extension)}`, data: await blobDataUrl(blob) })));
       await generateFlow(node.id, attachments);
     } catch (reason) {
-      notify('error', `Could not record the edit: ${(reason as Error).message}`);
+      notify('error', `Could not write the edit: ${(reason as Error).message}`);
     } finally {
       setProgress(null);
     }
   };
 
-  // Generate all, for one video of a batch: once the video is measured, record the edit as Generate does.
+  // Generate all, for one video of a batch: once the video is measured, write the edit as Generate does.
   const onGenerateRef = useRef(onGenerate);
   onGenerateRef.current = onGenerate;
   const videoErrorRef = useRef(videoError);
@@ -458,7 +461,7 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
         ) : progress ? (
           <div className="vt-sync-banner">
             <span>
-              Recording {data.output === 'clips' ? `clip ${progress.clip + 1}, ` : ''}
+              Writing {data.output === 'clips' ? `clip ${progress.clip + 1}, ` : ''}
               {clock(progress.done)} of {clock(progress.total)}…
             </span>
             <progress max={progress.total} value={progress.done} style={{ flex: 1, maxWidth: 240 }} />
@@ -467,7 +470,7 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
             </button>
           </div>
         ) : behind ? (
-          <div className="vt-sync-banner"><span>The edit has changed since it was last recorded. Generate to record it again.</span></div>
+          <div className="vt-sync-banner"><span>The edit has changed since it was last written. Generate to write it again.</span></div>
         ) : undefined
       }
       actions={source?.wired ? undefined : <VideoUpload replace={Boolean(source)} onFile={upload} />}
@@ -495,7 +498,7 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
                   </label>
                 ))}
               </div>
-              <p className="vt-faint" style={{ fontSize: 11 }}>Recorded at {shownCrop.width} × {shownCrop.height}: the sides are kept even, as video needs.</p>
+              <p className="vt-faint" style={{ fontSize: 11 }}>Written at {shownCrop.width - (shownCrop.width % 2)} × {shownCrop.height - (shownCrop.height % 2)}: the sides are kept even, as video needs.</p>
             </>
           ) : null}
         </div>
@@ -598,11 +601,11 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
             ))}
           </div>
           <ClipFormatPicker value={data.clipFormat} onChange={(clipFormat) => patch({ clipFormat })} />
-          <Field label="Frame rate" tip="videoEdit.fps" hint="Frames a second it is recorded at, and what a split snaps to.">
+          <Field label="Frame rate" tip="videoEdit.fps" hint="Frames a second it is written at, and what a split snaps to.">
             <input type="number" min={1} max={60} value={data.fps} aria-label="Frame rate" onChange={(event) => patch({ fps: Math.max(1, Math.min(60, Number(event.target.value) || 30)) })} />
           </Field>
           <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>{summariseEdit(data)}</p>
-          <p className="vt-hint">Generate plays the edit and records it, so it takes as long as the edit lasts. The sound is not kept.</p>
+          <p className="vt-hint">Generate writes the edit frame by frame from the video's own frames, at the frame rate above: a segment of so many frames comes out that many frames long. The sound is not kept.</p>
         </div>
       </aside>
 
@@ -670,7 +673,7 @@ export function VideoEditFlowEditor({ project, node }: { project: Project; node:
                 ▶|
               </button>
               <span className="vt-faint">
-                {clock(now)} / {clock(duration)} · frame {frameIndex(now, data.fps) + 1}
+                {clock(now)} / {clock(duration)} · frame {frameIndex(now, data.fps) + 1} of {meta?.exact && meta.fps === data.fps ? meta.frames : Math.max(1, Math.round(duration * data.fps))}
               </span>
               <label className="vt-row" style={{ gap: 5 }}>
                 <input type="checkbox" checked={editOnly} onChange={(event) => setEditOnly(event.target.checked)} />

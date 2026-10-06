@@ -47,3 +47,25 @@ test('the frame rate is the middle gap, snapped to a standard rate; drops and st
   assert.equal(frameRateOf(Array.from({ length: 10 }, (_, i) => i / 60)), 60);
   assert.equal(frameRateOf([0.2]), 30, 'nothing to go on');
 });
+
+test('frames are picked from the frames a clip has, never one twice, however unevenly they come', async () => {
+  const { pickFrameTimes, gridFrameTimes, spanOfFacts } = await import('../src/flows/clipFrames');
+  // A clip a browser recorded as it played: frames bunched, then a half-second gap.
+  const uneven = [0, 0.065, 0.13, 0.131, 0.2, 0.68, 0.75, 0.81, 0.9, 1.0];
+  const all = pickFrameTimes(uneven, { mode: 'total', fps: 2, total: 40 });
+  assert.deepEqual(all, uneven, 'asked for more than there are: each frame once');
+  const five = pickFrameTimes(uneven, { mode: 'total', fps: 2, total: 5 });
+  assert.equal(new Set(five).size, 5);
+  assert.deepEqual([five[0], five[4]], [0, 1.0], 'the first and the last');
+  // Ten a second across the gap: the frame nearest each time, and the long one only once.
+  const tenASecond = pickFrameTimes(uneven, { mode: 'fps', fps: 10, total: 5 });
+  assert.equal(new Set(tenASecond).size, tenASecond.length);
+  assert.ok(tenASecond.every((time) => uneven.includes(time)));
+  assert.ok(tenASecond.filter((time) => time > 0.2 && time < 0.68).length === 0, 'there is no frame in the gap to give');
+  // A clip written frame by frame at 30 fps: its facts make the same grid.
+  const facts = { first: 0, duration: 3, last: 3 - 1 / 30, frames: 90, fps: 30, width: 64, height: 36, exact: true };
+  const grid = gridFrameTimes(spanOfFacts(facts));
+  assert.equal(grid.length, 90);
+  assert.ok(Math.abs(grid[89]! - (3 - 1 / 30)) < 1e-6);
+  assert.deepEqual(pickFrameTimes([], { mode: 'total', fps: 2, total: 5 }), []);
+});

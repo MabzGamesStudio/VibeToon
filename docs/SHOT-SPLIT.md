@@ -36,25 +36,28 @@ alike). A camera move changes the first and not the second; a cut changes both.
    false cut) is joined to the neighbour it is least unlike. The weaker of its two
    cuts goes, shortest shots first.
 
-**Frame rate** is what "the exact frame" means. A browser cannot read a video's
-frame rate from the file, so set it if it is not 24.
+**Frame rate** is what "the exact frame" means. It is read from the file when
+the video arrives (see below); change it only if you know better.
 
 Two cuts between the same two compared frames are found as one. For fast
 cutting, compare more often.
 
 ## Length and frame rate
 
-The video's **length** is found by reading to its real end, never taken from
-its header alone: a recording made in a browser often has no length in it,
-and some (an MP4 written in pieces) give only the first piece's, so a clip
-that plays for three seconds would say half a second. Its **frame rate** is
-measured by playing it a moment and timing the frames shown (the middle gap
-between them, snapped to a standard rate such as 24, 25, 29.97 or 30). The
-side panel shows both, and the frame count they make.
+The video's **length**, **frame count** and **frame rate** are read from the
+file's own packets, frame by frame, never from its header alone: the length is
+when its last frame ends, the count is how many frames it holds, and the rate is
+the count over the time they span, snapped to a standard rate such as 24, 25,
+29.97 or 30. A recording made in a browser often has no length in its header at
+all, and some (an MP4 written in pieces) give only the first piece's, so a clip
+that plays for three seconds would say half a second. Where this browser cannot
+decode the file itself, it is played instead: the editor reads to its real end
+once and times a few frames going by, and the side panel says the count is
+*about* that many, measured as it played.
 
-Frames in `shots.json`, the report, a split's snapping and the recorded clips
-all go by that measured rate (it can be changed under *Frame rate*), not by a
-24 fps guess. In a batch, every video keeps its own length and frame rate.
+Frames in `shots.json`, the report, a split's snapping and the clips written all
+go by that rate (it can be changed under *Frame rate*). In a batch, every video
+keeps its own length and frame rate.
 
 ## Putting them right
 
@@ -118,21 +121,35 @@ flow's own *Video* port.
 
 Tick **Each shot as a video of its own** (under *What comes out*), or wire the
 **Shot clips** port into another flow — the box is then ticked for you, and says
-which flow needs it — and Generate also records every shot as a clip — `shots/shot-01.webm`, `shot-02.webm`, … — on
+which flow needs it — and Generate also writes every shot as a clip — `shots/shot-01.webm`, `shot-02.webm`, … — on
 the **Shot clips** port. Wire that into a flow that takes one video, such as
 Video Background, and it is a **batch**: each shot goes through that flow on its
 own, and you get a background for each. See [BATCHES.md](BATCHES.md).
 
+- Each clip is **written frame by frame**, as Video Edit writes: every frame of
+  the clip is the video's own frame for that moment, decoded from the file and
+  encoded at exactly its place, at the video's frame rate. A shot of 3 seconds at
+  30 fps is a clip of exactly 90 frames, evenly spaced, whose file says it is 3
+  seconds long, has an index (WebM Cues) and a whole picture every second — so
+  Video Edit, Video Background and any player agree on its length and its frames.
+  It is not played to be written, so it does not take as long as the video.
 - **Each clip as** picks the format: WebM (VP9, VP8 or AV1), MP4 (H.264) or
-  Matroska (H.264). Formats this browser cannot record are greyed out. The
-  clips are named for the format (`shot-01.mp4`), and changing it marks the
-  clips as behind until they are recorded again.
-- The shots are played through and recorded, as Video Edit does, so it
-  takes as long as the video. A progress bar shows the shot being recorded, and
-  **Stop** stops without writing anything.
+  Matroska (H.264). Formats this browser cannot write are greyed out; one it can
+  only record as the video plays (no encoder for it here) is marked ⚠, and its
+  frames may not be evenly spaced — pick a WebM format there. The clips are named
+  for the format (`shot-01.mp4`), and changing it marks the clips as behind until
+  they are written again.
+- A progress bar shows the shot being written, and **Stop** stops without
+  writing anything.
 - The sound is not kept.
-- When the shots change after they were recorded, the editor says so until they
-  are recorded again.
-- Before anything is recorded, the flow downstream already shows one item per
+- When the shots change after they were written, the editor says so until they
+  are written again.
+- Before anything is written, the flow downstream already shows one item per
   shot (*None of the 5 made yet by Shot Split*), with a button to open Shot Split
-  and record them.
+  and write them.
+
+Clips written before this (by playing each shot through and recording the page)
+came out with their frames unevenly spaced — some a millisecond apart, some half
+a second — no length in the file and no index, so their length and frame count
+read differently everywhere, and reading frames out of them repeated a frame
+across the long gaps. **Generate** again to write them frame by frame.

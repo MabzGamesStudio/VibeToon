@@ -22,7 +22,10 @@ export async function generateVideoBackground(ctx: GenerationContext): Promise<G
   }
   const report = ctx.attachments.find((attachment) => attachment.name === 'background.md');
   const size = pngSize(image.bytes);
-  if (size) ctx.log(`Background, ${size.width} × ${size.height}, each pixel's commonest colour where it is in at least ${data.agreement}% of the frames, and ${data.marks.length} mark(s).`);
+  if (size) {
+    const rebuilt = data.rebuild ? `what moved rebuilt from ${data.patch} px patches seen in at least ${data.agreement}% of the frames` : 'what moved left clear';
+    ctx.log(`Background, ${size.width} × ${size.height}: ${data.steady ? 'the frames lined up, ' : ''}what never changed, ${rebuilt}, and ${data.marks.length} mark(s).`);
+  }
   return {
     outputs: [
       await writeArtifact({ projectId: ctx.project.id, flowId: ctx.node.id, port: 'image', kind: 'image', fileName: 'background.png', content: image.bytes }),

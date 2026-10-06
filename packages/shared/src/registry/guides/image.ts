@@ -374,90 +374,135 @@ cutout = picture with alpha`,
 
 export const VIDEO_BACKGROUND_GUIDE: AlgorithmGuide = {
   kinds: ['art.video.background'],
-  title: 'A background from a video: each pixel’s most common colour',
+  title: 'A background from a video: lined up, what never changes, and what moved rebuilt patch by patch',
   summary:
-    'The clip is sampled into frames. For every pixel, its colours across the frames are grouped — a colour joins the first group whose average it is within the tolerance of — and the biggest group is the pixel’s most common colour. If that group holds at least the agreement share of the frames, the pixel takes the group’s average colour; otherwise no colour is common enough and it is clear. Regions and strokes marked on single frames are then laid on in order.',
+    'The clip’s frames are read exactly as the file holds them. They are lined up with each other first, so a camera that shakes or drifts does not count as change. Every pixel whose colour stays within the tolerance in every frame is background. What changed is rebuilt a patch at a time: each frame’s version of the patch is grouped with the others it matches, and the biggest group — frames side by side in it counting more — is the background there, if it holds at least the agreement share of the frames. Anything left is clear, for marking by hand.',
   steps: [
     { kind: 'input', title: 'The video' },
-    { kind: 'step', title: 'Probe the clip', detail: 'When its first and last frames are shown, and how long a frame lasts — as the browser shows them, not as a header says.' },
-    { kind: 'step', title: 'Plan the times', detail: 'So many in all from the first frame to the last, or so many a second from the first; each on one of the clip’s frames, none twice.' },
+    { kind: 'step', title: 'List its frames', detail: 'When each frame is shown, from the file’s own packets — not a grid worked out from a frame rate, which a clip recorded unevenly does not keep to.' },
+    { kind: 'step', title: 'Pick the frames to read', detail: 'So many in all, spread through them by count; or so many a second, each the frame nearest that time. None twice.' },
+    { kind: 'step', title: 'Read each one', detail: 'Decoded from the file at its own time, no bigger than all the frames together fit in 40 million pixels.' },
     {
       kind: 'loop',
-      title: 'For each time',
+      title: '1. Follow the camera — for each frame after the first',
       steps: [
-        { kind: 'step', title: 'Seek to a quarter of a frame past it', detail: 'And wait for the seek to finish, however long a recorded clip takes to decode to it.' },
-        { kind: 'step', title: 'Wait for the frame to be shown', detail: 'It is the last frame at or before the time: the right one. Each read has its frame before the next seek.' },
-        { kind: 'step', title: 'Draw it', detail: 'No bigger than all the frames together fit in 40 million pixels.' },
+        { kind: 'step', title: 'Search near where the frame before it sat', detail: 'On a picture halved four times first, then finer and finer: up to “Most it moves” pixels away.' },
+        { kind: 'step', title: 'Score a shift by the mean brightness difference, each pixel’s capped', detail: 'Every pixel counts, so the edges of flat colours do; the cap keeps a character moving in front from pulling it.' },
+        { kind: 'decision', title: 'Moved a quarter of the picture from the frame it is followed from?', no: 'Keep following from that frame.' },
+        { kind: 'step', title: 'Follow the next frames from this one' },
+      ],
+    },
+    { kind: 'step', title: 'Put the background where the frames were in the middle', detail: 'Each frame’s offset is from there.' },
+    {
+      kind: 'loop',
+      title: '2. For each pixel',
+      steps: [
+        { kind: 'step', title: 'Its colour in every frame that sees it, lined up' },
+        { kind: 'decision', title: 'Within the tolerance in all of them?', no: 'It changed: clear for now.' },
+        { kind: 'step', title: 'Background: the average of them' },
       ],
     },
     {
       kind: 'loop',
-      title: 'For each pixel',
+      title: '3. For each patch with pixels that changed',
       steps: [
-        {
-          kind: 'loop',
-          title: 'For each frame',
-          steps: [{ kind: 'step', title: 'Join the first group within the tolerance of its average, or start a group' }],
-        },
-        { kind: 'step', title: 'Take the biggest group', detail: 'Counted again against its final average.' },
-        { kind: 'decision', title: 'In at least the agreement share of the frames?', no: 'No colour is common enough: the pixel is clear.' },
-        { kind: 'step', title: 'The pixel is the group’s average colour' },
+        { kind: 'step', title: 'The frames that see all of it' },
+        { kind: 'step', title: 'Group their versions of it', detail: 'A version joins the first group whose first version it matches on 90% of the changed pixels, within the tolerance; or starts a group.' },
+        { kind: 'step', title: 'Score each group', detail: 'One for each frame in it, and half again for each frame read just after another of its own.' },
+        { kind: 'decision', title: 'Is the best group at least the agreement share of the frames?', no: 'Nothing is common enough: the patch’s changed pixels stay clear.' },
+        { kind: 'step', title: 'Fill the changed pixels from that group’s frames', detail: 'The average of those that match the group’s first version there.' },
       ],
     },
     {
       kind: 'loop',
       title: 'For each mark, in the order made',
-      steps: [{ kind: 'step', title: 'Paint in: take its frame’s pixels; erase: clear them' }],
+      steps: [{ kind: 'step', title: 'Paint in: take its frame’s pixels, moved by where the background sits in that frame; erase: clear them' }],
     },
-    { kind: 'output', title: 'background.png, and the report' },
+    { kind: 'output', title: 'background.png, and the report with each frame’s offset' },
   ],
-  pseudocode: `span   = probe(clip)            # first shown, last shown, frame length
-times  = clip_frame_times(span, fps or total)   # on the clip's own frames
-frames = [frame_shown_at(clip, t) for t in times]   # seek, wait for it, then copy
-# each at the budgeted size
+  pseudocode: `times  = pick(frame_times(clip), so_many_in_all or so_many_a_second)
+frames = [decode(clip, t) for t in times]          # at the budgeted size
+
+# 1. follow the camera
+ref, ref_at = frames[0], (0, 0); offset[0] = (0, 0)
+for f in frames[1:]:
+  guess = offset[f-1] - ref_at
+  s = argmin over shifts within most_it_moves of guess, coarse to fine:
+        mean(min(|bright(f, x + shift) - bright(ref, x)|, 48))
+  offset[f] = ref_at + s
+  if |s| > a quarter of the picture: ref, ref_at = f, offset[f]
+offset -= median(offset)                            # the frames' middle
+
+# 2. what never changes
 for each pixel p:
-  groups = []                                # (sum of colours, count)
-  for f in frames:
-    c = f[p]
-    g = first group with |mean(g) - c| <= tolerance      # RGBA distance
-    if g: g.add(c) else: groups += Group(c)
-  best = biggest group
-  members = [f[p] for f in frames if |f[p] - mean(best)| <= tolerance]
-  if len(members) / len(frames) >= agreement:
-    background[p] = mean(members)
-  else:
-    background[p] = clear
+  seen = [f[p + offset[f]] for f in frames if inside]
+  if range(seen) <= tolerance: background[p] = mean(seen)
+  else: changed[p] = true
+
+# 3. what moved, patch by patch
+for each patch P with changed pixels:
+  versions = [f[P + offset[f]] for f seeing all of P]
+  groups = []
+  for v in versions:
+    g = first group whose first version matches v on 90% of P's changed pixels
+    if g: g.add(v) else: groups += Group(v)
+  score(g) = len(g) + 0.5 * (frames in g just after another frame in g)
+  best = max score
+  if len(best) / len(versions) >= agreement:
+    for p in changed pixels of P:
+      background[p] = mean(v[p] for v in best if v[p] ~ best.first[p])
+
 for mark in marks (in order):
-  for p in mark's region or stroke:
-    background[p] = frame_nearest(mark.time)[p] if include else clear`,
+  for q in mark's region or stroke on its frame f:
+    p = q - offset[f]
+    background[p] = f[q] if include else clear`,
   sections: [
     {
-      heading: 'The most common colour, not the average',
-      body: 'Averaging a pixel over the frames mixes the background with whatever walked past. The median does better, but still drifts when something lingers. Taking the **most common** colour — the biggest group of colours that are the same within the tolerance — gives the background wherever it is visible more often than anything else is, and ignores the rest entirely: the colour is the average of that group only.',
+      heading: 'Following the camera',
+      body: 'A hand-held shot, or one that pans, moves the whole picture between frames, and a background compared pixel by pixel would then change everywhere. So each frame is lined up first: the shift that makes it match the frame it is followed from best. Every pixel counts in the match — a cartoon background of flat colours matches at many shifts except along its edges, and leaving out the pixels that match worst, as a trimmed mean would, leaves out exactly those edges — but each pixel’s difference is capped, so a character moving in front costs about the same at any shift and cannot pull the frames out of line. The search starts on a small copy of the picture and is made exact on bigger and bigger ones, and it starts from where the frame before sat, so it follows a pan however far it goes. Frames are matched against one frame rather than each against the one before, so a drift of a fraction of a pixel a frame adds up instead of rounding away; once the picture has moved a quarter of its width from that frame, the frames after are followed from the newest one.',
+    },
+    {
+      heading: 'What never changes',
+      body: 'With the frames lined up, a pixel whose colour stays within the **Tolerance** in every frame that sees it is background, as the average of its colours. That is most of a shot with a still background. A pixel that changes at all is left clear, for the next step to rebuild.',
+    },
+    {
+      heading: 'Rebuilding what moved, patch by patch',
+      body: 'Where something moved, each frame shows either the background or the thing in front of it. Taking each pixel’s commonest colour on its own mixes pixels from different frames into a background no frame ever showed, and lets the edges of a character through. Instead the picture is cut into square **patches**, and each frame’s version of a patch is compared with the others: versions that match on nearly all of the changed pixels are one group. The background is the biggest group — it is what that patch shows most often — and frames read one after another in it count half again, because a background seen in one frame is seen in the frames beside it, while a character passing over it is somewhere else a moment later. The patch’s changed pixels are filled from that group’s frames, so each patch is one coherent picture.',
     },
     {
       heading: 'Agreement',
-      body: 'A pixel is kept only if its most common colour is in at least **Agreement** of the frames. At 50% it is the colour more often than not; at 100% only pixels that never change are kept; lower it for a character who stands still for most of the clip. Below the agreement no colour is common enough to trust, and the pixel is left clear rather than guessed.',
-    },
-    {
-      heading: 'Grouping',
-      body: 'Colours are grouped as they come, frame by frame: each joins the first group whose running average it is within the **Tolerance** of (over red, green, blue and opacity, with black to white at 100), or starts a new group. The biggest group is then counted again against its final average, so the order of the frames matters little.',
+      body: 'A patch is rebuilt only if its best group holds at least **Agreement** of the frames that see it. Below that no one picture of the patch is common enough to trust, and what changed in it is left clear rather than guessed. Lower it for a character that covers part of the background most of the time; raise it if a character that lingered is taken for the background.',
     },
     {
       heading: 'Putting back by hand',
-      body: 'A character that never moves off part of the background leaves it clear, or wrong. Pick a frame where that part can be seen and paint it in, or draw round it: those pixels are taken from that frame. The eraser takes pixels out. Marks are laid on in the order made, so a later erase clears an earlier paint.',
+      body: 'A character that never moves off part of the background leaves it clear, or wrong. Pick a frame where that part can be seen and paint it in, or draw round it: those pixels are taken from that frame, moved by where the background sits in that frame. The eraser takes pixels out. Marks are laid on in the order made, so a later erase clears an earlier paint.',
+    },
+    {
+      heading: 'Where the background sits',
+      body: 'The background is drawn where the frames were in the middle, so it lines up with a typical frame. The report lists, for every frame read, how far right and down that frame’s picture is from it: a frame’s pixel at (x + right, y + down) shows the background’s (x, y). That is what puts a character cut from a frame back in its place over the background.',
     },
   ],
   settings: [
-    { name: 'Frames in all / a second', effect: 'How many frames are compared. More frames make the most common colour surer, and each is read smaller.' },
-    { name: 'Tolerance', effect: 'How far apart two colours may be and still count as the same.' },
-    { name: 'Agreement', effect: 'The share of frames the most common colour must be in for the pixel to be kept.' },
+    { name: 'Frames in all / a second', effect: 'How many frames are compared. More frames make the groups surer, and each is read smaller.' },
+    { name: 'Follow the camera', effect: 'Line the frames up before comparing them. Off for a shot known to be still.' },
+    { name: 'Most it moves between frames', effect: 'How far the search looks from where the frame before sat.' },
+    { name: 'Tolerance', effect: 'How far a colour may change and still count as not changing.' },
+    { name: 'Rebuild what moved from patches', effect: 'Off leaves every pixel that changed clear.' },
+    { name: 'Patch', effect: 'The side of the square patches what moved is rebuilt from.' },
+    { name: 'Agreement', effect: 'The share of frames a patch’s best group must hold for the patch to be rebuilt.' },
     { name: 'Brush', effect: 'The radius of the brush that paints or erases.' },
   ],
-  cost: 'Pixels × frames × groups — groups are few (usually one to three), so about pixels × frames.',
+  cost: 'Lining up: a few shifts per frame on each level, each over the picture — about frames × pixels × 15. Still pixels: pixels × frames. Patches: for each that changed, frames × groups × up to 96 pixels. A few seconds of frames take a second or two, worked a slice at a time so the page stays responsive.',
   resources: [
     { title: 'Background subtraction', url: 'https://en.wikipedia.org/wiki/Background_subtraction', note: 'The wider problem of separating a still background from what moves over it.' },
-    { title: 'Mode (statistics)', url: 'https://en.wikipedia.org/wiki/Mode_(statistics)', note: 'The most common value, which is what each pixel takes.' },
+    { title: 'Image registration', url: 'https://en.wikipedia.org/wiki/Image_registration', note: 'Lining pictures of the same scene up with each other.' },
+    { title: 'Pyramid (image processing)', url: 'https://en.wikipedia.org/wiki/Pyramid_(image_processing)', note: 'Searching coarse to fine on halved copies of a picture.' },
+    { title: 'Mode (statistics)', url: 'https://en.wikipedia.org/wiki/Mode_(statistics)', note: 'The most common value: what each patch’s biggest group is.' },
   ],
-  source: ['packages/shared/src/flows/videoBackground.ts — commonestBackground, applyMarks, backgroundFrameSize', 'packages/shared/src/flows/clipFrames.ts — clipFrameTimes, snapToClipFrame, frameLengthOf', 'packages/client/src/components/common/clip.ts — openClip, useClipProbe'],
+  source: [
+    'packages/shared/src/flows/videoBackground.ts — steadyWork, backgroundWork, applyMarks, backgroundInFrame, backgroundFrameSize',
+    'packages/shared/src/flows/clipFrames.ts — pickFrameTimes, gridFrameTimes',
+    'packages/client/src/components/common/frames.ts — openVideoFrames, useVideoFrameTimes',
+  ],
+  tryIt: 'Read the frames, then pick one below the picture: the green tint over it is what is background already, lined up with that frame. Untick Rebuild what moved to see what never changed on its own.',
 };

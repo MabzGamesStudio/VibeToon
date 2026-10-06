@@ -25,11 +25,12 @@ import { useBatchRun, waitUntil } from '../../state/batchRun';
 import { useStudio } from '../../state/store';
 import { Field } from '../common/Field';
 import { Slider } from '../common/Slider';
-import { FrameReader, VideoUpload, clock, loadVideo, releaseVideo, useFileUpload, useVideoMeta } from '../common/video';
+import { FrameReader, VideoUpload, clock, loadVideo, releaseVideo, useFileUpload } from '../common/video';
+import { useVideoMeta } from '../common/frames';
 import { EditorShell } from './EditorShell';
 import { ClipFormatPicker } from './ClipFormatPicker';
 import { ShotViewer } from './ShotViewer';
-import { blobDataUrl, recordingType, renderEdit, type RenderProgress } from './renderVideo';
+import { blobDataUrl, formatSupport, renderEdit, type RenderProgress } from './renderVideo';
 
 /** Frames are compared this small: enough for an 8 × 8 picture and a colour histogram. */
 const EMBED_WIDTH = 96;
@@ -107,8 +108,8 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
 
   /* ---------------- writing ---------------- */
 
-  // With "each shot as a video" on, Generate plays each shot through and
-  // records it: a clip per shot, in a folder that goes on as a batch.
+  // With "each shot as a video" on, Generate writes each shot as a clip of
+  // its own, frame by frame (see `renderEdit`): a folder that goes on as a batch.
   const [recording, setRecording] = useState<RenderProgress | null>(null);
   const clipsWanted = shotClipsWanted(project, node);
   const clipsWiredTo = project.connections
@@ -123,8 +124,8 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
       return;
     }
     const format = clipFormat(current.clipFormat);
-    if (!recordingType(format)) {
-      notify('error', `This browser cannot record ${format.label}, so only the shots are written. Pick another format under What comes out.`);
+    if ((await formatSupport())[format.id] === 'none') {
+      notify('error', `This browser cannot write ${format.label}, so only the shots are written. Pick another format under What comes out.`);
       await generateFlow(node.id);
       return;
     }
@@ -132,7 +133,7 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
     stopRecording.current = false;
     setRecording({ done: 0, total: current.video.duration, clip: 0 });
     try {
-      const blobs = await renderEdit({
+      const rendered = await renderEdit({
         url: videoUrl,
         segments: cut.map((shot) => ({ ...shot, deleted: false })),
         crop: { x: 0, y: 0, width: current.video.width - (current.video.width % 2), height: current.video.height - (current.video.height % 2) },
@@ -146,10 +147,11 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
         notify('info', 'Stopped. Nothing was written.');
         return;
       }
-      const attachments = await Promise.all(blobs.map(async (blob, index) => ({ name: `shots/${shotClipName(index, format.extension)}`, data: await blobDataUrl(blob) })));
+      if (rendered.how === 'recorded') notify('info', `This browser cannot encode ${format.label} frame by frame, so the shots were recorded as they played: their frames may not be evenly spaced.`);
+      const attachments = await Promise.all(rendered.blobs.map(async (blob, index) => ({ name: `shots/${shotClipName(index, format.extension)}`, data: await blobDataUrl(blob) })));
       await generateFlow(node.id, attachments);
     } catch (reason) {
-      notify('error', `Could not record the shots: ${(reason as Error).message}`);
+      notify('error', `Could not write the shots: ${(reason as Error).message}`);
     } finally {
       setRecording(null);
     }
@@ -262,7 +264,7 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
         ) : recording ? (
           <div className="vt-sync-banner">
             <span>
-              Recording shot {recording.clip + 1}, {clock(recording.done)} of {clock(recording.total)}…
+              Writing shot {recording.clip + 1}, {clock(recording.done)} of {clock(recording.total)}…
             </span>
             <progress max={recording.total} value={recording.done} style={{ flex: 1, maxWidth: 240 }} />
             <button type="button" className="vt-btn is-small" onClick={() => (stopRecording.current = true)}>
@@ -273,9 +275,9 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
           <div className="vt-sync-banner">
             <span>
               {data.recorded
-                ? 'The shots have changed since their clips were recorded.'
-                : `Each shot is to be recorded as a video${clipsWiredTo.length > 0 ? ` for ${clipsWiredTo.join(', ')}` : ''}, and has not been yet.`}{' '}
-              Generate to record them.
+                ? 'The shots have changed since their clips were written.'
+                : `Each shot is to be written as a video${clipsWiredTo.length > 0 ? ` for ${clipsWiredTo.join(', ')}` : ''}, and has not been yet.`}{' '}
+              Generate to write them.
             </span>
           </div>
         ) : undefined
@@ -291,7 +293,9 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
             <dt>Size</dt>
             <dd>{meta ? `${meta.width} × ${meta.height}` : '—'}</dd>
             <dt>Frames</dt>
-            <dd>{meta ? `${Math.round(meta.duration * shotFrameRate(data))} at ${meta.fps} fps measured` : '—'}</dd>
+            <dd title={meta?.exact ? 'Counted in the file.' : 'This browser cannot read the file frame by frame, so this is from playing it.'}>
+              {meta ? (meta.exact ? `${meta.frames} at ${meta.fps} fps` : `about ${Math.round((meta.duration - meta.first) * shotFrameRate(data))} at ${meta.fps} fps, measured as it played`) : '—'}
+            </dd>
           </dl>
           <Field label="Frame rate" tip="shots.frameRate" hint="What a cut is found to: the frame it falls on.">
             <input
@@ -371,7 +375,7 @@ export function ShotsFlowEditor({ project, node }: { project: Project; node: Flo
           ) : null}
           <p className="vt-hint">
             {clipsWanted
-              ? 'Generate records each shot onto the Shot clips port, as a folder of videos. Wire it into a flow that takes one video — Video Background, say — and each shot goes through it on its own, as a batch. Recording takes as long as the video.'
+              ? 'Generate writes each shot onto the Shot clips port, as a folder of videos, frame by frame at the frame rate above. Wire it into a flow that takes one video — Video Background, say — and each shot goes through it on its own, as a batch.'
               : 'The shots are written as times, in shots.json. Tick this to have each one as a video too, to send them on as a batch.'}
           </p>
         </div>

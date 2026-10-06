@@ -74,6 +74,10 @@ while some shot is shorter than min_shot:
       body: 'A flash frame, or the middle of a dissolve, can pass the threshold on both sides and make a shot a few frames long. Any shot shorter than **Shortest shot** loses the weaker of its two cuts — the one with the smaller difference — so it joins the neighbour it is least unlike. Shortest first, until none is too short.',
     },
     {
+      heading: 'Each shot as a clip',
+      body: 'With **Each shot as a video** on, Generate writes every shot as a file of its own, frame by frame at the video’s frame rate — the same way Video Edit writes, not by playing it: a shot of 3 seconds at 30 fps is 90 frames, evenly spaced, in a file that says it is 3 seconds long and has an index. Flows downstream get each clip as an item of a batch.',
+    },
+    {
       heading: 'What it misses',
       body: '- Two cuts between the same two samples are found as one. Sample more often for fast cutting.\n- A slow dissolve changes a little at each sample and may never pass the threshold.\n- A sudden flash or a very fast pan can pass it and make a false cut — which the shots editor lets you join back.',
     },
@@ -96,65 +100,96 @@ while some shot is shorter than min_shot:
 
 export const VIDEO_EDIT_GUIDE: AlgorithmGuide = {
   kinds: ['animation.video.edit'],
-  title: 'Editing a video: segments, a crop, and recording by playing it through',
+  title: 'Editing a video: segments, a crop, and writing it frame by frame',
   summary:
-    'The video is a row of segments end to end. A split cuts the segment under the playhead at the nearest frame; a segment is kept or deleted; two neighbours can be joined. On Generate the kept segments are played through a canvas the size of the crop, one after another, and the canvas is recorded — as one video, or a clip per segment.',
+    'The video is a row of segments end to end. A split cuts the segment under the playhead at the nearest frame; a segment is kept or deleted; two neighbours can be joined. On Generate the kept segments are written frame by frame: each frame of the result is the source’s frame for that moment, decoded from the file and drawn through the crop, and encoded at exactly its place — so a segment of so many frames is that many frames long, evenly spaced, and the file says how long it is.',
   steps: [
     { kind: 'input', title: 'The video' },
+    { kind: 'step', title: 'Read what it is', detail: 'Its length, frame count and frame rate, from the file’s own packets: the end of its last frame, how many frames it holds, and how many a second.' },
     { kind: 'step', title: 'Segments', detail: 'At first one, the whole video. Splits snap to the nearest frame start.' },
     { kind: 'step', title: 'The crop', detail: 'One box for every frame, its sides made even (video encoders need even sizes).' },
     {
       kind: 'loop',
       title: 'For each kept segment, in order',
       steps: [
-        { kind: 'step', title: 'Seek to its start, and play' },
-        { kind: 'step', title: 'Each animation frame: draw the crop of the video onto the canvas' },
-        { kind: 'decision', title: 'Past the segment’s end?', no: 'Keep drawing.' },
-        { kind: 'step', title: 'Pause; for a clip each, stop that recording' },
+        { kind: 'step', title: 'Count its frames', detail: 'Its length times the frame rate, rounded: n.' },
+        {
+          kind: 'loop',
+          title: 'For each of its n frames',
+          steps: [
+            { kind: 'step', title: 'Take the source’s frame for the middle of that frame’s slot', detail: 'Decoded from the file; where this browser cannot decode it, shown in a video element and drawn once it is shown.' },
+            { kind: 'step', title: 'Draw it through the crop' },
+            { kind: 'step', title: 'Encode it at exactly i / fps, lasting 1 / fps' },
+          ],
+        },
+        { kind: 'decision', title: 'A clip each?', no: 'The next segment carries on in the same file.' },
+        { kind: 'step', title: 'Finish the file', detail: 'Its length in the header, an index (WebM Cues) and a whole picture every second.' },
       ],
     },
     { kind: 'output', title: 'edited.webm, or clips/clip-01.webm …, and edit.json' },
   ],
-  pseudocode: `segments = [(0, duration, kept)]
+  pseudocode: `facts = read_packets(video)            # duration = end of last frame, frames, fps
+segments = [(0, facts.duration, kept)]
 split(t):  s = segment containing t; t = nearest frame start
            replace s with (s.start, t) and (t, s.end), same kept/deleted
 crop = even(clamp(box, inside video))
 
-canvas = new canvas(crop.width, crop.height)
-recorder = MediaRecorder(canvas.captureStream(fps), 'video/webm; vp9')
+out = new_file(format, crop.width, crop.height, fps, key_frame_every = 1s)
+written = 0
 for s in segments if s.kept:
-  video.currentTime = s.start; video.play()
-  every animation frame until video.currentTime >= s.end:
-    canvas.draw(video, source = crop, target = whole canvas)
-  video.pause()
-  if output == clips: recorder.stop(); save; start a new recorder
+  n = round((s.end - s.start) * fps)
+  for i in 0 .. n-1:
+    frame = source_frame_shown_at(s.start + (i + 0.5) / fps)   # decoded, not played
+    canvas.draw(frame, source = crop, target = whole canvas)
+    out.add(canvas, timestamp = written / fps, duration = 1 / fps)
+    written += 1
+  if output == clips: out.finish(); out = new_file(...); written = 0
+out.finish()                                # writes the length and the index
 save edit.json = { crop, kept segments, deleted segments, lengths }`,
   sections: [
     {
-      heading: 'Recording by playing',
-      body: 'A browser has no video encoder to call directly on frames, but it can record a canvas as it is drawn. So the edit is played — each kept segment in turn, drawn through the crop onto a canvas — and the canvas is recorded as WebM (VP9 where the browser has it). That is why recording takes as long as the edit lasts, and why the sound is not kept.',
+      heading: 'Written frame by frame, not recorded as it plays',
+      body: 'A clip recorded by playing the video and capturing the page (a MediaRecorder on a canvas) catches a frame whenever the page manages to draw one: the frames come unevenly — 70 frames in five seconds, some a millisecond apart and some half a second — the file has no length in its header and no index, and anything that reads it is left to guess. It plays fine, and every count of its length and frames is wrong, and reading a frame at a time from it gives the same frame again and again where the gaps are long. So the edit is not played. Each frame of the result is decoded from the source file, drawn through the crop and handed to the browser’s video encoder (WebCodecs, through Mediabunny) with its exact time; nothing is dropped however slow the page is, and it is not real time — often faster.',
+    },
+    {
+      heading: 'A properly finished file',
+      body: 'The file is written whole: its length in its header (the WebM Duration), an index of where each second starts (WebM Cues, or an MP4 index at the front), and a whole picture — a key frame — at least once a second. So every reader agrees on how long it is and how many frames it has, and can go straight to any frame without decoding everything before it.',
+    },
+    {
+      heading: 'Which frame is taken',
+      body: 'Frame i of a segment is the source frame shown at the middle of its slot, start + (i + ½) / fps. At the source’s own rate that is the source’s own frame i, whatever small offset its first frame has; from a source at another rate it is the nearest frame in time.',
     },
     {
       heading: 'Frames, exactly',
-      body: 'A “frame” is one frame at the frame rate you set, since a browser cannot read a video’s own rate. Splits and steps land on a frame’s exact start (not rounded to the millisecond, which can show the frame before), and stepping reads the current frame with a small tolerance, so each press moves exactly one frame.',
+      body: 'The frame rate is read from the file — how many frames it holds over how long they last, as the nearest standard rate. Splits and steps land on a frame’s exact start (not rounded to the millisecond, which can show the frame before), and stepping reads the current frame with a small tolerance, so each press moves exactly one frame.',
     },
     {
       heading: 'Playing the edit',
       body: 'With **play the edit** on, the player skips deleted segments as it plays: whenever the time enters a deleted segment it jumps to the start of the next kept one, and stops after the last — so what you see is what will be written.',
     },
+    {
+      heading: 'When the browser cannot',
+      body: 'Where this browser cannot decode the source from its file, each frame is shown in a video element and drawn once the browser says it is shown. Where it cannot encode the chosen format at all, the edit is recorded as it plays, the old way, and the recording is copied into a file with its length and an index; the picker marks such a format with ⚠, and its frames may not be evenly spaced.',
+    },
   ],
   settings: [
-    { name: 'Frame rate', effect: 'What splits and steps snap to, and the rate the result is recorded at.' },
+    { name: 'Frame rate', effect: 'What splits and steps snap to, and the rate the result is written at. Read from the file when the video arrives.' },
     { name: 'Crop', effect: 'The box every frame is cut to, with even sides.' },
     { name: 'What comes out', effect: 'One video of the kept segments joined, or a clip for each.' },
+    { name: 'Written as', effect: 'The container and codec: WebM with VP9, VP8 or AV1, MP4 or Matroska with H.264.' },
   ],
-  cost: 'Real time: recording takes as long as the kept segments last.',
+  cost: 'One decode, one draw and one encode per frame written: not real time, and usually quicker than playing it.',
   resources: [
-    { title: 'MediaRecorder', url: 'https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder', note: 'Recording a stream in the browser.' },
-    { title: 'HTMLCanvasElement.captureStream', url: 'https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/captureStream', note: 'Turning a canvas into a video stream to record.' },
+    { title: 'Mediabunny', url: 'https://mediabunny.dev/', note: 'Reads and writes video files in the browser, frame by frame, over WebCodecs.' },
+    { title: 'WebCodecs API', url: 'https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API', note: 'The browser’s own video decoders and encoders, called on single frames.' },
+    { title: 'Matroska elements (WebM)', url: 'https://www.matroska.org/technical/elements.html', note: 'Duration, Cues and the rest of what a finished WebM file holds.' },
     { title: 'Edit decision list', url: 'https://en.wikipedia.org/wiki/Edit_decision_list', note: 'What edit.json is: the edit, to redo from the source.' },
   ],
-  source: ['packages/shared/src/flows/videoEdit.ts — editSegments, splitSegmentAt, stepFrame, videoCropRect', 'packages/client/src/components/editors/renderVideo.ts — renderEdit'],
+  source: [
+    'packages/shared/src/flows/videoEdit.ts — editSegments, splitSegmentAt, stepFrame, videoCropRect',
+    'packages/client/src/components/editors/renderVideo.ts — renderEdit',
+    'packages/client/src/components/common/media.ts — readVideoFacts, openExactVideo, startClip',
+  ],
 };
 
 export const VIDEO_SOURCE_GUIDE: AlgorithmGuide = {
@@ -195,7 +230,7 @@ fetch(url):
     },
     {
       heading: 'Measuring',
-      body: 'The length and size are read by playing the file in the browser. A video recorded in a browser often does not say how long it is until read to the end, so the editor seeks far past the end once to make it find out.',
+      body: 'The length, frame count and frame rate are read from the file’s own packets: the length is when its last frame ends, the count is how many frames it holds. A header is not trusted for this — a video recorded in a browser often has no length in it at all. Where this browser cannot read the file that way, it is played instead: the editor seeks far past the end once to make it find its length, and watches a few frames go by for the rate.',
     },
   ],
   resources: [
