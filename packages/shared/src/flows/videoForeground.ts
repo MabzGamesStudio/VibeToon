@@ -23,7 +23,10 @@ import { DEFAULT_VIDEO_SAMPLING, type VideoSampling } from './videoMatch';
  *    there is nothing to compare: the pixel is kept, or cleared, as **where the
  *    background is clear** says. Where a camera move shows a strip past the
  *    background's edge, the background's nearest edge pixel stands in.
- * 3. **Tidied.** Pieces in front smaller than the **speck** size are dropped —
+ * 3. **Tidied.** Lines in front no thicker than twice **thin** pixels are
+ *    dropped (the mask opened: shrunk that far and grown back) — the edge of a
+ *    thin dark line that video compression made a little different in each
+ *    frame, never a character. Pieces smaller than the **speck** size are dropped —
  *    compression noise, a flicker — and holes in what is kept no bigger than
  *    **fill holes** are filled: a character's shirt the colour of the wall
  *    behind it is still the character.
@@ -43,6 +46,8 @@ export interface VideoForegroundFlowData {
   maxShift: number;
   /** How far a colour may be from the background's and still be the background, 0..100. */
   tolerance: number;
+  /** Anything in front no thicker than twice this many pixels is dropped: an edge compression made waver. */
+  thin: number;
   /** Pieces in front smaller than this many pixels are dropped. */
   speck: number;
   /** Holes in what is kept up to this many pixels are filled. */
@@ -61,6 +66,7 @@ export interface VideoForegroundFlowData {
 }
 
 export const DEFAULT_FOREGROUND_TOLERANCE = 10;
+export const DEFAULT_FOREGROUND_THIN = 1;
 export const DEFAULT_FOREGROUND_SPECK = 40;
 export const DEFAULT_FOREGROUND_HOLES = 300;
 export const DEFAULT_FOREGROUND_GROW = 1;
@@ -74,6 +80,7 @@ export function emptyVideoForegroundFlowData(): VideoForegroundFlowData {
     steady: true,
     maxShift: 24,
     tolerance: DEFAULT_FOREGROUND_TOLERANCE,
+    thin: DEFAULT_FOREGROUND_THIN,
     speck: DEFAULT_FOREGROUND_SPECK,
     holes: DEFAULT_FOREGROUND_HOLES,
     grow: DEFAULT_FOREGROUND_GROW,
@@ -83,7 +90,7 @@ export function emptyVideoForegroundFlowData(): VideoForegroundFlowData {
   };
 }
 
-export type ForegroundOptions = Pick<VideoForegroundFlowData, 'steady' | 'maxShift' | 'tolerance' | 'speck' | 'holes' | 'grow' | 'unknown'>;
+export type ForegroundOptions = Pick<VideoForegroundFlowData, 'steady' | 'maxShift' | 'tolerance' | 'thin' | 'speck' | 'holes' | 'grow' | 'unknown'>;
 
 /** How many frames fit in the budget at the background's size. */
 export function foregroundFrameLimit(width: number, height: number): number {
@@ -178,6 +185,35 @@ export function labelPieces(mask: Uint8Array, width: number, height: number, eig
   return { labels, sizes };
 }
 
+/** A mask grown (or shrunk) by `steps` pixels, a 3 × 3 square at a time. Shrinking treats outside the picture as kept. */
+export function morph(mask: Uint8Array, w: number, h: number, steps: number, how: 'grow' | 'shrink'): Uint8Array {
+  let current = mask;
+  const want = how === 'grow' ? 1 : 0;
+  for (let step = 0; step < steps; step += 1) {
+    const next = new Uint8Array(current);
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        if (current[y * w + x] === want) continue;
+        let touch = false;
+        for (let dy = -1; dy <= 1 && !touch; dy += 1) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= h) continue;
+          for (let dx = -1; dx <= 1; dx += 1) {
+            const nx = x + dx;
+            if (nx >= 0 && nx < w && current[ny * w + nx] === want) {
+              touch = true;
+              break;
+            }
+          }
+        }
+        if (touch) next[y * w + x] = want;
+      }
+    }
+    current = next;
+  }
+  return current;
+}
+
 /**
  * One frame with the background taken out (see the top of this file). `frame`
  * and `background` are the same size; `offset` is where the background sits
@@ -227,7 +263,14 @@ export function foregroundOf(frame: Bitmap, background: Bitmap, offset: FrameOff
       if (!near) mask[q] = 1;
     }
   }
-  // 3. Specks out, holes filled.
+  // 3. Thin lines out: shrink by `thin` pixels, then grow back what is left.
+  const thin = Math.max(0, Math.round(options.thin ?? 0));
+  if (thin > 0) {
+    let opened = morph(mask, w, h, thin, 'shrink');
+    opened = morph(opened, w, h, thin, 'grow');
+    for (let p = 0; p < mask.length; p += 1) mask[p] = mask[p]! & opened[p]!;
+  }
+  // Specks out, holes filled.
   const speck = Math.max(0, Math.round(options.speck));
   if (speck > 1) {
     const { labels, sizes } = labelPieces(mask, w, h);
@@ -253,29 +296,7 @@ export function foregroundOf(frame: Bitmap, background: Bitmap, offset: FrameOff
     }
   }
   // 4. Grown, a pixel at a time, as a square.
-  let grown = mask;
-  for (let step = 0; step < Math.max(0, Math.round(options.grow)); step += 1) {
-    const next = new Uint8Array(grown);
-    for (let y = 0; y < h; y += 1) {
-      for (let x = 0; x < w; x += 1) {
-        if (grown[y * w + x]) continue;
-        let touch = false;
-        for (let dy = -1; dy <= 1 && !touch; dy += 1) {
-          const ny = y + dy;
-          if (ny < 0 || ny >= h) continue;
-          for (let dx = -1; dx <= 1; dx += 1) {
-            const nx = x + dx;
-            if (nx >= 0 && nx < w && grown[ny * w + nx]) {
-              touch = true;
-              break;
-            }
-          }
-        }
-        if (touch) next[y * w + x] = 1;
-      }
-    }
-    grown = next;
-  }
+  const grown = morph(mask, w, h, Math.max(0, Math.round(options.grow)), 'grow');
   const out = new Uint8ClampedArray(w * h * 4);
   let kept = 0;
   for (let p = 0; p < grown.length; p += 1) {
@@ -359,7 +380,7 @@ export function foregroundFile(data: VideoForegroundFlowData, frames: readonly F
       version: 1,
       video: data.video ?? null,
       size: data.background ? { width: data.background.width, height: data.background.height } : null,
-      settings: { tolerance: data.tolerance, speck: data.speck, holes: data.holes, grow: data.grow, unknown: data.unknown, steady: data.steady, maxShift: data.maxShift },
+      settings: { tolerance: data.tolerance, thin: data.thin, speck: data.speck, holes: data.holes, grow: data.grow, unknown: data.unknown, steady: data.steady, maxShift: data.maxShift },
       frames: frames.map((frame, index) => ({
         file: foregroundFrameName(index, frame.time),
         time: Math.round(frame.time * 1000) / 1000,
@@ -387,7 +408,7 @@ export function foregroundReport(data: VideoForegroundFlowData, frames: readonly
     `A ${data.video.duration.toFixed(2)}s video, ${data.video.width} × ${data.video.height}, read at the background's ${data.background?.width ?? '?'} × ${data.background?.height ?? '?'} and sampled at ${sampling}: ${frames.length} frame(s).`,
     '',
     data.steady ? `- Lined up with the background, up to ${data.maxShift} px a frame: the picture moved up to ${moved.toFixed(1)} px.` : '- Not lined up: the frames are compared where they are.',
-    `- In front where the colour is more than ${data.tolerance} from the background's; pieces under ${data.speck} px dropped, holes up to ${data.holes} px filled, grown by ${data.grow} px. Where the background is clear: ${data.unknown === 'keep' ? 'kept' : 'cleared'}.`,
+    `- In front where the colour is more than ${data.tolerance} from the background's; lines up to ${data.thin * 2} px thick and pieces under ${data.speck} px dropped, holes up to ${data.holes} px filled, grown by ${data.grow} px. Where the background is clear: ${data.unknown === 'keep' ? 'kept' : 'cleared'}.`,
     `- Kept: ${share(kept, total)} of the pixels over all the frames.`,
     '',
     '| Frame | At | Kept | Pieces | Right | Down |',

@@ -18,7 +18,7 @@ import {
 
 const W = 64;
 const H = 48;
-const plain: ForegroundOptions = { steady: false, maxShift: 0, tolerance: 10, speck: 0, holes: 0, grow: 0, unknown: 'keep' };
+const plain: ForegroundOptions = { steady: false, maxShift: 0, tolerance: 10, thin: 0, speck: 0, holes: 0, grow: 0, unknown: 'keep' };
 
 /** A scene with something to line up on: blocks of colour. */
 function scene(width: number, height: number, seed = 3): Bitmap {
@@ -141,6 +141,18 @@ test('the work runs a slice at a time, and offsets worked out before are used as
   assert.deepEqual(next.value[1]!.offset, { dx: -1, dy: 0 });
   const given = buildForeground(background, frames, { ...plain, steady: true, maxShift: 4 }, [{ dx: 0, dy: 0 }, { dx: 0, dy: 0 }]);
   assert.deepEqual(given[1]!.offset, { dx: 0, dy: 0 });
+});
+
+test('lines thinner than twice the thin setting are removed, and thick shapes stay whole', () => {
+  // A 2-pixel line across the frame — an edge compression made waver — and a character-sized block.
+  const frame = view(world, 10, 10, [
+    { x: 0, y: 5, w: 64, h: 2, colour: [120, 0, 0] },
+    { x: 30, y: 20, w: 12, h: 16, colour: [0, 200, 255] },
+  ]);
+  assert.ok(foregroundOf(frame, background, { dx: 0, dy: 0 }, plain).stats.kept >= 192 + 100, 'most of the line is in front without it');
+  const opened = foregroundOf(frame, background, { dx: 0, dy: 0 }, { ...plain, thin: 1 });
+  assert.equal(opened.stats.kept, 192, 'the line gone, the block kept exactly');
+  assert.equal(opened.stats.pieces, 1);
 });
 
 test('frames are named for their place and time, and the name reads back', () => {

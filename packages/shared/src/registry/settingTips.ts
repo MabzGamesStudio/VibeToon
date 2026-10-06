@@ -989,6 +989,10 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     what: 'How far a frame’s colour may be from the background’s behind it and still be the background. Each pixel is compared with the background pixel behind it and its neighbours, so an edge that wavers by a pixel is not taken for a character. Black against white is 100.',
     examples: ['4 — a clean, still picture: the faintest change counts.', '10 — a good default: allows for compression noise.', '25 — a noisy or flickering video; a character close to the background’s colour starts to go clear.'],
   },
+  'videoForeground.thin': {
+    what: 'Anything in front no thicker than twice this many pixels is removed: the mask is shrunk this far and grown back, so thin lines go and thick shapes stay. Video compression keeps colour at half the picture’s resolution, so along a thin, sharp line in the scene — a roof’s edge, an outline — the colour comes out a little different in each frame, enough to be taken for something in front.',
+    examples: ['0 — keep everything that differs, however thin.', '1 — a good default: lines up to 2 px go.', '3 — lines up to 6 px go; thin parts of a character (a tail, a cane) may go too.'],
+  },
   'videoForeground.speck': {
     what: 'Pieces in front smaller than this many pixels are dropped: compression noise, a flicker, a leaf. A character is far bigger.',
     examples: ['0 — keep everything.', '40 — a good default.', '400 — only big things: drops small props and far-off figures too.'],

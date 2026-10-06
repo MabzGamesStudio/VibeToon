@@ -169,6 +169,7 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('videoForeground.total', 'Frames in all', FOREGROUND, 'Frames', 2, 300, 1, 'frames'),
   def('videoForeground.maxShift', 'Most it moves between frames', FOREGROUND, 'Taking the background out', 1, 200, 1, 'px'),
   def('videoForeground.tolerance', 'Tolerance', FOREGROUND, 'Taking the background out', 0, 60, 1),
+  def('videoForeground.thin', 'Remove lines up to', FOREGROUND, 'Taking the background out', 0, 4, 1),
   def('videoForeground.speck', 'Drop specks under', FOREGROUND, 'Taking the background out', 0, 2000, 1, 'px'),
   def('videoForeground.holes', 'Fill holes up to', FOREGROUND, 'Taking the background out', 0, 20000, 10, 'px'),
   def('videoForeground.grow', 'Grow', FOREGROUND, 'Taking the background out', 0, 6, 1, 'px'),

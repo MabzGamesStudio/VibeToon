@@ -31,7 +31,12 @@ its own background and its own foreground.
    **Tolerance** of the background pixel behind it, or of one of that pixel's
    eight neighbours (an edge that wavers by a pixel is not a character).
    Anything else is in front, and kept.
-4. **Tidied.** Pieces smaller than **Drop specks under** are dropped; holes in
+4. **Tidied.** Lines no thicker than twice **Remove lines up to** are removed
+   (the mask is shrunk that far and grown back): video compression keeps
+   colour at half the picture's resolution, so along a thin, sharp line in the
+   scene — a roof's edge, an outline — the colour comes out a little different
+   in every frame, enough to pass the tolerance. Pieces smaller than **Drop
+   specks under** are dropped; holes in
    what is kept no bigger than **Fill holes up to** (and not touching the
    frame's edge) are filled — a shirt the colour of the wall behind it is still
    the character; what is kept is grown by **Grow** pixels, for its soft edge.

@@ -961,17 +961,19 @@ flowchart TD
     end
     s11 -. next .-> s7
     s5 --> s7
-    s12["Drop specks"]
+    s12["Remove thin lines"]
     s11 --> s12
-    s13["Fill holes"]
+    s13["Drop specks"]
     s12 --> s13
-    s14["Grow"]
+    s14["Fill holes"]
     s13 --> s14
+    s15["Grow"]
+    s14 --> s15
   end
-  s14 -. next .-> s5
+  s15 -. next .-> s5
   s3 --> s5
-  s15(["frames/frame-0001-at-0.000s.png …, foreground.json and the report"])
-  s14 --> s15
+  s16(["frames/frame-0001-at-0.000s.png …, foreground.json and the report"])
+  s15 --> s16
 ```
 
 - *In:* The video, and its background
@@ -983,6 +985,7 @@ flowchart TD
     - **Is there background behind it?** *If not:* Nothing to compare: kept or cleared, as “where the background is clear” says.
     - **Within the tolerance of the background there, or of a neighbour of it?** *If not:* Something in front: kept.
     - Background: clear
+  - Remove thin lines — Shrink the mask by “Remove lines up to” pixels and grow it back: lines that thin go, shapes stay.
   - Drop specks — Pieces smaller than the speck size.
   - Fill holes — Clear patches inside what is kept, up to the hole size, not touching the edge.
   - Grow — A pixel or two all round, for the soft edge.
@@ -1001,6 +1004,7 @@ for f in frames:
     p = q - offset                                # the background behind it
     if bg has nothing at p: keep[q] = (where_clear == keep); continue
     keep[q] = no pixel b in bg[p and its 8 neighbours] with |f[q] - b| <= tolerance
+  keep = keep and grow(shrink(keep, thin), thin)   # an opening: thin lines go
   remove pieces of keep smaller than speck
   fill holes in keep up to holes, not touching the edge
   grow keep by grow pixels
@@ -1021,7 +1025,7 @@ Compression noise and a camera lined up to the nearest pixel make edges waver by
 
 ### Tidying
 
-What differs from the background is rarely exactly the characters: noise leaves specks, and a character’s colour that happens to match the wall behind it leaves holes. Pieces smaller than **Drop specks under** are removed; clear patches inside what is kept, no bigger than **Fill holes up to** and not touching the frame’s edge, are filled; and what is left is grown by **Grow** pixels, so the soft anti-aliased edge where a character meets the background comes with it.
+What differs from the background is rarely exactly the characters. Video compression keeps colour at half the picture’s resolution, so along a thin, sharp line in the scene the colour differs a little in every frame — **Remove lines up to** opens the mask (shrinks it and grows it back), so lines that thin go and anything thicker stays as it was. Noise leaves specks, and a character’s colour that happens to match the wall behind it leaves holes. Pieces smaller than **Drop specks under** are removed; clear patches inside what is kept, no bigger than **Fill holes up to** and not touching the frame’s edge, are filled; and what is left is grown by **Grow** pixels, so the soft anti-aliased edge where a character meets the background comes with it.
 
 ### Where the background is clear
 
@@ -1034,6 +1038,7 @@ Where Video Background could not put anything back — a character stood there a
 | Frames in all / a second | How many frames are taken apart. |
 | Follow the camera, Most it moves between frames | Line each frame up with the background first, and how far to look. |
 | Tolerance | How far from the background’s colour is still background. |
+| Remove lines up to | Lines in front up to twice this thick are removed. |
 | Drop specks under | Smaller pieces in front are dropped. |
 | Fill holes up to | Smaller holes in what is kept are filled. |
 | Grow | What is kept grows by this much all round. |

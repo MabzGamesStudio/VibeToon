@@ -23,6 +23,7 @@ export const VIDEO_FOREGROUND_GUIDE: AlgorithmGuide = {
             { kind: 'step', title: 'Background: clear' },
           ],
         },
+        { kind: 'step', title: 'Remove thin lines', detail: 'Shrink the mask by “Remove lines up to” pixels and grow it back: lines that thin go, shapes stay.' },
         { kind: 'step', title: 'Drop specks', detail: 'Pieces smaller than the speck size.' },
         { kind: 'step', title: 'Fill holes', detail: 'Clear patches inside what is kept, up to the hole size, not touching the edge.' },
         { kind: 'step', title: 'Grow', detail: 'A pixel or two all round, for the soft edge.' },
@@ -40,6 +41,7 @@ for f in frames:
     p = q - offset                                # the background behind it
     if bg has nothing at p: keep[q] = (where_clear == keep); continue
     keep[q] = no pixel b in bg[p and its 8 neighbours] with |f[q] - b| <= tolerance
+  keep = keep and grow(shrink(keep, thin), thin)   # an opening: thin lines go
   remove pieces of keep smaller than speck
   fill holes in keep up to holes, not touching the edge
   grow keep by grow pixels
@@ -59,7 +61,7 @@ for f in frames:
     },
     {
       heading: 'Tidying',
-      body: 'What differs from the background is rarely exactly the characters: noise leaves specks, and a character’s colour that happens to match the wall behind it leaves holes. Pieces smaller than **Drop specks under** are removed; clear patches inside what is kept, no bigger than **Fill holes up to** and not touching the frame’s edge, are filled; and what is left is grown by **Grow** pixels, so the soft anti-aliased edge where a character meets the background comes with it.',
+      body: 'What differs from the background is rarely exactly the characters. Video compression keeps colour at half the picture’s resolution, so along a thin, sharp line in the scene the colour differs a little in every frame — **Remove lines up to** opens the mask (shrinks it and grows it back), so lines that thin go and anything thicker stays as it was. Noise leaves specks, and a character’s colour that happens to match the wall behind it leaves holes. Pieces smaller than **Drop specks under** are removed; clear patches inside what is kept, no bigger than **Fill holes up to** and not touching the frame’s edge, are filled; and what is left is grown by **Grow** pixels, so the soft anti-aliased edge where a character meets the background comes with it.',
     },
     {
       heading: 'Where the background is clear',
@@ -70,6 +72,7 @@ for f in frames:
     { name: 'Frames in all / a second', effect: 'How many frames are taken apart.' },
     { name: 'Follow the camera, Most it moves between frames', effect: 'Line each frame up with the background first, and how far to look.' },
     { name: 'Tolerance', effect: 'How far from the background’s colour is still background.' },
+    { name: 'Remove lines up to', effect: 'Lines in front up to twice this thick are removed.' },
     { name: 'Drop specks under', effect: 'Smaller pieces in front are dropped.' },
     { name: 'Fill holes up to', effect: 'Smaller holes in what is kept are filled.' },
     { name: 'Grow', effect: 'What is kept grows by this much all round.' },

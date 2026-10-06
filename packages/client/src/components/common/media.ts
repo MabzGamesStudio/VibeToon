@@ -101,7 +101,7 @@ export async function openExactVideo(url: string): Promise<ExactVideo> {
       },
       async read(times, use, stopped) {
         if (times.length === 0) return;
-        const sink = new CanvasSink(track, { poolSize: 2 });
+        const sink = new CanvasSink(track, { poolSize: 2, alpha: true });
         // Nothing is shown before the first frame: that is read as the first.
         const at = times.map((time) => Math.max(facts.first, time + 1e-6));
         let index = 0;

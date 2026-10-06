@@ -43,6 +43,7 @@ const optionsOf = (data: VideoForegroundFlowData): ForegroundOptions => ({
   steady: data.steady,
   maxShift: data.maxShift,
   tolerance: data.tolerance,
+  thin: data.thin,
   speck: data.speck,
   holes: data.holes,
   grow: data.grow,
@@ -206,14 +207,14 @@ export function VideoForegroundFlowEditor({ project, node }: { project: Project;
     [],
   );
 
-  const { steady, maxShift, tolerance, speck, holes, grow, unknown } = data;
+  const { steady, maxShift, tolerance, thin, speck, holes, grow, unknown } = data;
   useEffect(() => {
     if (frames.length === 0 || !background) {
       setResults([]);
       return undefined;
     }
     let cancelled = false;
-    const settings = { ...dataRef.current, steady, maxShift, tolerance, speck, holes, grow, unknown };
+    const settings = { ...dataRef.current, steady, maxShift, tolerance, thin, speck, holes, grow, unknown };
     const timer = window.setTimeout(() => {
       void (async () => {
         setWorking({ stage: steady ? 'steady' : 'apart', done: 0, total: 1 });
@@ -227,7 +228,7 @@ export function VideoForegroundFlowEditor({ project, node }: { project: Project;
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [frames, background, steady, maxShift, tolerance, speck, holes, grow, unknown, work]);
+  }, [frames, background, steady, maxShift, tolerance, thin, speck, holes, grow, unknown, work]);
 
   const summaries = (list: readonly ReadFrame[], made: readonly ForegroundFrame[]) =>
     made.map((frame, index) => ({ time: list[index]!.time, offset: frame.offset, kept: frame.stats.kept, total: frame.stats.total, pieces: frame.stats.pieces }));
@@ -349,6 +350,7 @@ export function VideoForegroundFlowEditor({ project, node }: { project: Project;
             <Slider range="videoForeground.maxShift" label="Most it moves between frames" tip="videoForeground.maxShift" value={data.maxShift} format={(value) => `${Math.round(value)} px`} onChange={(value) => patch({ maxShift: Math.round(value) })} />
           ) : null}
           <Slider range="videoForeground.tolerance" label="Tolerance" tip="videoForeground.tolerance" value={data.tolerance} format={(value) => `${Math.round(value)}`} onChange={(value) => patch({ tolerance: Math.round(value) })} />
+          <Slider range="videoForeground.thin" label="Remove lines up to" tip="videoForeground.thin" value={data.thin} format={(value) => `${Math.round(value) * 2} px thick`} onChange={(value) => patch({ thin: Math.round(value) })} />
           <Slider range="videoForeground.speck" label="Drop specks under" tip="videoForeground.speck" value={data.speck} format={(value) => `${Math.round(value)} px`} onChange={(value) => patch({ speck: Math.round(value) })} />
           <Slider range="videoForeground.holes" label="Fill holes up to" tip="videoForeground.holes" value={data.holes} format={(value) => `${Math.round(value)} px`} onChange={(value) => patch({ holes: Math.round(value) })} />
           <Slider range="videoForeground.grow" label="Grow" tip="videoForeground.grow" value={data.grow} format={(value) => `${Math.round(value)} px`} onChange={(value) => patch({ grow: Math.round(value) })} />
