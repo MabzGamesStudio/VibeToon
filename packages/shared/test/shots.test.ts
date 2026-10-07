@@ -167,3 +167,15 @@ test('each shot is recorded as a video when asked, or when the Shot clips output
   const off = { ...wired, connections: wired.connections.map((c) => ({ ...c, settings: { ...c.settings, enabled: false } })) };
   assert.equal(shotClipsWanted(off, shots), false, 'not by a wire that is switched off');
 });
+
+test('frames are numbered by the video’s own measured frame rate, not the 24 fps default', async () => {
+  const { emptyShotsFlowData, shotFrameRate, shotsFile, splitShotAt } = await import('../src/flows/shots');
+  const base = { ...emptyShotsFlowData(), video: { hash: 'v', duration: 6, width: 64, height: 36 }, cuts: [2.5] };
+  assert.equal(shotFrameRate(base), 24, 'nothing measured: the default');
+  const at30 = { ...base, frameRate: 30, frameRateFor: 'v' };
+  const file = JSON.parse(shotsFile(at30)) as { video: { fps: number }; shots: Array<{ startFrame: number; endFrame: number }> };
+  assert.equal(file.video.fps, 30);
+  assert.deepEqual(file.shots.map((shot) => [shot.startFrame, shot.endFrame]), [[0, 74], [75, 179]]);
+  // A split snaps to a 30 fps frame: 1.01 s is frame 30, at 1 s.
+  assert.ok(splitShotAt(at30, 1.01).cuts.includes(1));
+});

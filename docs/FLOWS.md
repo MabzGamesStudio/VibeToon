@@ -529,7 +529,7 @@ Turns found lines into vector lines: each area of line pixels is filled, thinned
 
 `art.video.background` · **bespoke editor**
 
-Takes the background out of a video clip: each pixel's most common colour across the frames, left clear where no colour is in enough of them. Paint or draw round what a frame shows to put more of it back.
+Takes the background out of a video clip: the frames lined up, what never changes kept, and what moved rebuilt patch by patch from the frames that show the background there. Paint or draw round what a frame shows to put more of it back.
 
 - **In:** Video
 - **Out:** Background `background.png`, Report `background.md`, Video `video.mp4`
@@ -538,6 +538,29 @@ Takes the background out of a video clip: each pixel's most common colour across
   ```
   keep: transparency
   ```
+
+### Video Foreground
+
+`art.video.foreground` · **bespoke editor**
+
+Takes a video and its background and keeps only what moves in front of it: each frame read, lined up with the background, and every pixel that matches it made clear, so the characters are left on their own.
+
+- **In:** Video *(required)*, Background *(required)*
+- **Out:** Frames `frames`, Frame list `foreground.json`, Report `foreground.md`
+- **Rules a new wire leaving `frames` starts with:**
+
+  ```
+  keep: transparency
+  ```
+
+### Character Split
+
+`art.video.characters` · **bespoke editor**
+
+Splits what moves in a video into its characters: each found by its colours where it is apart from the others, and pieces where they touch shared out pixel by pixel by colour and by where each character was in the frames next to it. One item per character comes out.
+
+- **In:** Frames *(required)*
+- **Out:** Characters `characters`, Sheets `sheets`, Frames `frames`, Character list `characters.json`, Report `characters.md`
 
 ### Polygon Decomposition
 
@@ -758,4 +781,4 @@ An arrangement of flows saved under a name and used again as one, each use with 
 
 ---
 
-62 flow kinds.
+64 flow kinds.

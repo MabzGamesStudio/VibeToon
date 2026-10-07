@@ -28,6 +28,8 @@ import { emptyFaceFlowData } from '../flows/face';
 import { emptyCropFlowData } from '../flows/crop';
 import { emptyLinesFlowData } from '../flows/lines';
 import { emptyVideoBackgroundFlowData } from '../flows/videoBackground';
+import { emptyVideoForegroundFlowData } from '../flows/videoForeground';
+import { emptyCharacterSplitFlowData } from '../flows/characterSplit';
 import { emptyShotsFlowData } from '../flows/shots';
 import { emptyVideoSourceFlowData } from '../flows/videoSource';
 import { emptyVideoEditFlowData } from '../flows/videoEdit';
@@ -115,6 +117,10 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyLinesFlowData();
     case 'videoBackground':
       return emptyVideoBackgroundFlowData();
+    case 'videoForeground':
+      return emptyVideoForegroundFlowData();
+    case 'characterSplit':
+      return emptyCharacterSplitFlowData();
     case 'shots':
       return emptyShotsFlowData();
     case 'videoSource':

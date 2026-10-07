@@ -34,6 +34,8 @@ import { DEFAULT_VECTORIZE_OPTIONS } from '../flows/vectorize';
 import { emptyCropFlowData } from '../flows/crop';
 import { DEFAULT_LINE_OPTIONS } from '../flows/lines';
 import { emptyVideoBackgroundFlowData } from '../flows/videoBackground';
+import { emptyVideoForegroundFlowData } from '../flows/videoForeground';
+import { emptyCharacterSplitFlowData } from '../flows/characterSplit';
 import { DEFAULT_SHOT_OPTIONS, emptyShotsFlowData } from '../flows/shots';
 import { emptyVideoSourceFlowData } from '../flows/videoSource';
 import { DEFAULT_EDIT_FPS, emptyVideoEditFlowData } from '../flows/videoEdit';
@@ -242,14 +244,27 @@ export function normaliseFlowData(data: FlowData): FlowData {
       const base = emptyVideoBackgroundFlowData();
       const sampling = fill(data.sampling, DEFAULT_VIDEO_SAMPLING);
       const whole =
-        Array.isArray(data.marks) && typeof data.tolerance === 'number' && typeof data.agreement === 'number' && typeof data.brush === 'number' && typeof data.tool === 'string' && data.current !== undefined;
+        Array.isArray(data.marks) &&
+        typeof data.tolerance === 'number' &&
+        typeof data.agreement === 'number' &&
+        typeof data.brush === 'number' &&
+        typeof data.tool === 'string' &&
+        data.current !== undefined &&
+        typeof data.steady === 'boolean' &&
+        typeof data.maxShift === 'number' &&
+        typeof data.rebuild === 'boolean' &&
+        typeof data.patch === 'number';
       if (!sampling.filled && whole) return data;
+      // Made before the background was rebuilt from patches: its agreement, if left at the old default
+      // (a share of frames for each pixel's commonest colour), becomes the new one for patches.
+      const beforePatches = typeof data.steady !== 'boolean' && data.agreement === 50;
       return {
         ...base,
         ...data,
         sampling: sampling.value,
         marks: Array.isArray(data.marks) ? data.marks : [],
         current: data.current ?? null,
+        ...(beforePatches ? { agreement: base.agreement } : {}),
       };
     }
     case 'videoSource': {
@@ -268,6 +283,19 @@ export function normaliseFlowData(data: FlowData): FlowData {
         fps: typeof data.fps === 'number' ? data.fps : DEFAULT_EDIT_FPS,
         selected: data.selected ?? null,
       };
+    }
+    case 'videoForeground': {
+      const base = emptyVideoForegroundFlowData();
+      const sampling = fill(data.sampling, DEFAULT_VIDEO_SAMPLING);
+      const missing = (Object.keys(base) as Array<keyof typeof base>).some((key) => key !== 'video' && key !== 'background' && data[key] === undefined);
+      if (!sampling.filled && !missing) return data;
+      return { ...base, ...data, sampling: sampling.value };
+    }
+    case 'characterSplit': {
+      const base = emptyCharacterSplitFlowData();
+      const missing = (Object.keys(base) as Array<keyof typeof base>).some((key) => key !== 'frames' && data[key] === undefined);
+      if (!missing) return data;
+      return { ...base, ...data, names: data.names ?? {}, dropped: Array.isArray(data.dropped) ? data.dropped : [], joined: Array.isArray(data.joined) ? data.joined : [] };
     }
     case 'batchSelect': {
       if (Array.isArray(data.excluded) && typeof data.filter === 'string') return data;

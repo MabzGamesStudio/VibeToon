@@ -269,3 +269,19 @@ test('planned clip names follow the format they are to be recorded in', () => {
   const node = { id: 's', kind: 'animation.video.shots', name: 'Shot Split', outputs: [], data: { editor: 'shots', video: { duration: 4 }, cuts: [2], clipFormat: 'mp4-h264' } } as never;
   assert.deepEqual(plannedEntries(node, 'clips'), ['shot-01.mp4', 'shot-02.mp4']);
 });
+
+test('each item of a batch keeps its own video length and frame rate, whatever is edited for every item', () => {
+  let node = { ...createNode('animation.video.edit', at, 'Edit'), id: 'edit' };
+  const shared = node.data as VideoEditFlowData;
+  // Item a is measured as a 3 s, 30 fps clip; item b as a 0.5 s, 24 fps one.
+  node = editBatchData(node, shared, { ...shared, video: { hash: 'a', duration: 3, width: 64, height: 36 }, fps: 30, fpsFor: 'a' } as FlowNode['data'], { key: 'a', only: false, quiet: true });
+  const forB = node.batch?.items['b']?.data ?? node.data;
+  node = editBatchData(node, forB, { ...(forB as VideoEditFlowData), video: { hash: 'b', duration: 0.5, width: 64, height: 36 }, fps: 24, fpsFor: 'b' } as FlowNode['data'], { key: 'b', only: false, quiet: true });
+  // Then an edit for every item, made while looking at b.
+  const nowB = node.batch?.items['b']?.data ?? node.data;
+  node = editBatchData(node, nowB, { ...(nowB as VideoEditFlowData), output: 'clips' } as FlowNode['data'], { key: 'b', only: false });
+  const dataOf = (key: string) => (node.batch?.items[key]?.data ?? node.data) as VideoEditFlowData;
+  assert.deepEqual([dataOf('a').video?.duration, dataOf('a').fps], [3, 30]);
+  assert.deepEqual([dataOf('b').video?.duration, dataOf('b').fps], [0.5, 24]);
+  assert.equal(dataOf('a').output, 'clips', 'the shared edit reaches every item');
+});

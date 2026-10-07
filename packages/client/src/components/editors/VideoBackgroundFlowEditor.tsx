@@ -2,18 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   applyMarks,
   backgroundFrameSize,
+  backgroundInFrame,
   backgroundReport,
-  commonestBackground,
+  backgroundWork,
   emptyVideoBackgroundFlowData,
-  clipFrameTimes,
-  clipLength,
   nearestFrame,
   newId,
+  pickFrameTimes,
+  steadyWork,
   videoSourceOf,
   type BackgroundMark,
+  type BackgroundOptions,
+  type BackgroundProgress,
   type BackgroundResult,
   type Bitmap,
   type FlowNode,
+  type FrameOffset,
   type Project,
   type VideoBackgroundFlowData,
   type VideoSampling,
@@ -26,7 +30,8 @@ import { pngDataUrl } from '../common/pixels';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
 import { VideoUpload, clock, useFileUpload } from '../common/video';
-import { openClip, useClipProbe, type OpenClip } from '../common/clip';
+import { openVideoFrames, useVideoFrameTimes, type VideoFrames } from '../common/frames';
+import { inSlices, utf8Base64 } from '../common/slices';
 import { paintBitmap, svgPoint, useFitScale } from './CropFlowEditor';
 import { EditorShell } from './EditorShell';
 
@@ -36,23 +41,43 @@ interface ReadFrame {
   thumb: string;
 }
 
-/** Base64 of a UTF-8 string, for a markdown attachment. */
-function utf8Base64(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
+/** A see-through tint over what is already background, on a frame where the background sits at `offset`. */
+function tintOf(result: BackgroundResult, offset: FrameOffset): Bitmap {
+  const { width, height } = result.image;
+  const shown = backgroundInFrame(result, offset);
+  const out = new Uint8ClampedArray(width * height * 4);
+  for (let p = 0; p < width * height; p += 1) if (shown[p]) out.set([60, 200, 120, 90], p * 4);
+  return { width, height, data: out };
 }
 
-/** A see-through tint over what is already background, for marking a frame. */
-function tintOf(result: BackgroundResult): Bitmap {
-  const { width, height, data } = result.image;
-  const out = new Uint8ClampedArray(width * height * 4);
-  for (let p = 0; p < width * height; p += 1) {
-    if (data[p * 4 + 3]! === 0) continue;
-    out.set([60, 200, 120, 90], p * 4);
-  }
-  return { width, height, data: out };
+const optionsOf = (data: VideoBackgroundFlowData): BackgroundOptions => ({
+  tolerance: data.tolerance,
+  agreement: data.agreement,
+  steady: data.steady,
+  maxShift: data.maxShift,
+  rebuild: data.rebuild,
+  patch: data.patch,
+});
+
+const STAGES: Record<BackgroundProgress['stage'], string> = {
+  steady: 'Lining the frames up',
+  still: 'Finding what never changes',
+  patches: 'Rebuilding what moved',
+};
+
+/** Where the background sits in each frame, worked out once for each set of frames and reach. */
+async function offsetsFor(
+  frames: readonly ReadFrame[],
+  data: VideoBackgroundFlowData,
+  known: { key: string; frames: readonly ReadFrame[]; offsets: FrameOffset[] } | null,
+  onProgress: (progress: BackgroundProgress) => void,
+  cancelled: () => boolean,
+): Promise<{ key: string; frames: readonly ReadFrame[]; offsets: FrameOffset[] } | null> {
+  const key = data.steady ? `steady:${data.maxShift}` : 'still';
+  if (known && known.frames === frames && known.key === key) return known;
+  if (!data.steady) return { key, frames, offsets: frames.map(() => ({ dx: 0, dy: 0 })) };
+  const offsets = await inSlices(steadyWork(frames.map((frame) => frame.bitmap), data.maxShift), onProgress, cancelled);
+  return offsets ? { key, frames, offsets } : null;
 }
 
 const flat = (points: number[]) => Array.from({ length: points.length / 2 }, (_, i) => `${points[i * 2]},${points[i * 2 + 1]}`).join(' ');
@@ -60,10 +85,12 @@ const flat = (points: number[]) => Array.from({ length: points.length / 2 }, (_,
 /**
  * Taking the background out of a video.
  *
- * The frames are read here and kept while the editor is open. Each pixel's
- * most common colour across them is the background, where it is common
- * enough; pick a frame to paint, erase or draw round
- * what it shows, and it is put in (or taken out) from that frame.
+ * The frames are read here, exactly as the file holds them, and kept while
+ * the editor is open. They are lined up with each other, the pixels that never
+ * change are the background, and what moved is rebuilt patch by patch from the
+ * frames that show the background there (see `backgroundWork`); pick a frame
+ * to paint, erase or draw round what it shows, and it is put in (or taken
+ * out) from that frame.
  */
 export function VideoBackgroundFlowEditor({ project, node }: { project: Project; node: FlowNode }): JSX.Element {
   const { setFlowData, notify, uploadOutput, generateFlow } = useStudio();
@@ -75,11 +102,11 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
 
   const source = videoSourceOf(project, node);
   const videoUrl = source ? api.artifactUrl(project.id, source.artifact.path) : null;
-  // The clip is probed for where its frames are; the times read are worked out inside that.
-  const { probe, error: videoError } = useClipProbe(videoUrl);
-  const meta = probe?.meta ?? null;
+  // The clip is probed for when each of its frames is shown; the frames read are picked from those.
+  const { probe, error: videoError } = useVideoFrameTimes(videoUrl);
+  const meta = probe && probe.url === videoUrl ? probe.facts : null;
   const upload = useFileUpload((fileName, body) => uploadOutput(node.id, 'source', fileName, body), (message) => notify('error', message));
-  const times = useMemo(() => (probe ? clipFrameTimes(probe.span, data.sampling) : []), [probe, data.sampling]);
+  const times = useMemo(() => (probe && probe.url === videoUrl ? pickFrameTimes(probe.times, data.sampling) : []), [probe, videoUrl, data.sampling]);
 
   /* ---------------- reading the frames ---------------- */
 
@@ -89,31 +116,46 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
   const read = useCallback(async (): Promise<ReadFrame[]> => {
     if (!videoUrl || !source) return [];
     stopping.current = false;
-    // Each frame is taken from the clip at its time, once the clip shows it
-    // (see `openClip`). The times are worked out from the clip opened here,
-    // not from the one probed for the editor: going from one item of a batch
-    // to the next, that can still be the item before, and its times laid on
-    // this clip bunched every frame into the start of it or past its end.
-    let clip: OpenClip;
+    // Each frame is taken from the clip as it holds it: decoded from the file
+    // where this browser can, else shown and drawn (see `openVideoFrames`).
+    // The times are worked out from the clip opened here, not from the one
+    // probed for the editor: going from one item of a batch to the next, that
+    // can still be the item before.
+    let clip: VideoFrames;
+    let times: number[];
     try {
-      clip = await openClip(videoUrl);
+      clip = await openVideoFrames(videoUrl);
+      times = pickFrameTimes(await clip.frameTimes(), dataRef.current.sampling);
     } catch (reason) {
       notify('error', `Could not read the video: ${(reason as Error).message}`);
       return [];
     }
-    const times = clipFrameTimes(clip.span, dataRef.current.sampling);
-    const clipMeta = { duration: clipLength(clip.span), width: clip.width, height: clip.height };
-    const size = backgroundFrameSize(clipMeta, times.length);
+    const facts = clip.facts;
+    const size = backgroundFrameSize(facts, times.length);
     setRunning({ done: 0, total: times.length });
+    const canvas = document.createElement('canvas');
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const context = canvas.getContext('2d', { willReadFrequently: true })!;
     const thumbHeight = Math.max(1, Math.round((96 * size.height) / size.width));
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = 96;
+    thumbCanvas.height = thumbHeight;
+    const thumbContext = thumbCanvas.getContext('2d')!;
     const got: ReadFrame[] = [];
     try {
-      for (const time of times) {
-        if (stopping.current) break;
-        const { bitmap } = await clip.frame(time, size.width, size.height);
-        got.push({ time, bitmap, thumb: clip.thumbnail(96, thumbHeight) });
-        setRunning({ done: got.length, total: times.length });
-      }
+      await clip.read(
+        times,
+        ({ time, image }) => {
+          context.clearRect(0, 0, size.width, size.height);
+          context.drawImage(image, 0, 0, size.width, size.height);
+          const pixels = context.getImageData(0, 0, size.width, size.height);
+          thumbContext.drawImage(canvas, 0, 0, 96, thumbHeight);
+          got.push({ time, bitmap: { width: size.width, height: size.height, data: pixels.data }, thumb: thumbCanvas.toDataURL('image/jpeg', 0.6) });
+          setRunning({ done: got.length, total: times.length });
+        },
+        () => stopping.current,
+      );
     } catch (reason) {
       notify('error', `Could not read every frame: ${(reason as Error).message}`);
     } finally {
@@ -125,7 +167,7 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
     const was = dataRef.current;
     const sameVideo = was.video?.hash === source.artifact.hash && was.frameSize?.width === size.width && was.frameSize?.height === size.height;
     patch({
-      video: { hash: source.artifact.hash, duration: clipMeta.duration, width: clipMeta.width, height: clipMeta.height },
+      video: { hash: source.artifact.hash, duration: facts.duration, width: facts.width, height: facts.height },
       frameSize: size,
       // Marks are in frame pixels, so they only carry over at the same size.
       ...(sameVideo ? {} : { marks: [], current: null }),
@@ -135,27 +177,48 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
 
   /* ---------------- the background ---------------- */
 
-  // Each pixel's commonest colour: redone when the frames, the tolerance or the agreement change.
+  // Lined up, what never changes, and what moved rebuilt: redone, a slice at
+  // a time, when the frames or the settings change. The frames are lined up
+  // again only when they or the reach change.
   const [base, setBase] = useState<BackgroundResult | null>(null);
-  const [working, setWorking] = useState(false);
+  const [working, setWorking] = useState<BackgroundProgress | null>(null);
+  const steadied = useRef<{ key: string; frames: readonly ReadFrame[]; offsets: FrameOffset[] } | null>(null);
+  const { tolerance, agreement, steady, maxShift, rebuild, patch: patchSize } = data;
   useEffect(() => {
     if (frames.length === 0) {
       setBase(null);
       return undefined;
     }
-    setWorking(true);
+    let cancelled = false;
+    const settings = { ...dataRef.current, tolerance, agreement, steady, maxShift, rebuild, patch: patchSize };
     const timer = window.setTimeout(() => {
-      setBase(commonestBackground(frames.map((frame) => frame.bitmap), data.tolerance, data.agreement));
-      setWorking(false);
-    }, 120);
-    return () => window.clearTimeout(timer);
-  }, [frames, data.tolerance, data.agreement]);
+      void (async () => {
+        setWorking({ stage: steady ? 'steady' : 'still', done: 0, total: 1 });
+        const lined = await offsetsFor(frames, settings, steadied.current, setWorking, () => cancelled);
+        if (!lined || cancelled) return;
+        steadied.current = lined;
+        const made = await inSlices(backgroundWork(frames.map((frame) => frame.bitmap), optionsOf(settings), lined.offsets), setWorking, () => cancelled);
+        if (!made || cancelled) return;
+        setBase(made);
+        setWorking(null);
+      })();
+    }, 150);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [frames, tolerance, agreement, steady, maxShift, rebuild, patchSize]);
 
-  // And the marks laid over it.
-  const result = useMemo(
-    () => (base ? applyMarks(base, data.marks, (time) => nearestFrame(frames, time)?.bitmap) : null),
-    [base, data.marks, frames],
+  // And the marks laid over it, each moved by where the background sits in its frame.
+  const frameAt = useCallback(
+    (result: BackgroundResult, list: readonly ReadFrame[]) => (time: number) => {
+      const found = nearestFrame(list, time);
+      if (!found) return undefined;
+      return { bitmap: found.bitmap, offset: result.offsets[list.indexOf(found)] ?? { dx: 0, dy: 0 } };
+    },
+    [],
   );
+  const result = useMemo(() => (base ? applyMarks(base, data.marks, frameAt(base, frames)) : null), [base, data.marks, frames, frameAt]);
 
   /* ---------------- what is shown ---------------- */
 
@@ -164,10 +227,11 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
   const picture = useRef<HTMLCanvasElement | null>(null);
   const tint = useRef<HTMLCanvasElement | null>(null);
   const [showTint, setShowTint] = useState(true);
+  const currentOffset = current && result ? (result.offsets[frames.indexOf(current)] ?? { dx: 0, dy: 0 }) : null;
   useEffect(() => {
     paintBitmap(picture.current, current ? current.bitmap : (result?.image ?? null));
-    paintBitmap(tint.current, current && result && showTint ? tintOf(result) : null);
-  }, [current, result, showTint]);
+    paintBitmap(tint.current, current && result && currentOffset && showTint ? tintOf(result, currentOffset) : null);
+  }, [current, result, currentOffset?.dx, currentOffset?.dy, showTint]);
 
   const [svg, setSvg] = useState<SVGSVGElement | null>(null);
   const fit = useFitScale(svg, shownSize?.width ?? 0, shownSize?.height ?? 0);
@@ -248,7 +312,7 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
     try {
       await generateFlow(node.id, [
         { name: 'background.png', data: await pngDataUrl(result.image) },
-        { name: 'background.md', data: `data:text/markdown;base64,${utf8Base64(backgroundReport(dataRef.current, result.stats))}` },
+        { name: 'background.md', data: `data:text/markdown;base64,${utf8Base64(backgroundReport(dataRef.current, result.stats, frames.map((frame, index) => ({ time: frame.time, offset: result.offsets[index]! }))))}` },
       ]);
     } catch (reason) {
       notify('error', `Could not write the background: ${(reason as Error).message}`);
@@ -268,14 +332,14 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
     const got = metaRef.current.framesNow.length > 0 ? metaRef.current.framesNow : await readRef.current();
     if (got.length === 0) throw new Error('no frames could be read');
     const settings = dataRef.current;
-    const made = applyMarks(
-      commonestBackground(got.map((frame) => frame.bitmap), settings.tolerance, settings.agreement),
-      settings.marks,
-      (time) => nearestFrame(got, time)?.bitmap,
-    );
+    const lined = await offsetsFor(got, settings, steadied.current, setWorking, () => false);
+    const built = lined ? await inSlices(backgroundWork(got.map((frame) => frame.bitmap), optionsOf(settings), lined.offsets), setWorking, () => false) : null;
+    setWorking(null);
+    if (!built) throw new Error('the background could not be worked out');
+    const made = applyMarks(built, settings.marks, frameAt(built, got));
     await generateFlow(node.id, [
       { name: 'background.png', data: await pngDataUrl(made.image) },
-      { name: 'background.md', data: `data:text/markdown;base64,${utf8Base64(backgroundReport(dataRef.current, made.stats))}` },
+      { name: 'background.md', data: `data:text/markdown;base64,${utf8Base64(backgroundReport(dataRef.current, made.stats, got.map((frame, index) => ({ time: frame.time, offset: made.offsets[index]! }))))}` },
     ]);
   });
 
@@ -329,7 +393,25 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
 
         <div className="vt-section">
           <h3>What counts as the background</h3>
-          <p className="vt-hint">Each pixel takes the colour it has most often. If that colour is in fewer of the frames than the agreement, the pixel is left clear.</p>
+          <p className="vt-hint">
+            The frames are lined up with each other, so a camera that shakes or drifts does not count as change. A pixel that never changes is the background. What changed is
+            rebuilt patch by patch: the biggest group of frames that show the same in a patch, frames side by side counting more, if it is in at least the agreement share of
+            them. Anything else is left clear.
+          </p>
+          <label className="vt-row" style={{ gap: 6 }}>
+            <input type="checkbox" checked={data.steady} onChange={(event) => patch({ steady: event.target.checked })} />
+            Follow the camera
+          </label>
+          {data.steady ? (
+            <Slider
+              range="videoBackground.maxShift"
+              label="Most it moves between frames"
+              tip="videoBackground.maxShift"
+              value={data.maxShift}
+              format={(value) => `${Math.round(value)} px`}
+              onChange={(maxShift) => patch({ maxShift: Math.round(maxShift) })}
+            />
+          ) : null}
           <Slider
             range="videoBackground.tolerance"
             label="Tolerance"
@@ -338,17 +420,36 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
             format={(value) => `${Math.round(value)}`}
             onChange={(tolerance) => patch({ tolerance: Math.round(tolerance) })}
           />
-          <Slider
-            range="videoBackground.agreement"
-            label="Agreement"
-            tip="videoBackground.agreement"
-            value={data.agreement}
-            format={(value) => `${Math.round(value)}% of frames`}
-            onChange={(agreement) => patch({ agreement: Math.round(agreement) })}
-          />
+          <label className="vt-row" style={{ gap: 6 }}>
+            <input type="checkbox" checked={data.rebuild} onChange={(event) => patch({ rebuild: event.target.checked })} />
+            Rebuild what moved from patches
+          </label>
+          {data.rebuild ? (
+            <>
+              <Slider range="videoBackground.patch" label="Patch" tip="videoBackground.patch" value={data.patch} format={(value) => `${Math.round(value)} px`} onChange={(size) => patch({ patch: Math.round(size) })} />
+              <Slider
+                range="videoBackground.agreement"
+                label="Agreement"
+                tip="videoBackground.agreement"
+                value={data.agreement}
+                format={(value) => `${Math.round(value)}% of frames`}
+                onChange={(agreement) => patch({ agreement: Math.round(agreement) })}
+              />
+            </>
+          ) : null}
+          {working ? (
+            <div className="vt-row" style={{ gap: 6 }}>
+              <span className="vt-faint" style={{ fontSize: 11 }}>{STAGES[working.stage]}…</span>
+              <progress max={working.total} value={working.done} style={{ flex: 1 }} />
+            </div>
+          ) : null}
           <dl className="vt-kv">
-            <dt>Common enough</dt>
-            <dd>{working ? '…' : result ? share(result.stats.kept) : '—'}</dd>
+            <dt>Moved</dt>
+            <dd>{result ? (data.steady ? (result.stats.moved > 0 ? `up to ${result.stats.moved} px` : 'not at all') : 'not followed') : '—'}</dd>
+            <dt>Never changed</dt>
+            <dd>{result ? share(result.stats.still) : '—'}</dd>
+            <dt>Rebuilt</dt>
+            <dd>{result ? share(result.stats.rebuilt) : '—'}</dd>
             <dt>Marked by hand</dt>
             <dd>{result ? share(result.stats.marked) : '—'}</dd>
             <dt>Marks</dt>

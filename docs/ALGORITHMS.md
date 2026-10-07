@@ -14,9 +14,11 @@ studio: open a flow and press **How it works**.
 - Color Palette — A palette by counting: the commonest colours, kept apart
 - Palette Filter — Filtering against a palette: keep what matches, or snap everything to it
 - Image Extraction — Cutting out: fills, cuts and regions replayed into a mask
-- Video Background — A background from a video: each pixel’s most common colour
+- Video Background — A background from a video: lined up, what never changes, and what moved rebuilt patch by patch
+- Video Foreground — What moves in front: each frame lined up with the background, and what matches it made clear
+- Character Split — Characters from what moves: colour embeddings where they are apart, and pixel likelihoods where they touch
 - Shot Split — Finding cuts: compare samples, then binary-search each cut to the frame
-- Video Edit — Editing a video: segments, a crop, and recording by playing it through
+- Video Edit — Editing a video: segments, a crop, and writing it frame by frame
 - Video Source — Bringing a video in: checked by its bytes, fetched safely
 - Rig Match — Finding a rigged body in a picture, by small features
 - Video Rig Match — A rig animation from a video: Rig Match on every sampled frame
@@ -749,127 +751,442 @@ A cut is a smooth curve (Catmull-Rom through its points; two points make a strai
 
 ## Video Background
 
-**A background from a video: each pixel’s most common colour** · `art.video.background`
+**A background from a video: lined up, what never changes, and what moved rebuilt patch by patch** · `art.video.background`
 
-The clip is sampled into frames. For every pixel, its colours across the frames are grouped — a colour joins the first group whose average it is within the tolerance of — and the biggest group is the pixel’s most common colour. If that group holds at least the agreement share of the frames, the pixel takes the group’s average colour; otherwise no colour is common enough and it is clear. Regions and strokes marked on single frames are then laid on in order.
+The clip’s frames are read exactly as the file holds them. They are lined up with each other first, so a camera that shakes or drifts does not count as change. Every pixel whose colour stays within the tolerance in every frame is background. What changed is rebuilt a patch at a time: each frame’s version of the patch is grouped with the others it matches, and the biggest group — frames side by side in it counting more — is the background there, if it holds at least the agreement share of the frames. Anything left is clear, for marking by hand.
 
 ### The steps
 
 ```mermaid
 flowchart TD
   s1(["The video"])
-  s2["Probe the clip"]
+  s2["List its frames"]
   s1 --> s2
-  s3["Plan the times"]
+  s3["Pick the frames to read"]
   s2 --> s3
-  subgraph s4["↻ For each time"]
-    s5["Seek to a quarter of a frame past it"]
-    s6["Wait for the frame to be shown"]
-    s5 --> s6
-    s7["Draw it"]
+  s4["Read each one"]
+  s3 --> s4
+  subgraph s5["↻ 1. Follow the camera — for each frame after the first"]
+    s6["Search near where the frame before it sat"]
+    s7["Score a shift by the mean brightness difference, each pixel’s capped"]
     s6 --> s7
+    s8{"Moved a quarter of the picture from the frame it is followed from?"}
+    s9["Keep following from that frame."]
+    s8 -- no --> s9
+    s7 --> s8
+    s10["Follow the next frames from this one"]
+    s8 --> s10
   end
-  s7 -. next .-> s5
-  s3 --> s5
-  subgraph s8["↻ For each pixel"]
-    subgraph s9["↻ For each frame"]
-      s10["Join the first group within the tolerance of its average, or start a group"]
-    end
-    s10 -. next .-> s10
-    s11["Take the biggest group"]
-    s10 --> s11
-    s12{"In at least the agreement share of the frames?"}
-    s13["No colour is common enough: the pixel is clear."]
-    s12 -- no --> s13
-    s11 --> s12
-    s14["The pixel is the group’s average colour"]
-    s12 --> s14
+  s10 -. next .-> s6
+  s4 --> s6
+  s11["Put the background where the frames were in the middle"]
+  s10 --> s11
+  subgraph s12["↻ 2. For each pixel"]
+    s13["Its colour in every frame that sees it, lined up"]
+    s14{"Within the tolerance in all of them?"}
+    s15["It changed: clear for now."]
+    s14 -- no --> s15
+    s13 --> s14
+    s16["Background: the average of them"]
+    s14 --> s16
   end
-  s14 -. next .-> s10
-  s7 --> s10
-  subgraph s15["↻ For each mark, in the order made"]
-    s16["Paint in: take its frame’s pixels; erase: clear them"]
+  s16 -. next .-> s13
+  s11 --> s13
+  subgraph s17["↻ 3. For each patch with pixels that changed"]
+    s18["The frames that see all of it"]
+    s19["Group their versions of it"]
+    s18 --> s19
+    s20["Score each group"]
+    s19 --> s20
+    s21{"Is the best group at least the agreement share of the frames?"}
+    s22["Nothing is common enough: the patch’s changed pixels stay clear."]
+    s21 -- no --> s22
+    s20 --> s21
+    s23["Fill the changed pixels from that group’s frames"]
+    s21 --> s23
   end
-  s16 -. next .-> s16
-  s14 --> s16
-  s17(["background.png, and the report"])
-  s16 --> s17
+  s23 -. next .-> s18
+  s16 --> s18
+  subgraph s24["↻ For each mark, in the order made"]
+    s25["Paint in: take its frame’s pixels, moved by where the background sits in that frame; erase: clear them"]
+  end
+  s25 -. next .-> s25
+  s23 --> s25
+  s26(["background.png, and the report with each frame’s offset"])
+  s25 --> s26
 ```
 
 - *In:* The video
-- Probe the clip — When its first and last frames are shown, and how long a frame lasts — as the browser shows them, not as a header says.
-- Plan the times — So many in all from the first frame to the last, or so many a second from the first; each on one of the clip’s frames, none twice.
-- **↻ For each time**
-  - Seek to a quarter of a frame past it — And wait for the seek to finish, however long a recorded clip takes to decode to it.
-  - Wait for the frame to be shown — It is the last frame at or before the time: the right one. Each read has its frame before the next seek.
-  - Draw it — No bigger than all the frames together fit in 40 million pixels.
-- **↻ For each pixel**
-  - **↻ For each frame**
-    - Join the first group within the tolerance of its average, or start a group
-  - Take the biggest group — Counted again against its final average.
-  - **In at least the agreement share of the frames?** *If not:* No colour is common enough: the pixel is clear.
-  - The pixel is the group’s average colour
+- List its frames — When each frame is shown, from the file’s own packets — not a grid worked out from a frame rate, which a clip recorded unevenly does not keep to.
+- Pick the frames to read — So many in all, spread through them by count; or so many a second, each the frame nearest that time. None twice.
+- Read each one — Decoded from the file at its own time, no bigger than all the frames together fit in 40 million pixels.
+- **↻ 1. Follow the camera — for each frame after the first**
+  - Search near where the frame before it sat — On a picture halved four times first, then finer and finer: up to “Most it moves” pixels away.
+  - Score a shift by the mean brightness difference, each pixel’s capped — Every pixel counts, so the edges of flat colours do; the cap keeps a character moving in front from pulling it.
+  - **Moved a quarter of the picture from the frame it is followed from?** *If not:* Keep following from that frame.
+  - Follow the next frames from this one
+- Put the background where the frames were in the middle — Each frame’s offset is from there.
+- **↻ 2. For each pixel**
+  - Its colour in every frame that sees it, lined up
+  - **Within the tolerance in all of them?** *If not:* It changed: clear for now.
+  - Background: the average of them
+- **↻ 3. For each patch with pixels that changed**
+  - The frames that see all of it
+  - Group their versions of it — A version joins the first group whose first version it matches on 90% of the changed pixels, within the tolerance; or starts a group.
+  - Score each group — One for each frame in it, and half again for each frame read just after another of its own.
+  - **Is the best group at least the agreement share of the frames?** *If not:* Nothing is common enough: the patch’s changed pixels stay clear.
+  - Fill the changed pixels from that group’s frames — The average of those that match the group’s first version there.
 - **↻ For each mark, in the order made**
-  - Paint in: take its frame’s pixels; erase: clear them
-- *Out:* background.png, and the report
+  - Paint in: take its frame’s pixels, moved by where the background sits in that frame; erase: clear them
+- *Out:* background.png, and the report with each frame’s offset
 
 ### Pseudocode
 
 ```
-span   = probe(clip)            # first shown, last shown, frame length
-times  = clip_frame_times(span, fps or total)   # on the clip's own frames
-frames = [frame_shown_at(clip, t) for t in times]   # seek, wait for it, then copy
-# each at the budgeted size
+times  = pick(frame_times(clip), so_many_in_all or so_many_a_second)
+frames = [decode(clip, t) for t in times]          # at the budgeted size
+
+# 1. follow the camera
+ref, ref_at = frames[0], (0, 0); offset[0] = (0, 0)
+for f in frames[1:]:
+  guess = offset[f-1] - ref_at
+  s = argmin over shifts within most_it_moves of guess, coarse to fine:
+        mean(min(|bright(f, x + shift) - bright(ref, x)|, 48))
+  offset[f] = ref_at + s
+  if |s| > a quarter of the picture: ref, ref_at = f, offset[f]
+offset -= median(offset)                            # the frames' middle
+
+# 2. what never changes
 for each pixel p:
-  groups = []                                # (sum of colours, count)
-  for f in frames:
-    c = f[p]
-    g = first group with |mean(g) - c| <= tolerance      # RGBA distance
-    if g: g.add(c) else: groups += Group(c)
-  best = biggest group
-  members = [f[p] for f in frames if |f[p] - mean(best)| <= tolerance]
-  if len(members) / len(frames) >= agreement:
-    background[p] = mean(members)
-  else:
-    background[p] = clear
+  seen = [f[p + offset[f]] for f in frames if inside]
+  if range(seen) <= tolerance: background[p] = mean(seen)
+  else: changed[p] = true
+
+# 3. what moved, patch by patch
+for each patch P with changed pixels:
+  versions = [f[P + offset[f]] for f seeing all of P]
+  groups = []
+  for v in versions:
+    g = first group whose first version matches v on 90% of P's changed pixels
+    if g: g.add(v) else: groups += Group(v)
+  score(g) = len(g) + 0.5 * (frames in g just after another frame in g)
+  best = max score
+  if len(best) / len(versions) >= agreement:
+    for p in changed pixels of P:
+      background[p] = mean(v[p] for v in best if v[p] ~ best.first[p])
+
 for mark in marks (in order):
-  for p in mark's region or stroke:
-    background[p] = frame_nearest(mark.time)[p] if include else clear
+  for q in mark's region or stroke on its frame f:
+    p = q - offset[f]
+    background[p] = f[q] if include else clear
 ```
 
-### The most common colour, not the average
+### Following the camera
 
-Averaging a pixel over the frames mixes the background with whatever walked past. The median does better, but still drifts when something lingers. Taking the **most common** colour — the biggest group of colours that are the same within the tolerance — gives the background wherever it is visible more often than anything else is, and ignores the rest entirely: the colour is the average of that group only.
+A hand-held shot, or one that pans, moves the whole picture between frames, and a background compared pixel by pixel would then change everywhere. So each frame is lined up first: the shift that makes it match the frame it is followed from best. Every pixel counts in the match — a cartoon background of flat colours matches at many shifts except along its edges, and leaving out the pixels that match worst, as a trimmed mean would, leaves out exactly those edges — but each pixel’s difference is capped, so a character moving in front costs about the same at any shift and cannot pull the frames out of line. The search starts on a small copy of the picture and is made exact on bigger and bigger ones, and it starts from where the frame before sat, so it follows a pan however far it goes. Frames are matched against one frame rather than each against the one before, so a drift of a fraction of a pixel a frame adds up instead of rounding away; once the picture has moved a quarter of its width from that frame, the frames after are followed from the newest one.
+
+### What never changes
+
+With the frames lined up, a pixel whose colour stays within the **Tolerance** in every frame that sees it is background, as the average of its colours. That is most of a shot with a still background. A pixel that changes at all is left clear, for the next step to rebuild.
+
+### Rebuilding what moved, patch by patch
+
+Where something moved, each frame shows either the background or the thing in front of it. Taking each pixel’s commonest colour on its own mixes pixels from different frames into a background no frame ever showed, and lets the edges of a character through. Instead the picture is cut into square **patches**, and each frame’s version of a patch is compared with the others: versions that match on nearly all of the changed pixels are one group. The background is the biggest group — it is what that patch shows most often — and frames read one after another in it count half again, because a background seen in one frame is seen in the frames beside it, while a character passing over it is somewhere else a moment later. The patch’s changed pixels are filled from that group’s frames, so each patch is one coherent picture.
 
 ### Agreement
 
-A pixel is kept only if its most common colour is in at least **Agreement** of the frames. At 50% it is the colour more often than not; at 100% only pixels that never change are kept; lower it for a character who stands still for most of the clip. Below the agreement no colour is common enough to trust, and the pixel is left clear rather than guessed.
-
-### Grouping
-
-Colours are grouped as they come, frame by frame: each joins the first group whose running average it is within the **Tolerance** of (over red, green, blue and opacity, with black to white at 100), or starts a new group. The biggest group is then counted again against its final average, so the order of the frames matters little.
+A patch is rebuilt only if its best group holds at least **Agreement** of the frames that see it. Below that no one picture of the patch is common enough to trust, and what changed in it is left clear rather than guessed. Lower it for a character that covers part of the background most of the time; raise it if a character that lingered is taken for the background.
 
 ### Putting back by hand
 
-A character that never moves off part of the background leaves it clear, or wrong. Pick a frame where that part can be seen and paint it in, or draw round it: those pixels are taken from that frame. The eraser takes pixels out. Marks are laid on in the order made, so a later erase clears an earlier paint.
+A character that never moves off part of the background leaves it clear, or wrong. Pick a frame where that part can be seen and paint it in, or draw round it: those pixels are taken from that frame, moved by where the background sits in that frame. The eraser takes pixels out. Marks are laid on in the order made, so a later erase clears an earlier paint.
+
+### Where the background sits
+
+The background is drawn where the frames were in the middle, so it lines up with a typical frame. The report lists, for every frame read, how far right and down that frame’s picture is from it: a frame’s pixel at (x + right, y + down) shows the background’s (x, y). That is what puts a character cut from a frame back in its place over the background.
 
 ### Settings
 
 | Setting | What it changes |
 | --- | --- |
-| Frames in all / a second | How many frames are compared. More frames make the most common colour surer, and each is read smaller. |
-| Tolerance | How far apart two colours may be and still count as the same. |
-| Agreement | The share of frames the most common colour must be in for the pixel to be kept. |
+| Frames in all / a second | How many frames are compared. More frames make the groups surer, and each is read smaller. |
+| Follow the camera | Line the frames up before comparing them. Off for a shot known to be still. |
+| Most it moves between frames | How far the search looks from where the frame before sat. |
+| Tolerance | How far a colour may change and still count as not changing. |
+| Rebuild what moved from patches | Off leaves every pixel that changed clear. |
+| Patch | The side of the square patches what moved is rebuilt from. |
+| Agreement | The share of frames a patch’s best group must hold for the patch to be rebuilt. |
 | Brush | The radius of the brush that paints or erases. |
 
-**Cost:** Pixels × frames × groups — groups are few (usually one to three), so about pixels × frames.
+**Cost:** Lining up: a few shifts per frame on each level, each over the picture — about frames × pixels × 15. Still pixels: pixels × frames. Patches: for each that changed, frames × groups × up to 96 pixels. A few seconds of frames take a second or two, worked a slice at a time so the page stays responsive.
+
+**Try it:** Read the frames, then pick one below the picture: the green tint over it is what is background already, lined up with that frame. Untick Rebuild what moved to see what never changed on its own.
 
 ### Further reading
 
 - [Background subtraction](https://en.wikipedia.org/wiki/Background_subtraction) — The wider problem of separating a still background from what moves over it.
-- [Mode (statistics)](https://en.wikipedia.org/wiki/Mode_(statistics)) — The most common value, which is what each pixel takes.
+- [Image registration](https://en.wikipedia.org/wiki/Image_registration) — Lining pictures of the same scene up with each other.
+- [Pyramid (image processing)](https://en.wikipedia.org/wiki/Pyramid_(image_processing)) — Searching coarse to fine on halved copies of a picture.
+- [Mode (statistics)](https://en.wikipedia.org/wiki/Mode_(statistics)) — The most common value: what each patch’s biggest group is.
 
-*Code:* `packages/shared/src/flows/videoBackground.ts — commonestBackground, applyMarks, backgroundFrameSize`, `packages/shared/src/flows/clipFrames.ts — clipFrameTimes, snapToClipFrame, frameLengthOf`, `packages/client/src/components/common/clip.ts — openClip, useClipProbe`
+*Code:* `packages/shared/src/flows/videoBackground.ts — steadyWork, backgroundWork, applyMarks, backgroundInFrame, backgroundFrameSize`, `packages/shared/src/flows/clipFrames.ts — pickFrameTimes, gridFrameTimes`, `packages/client/src/components/common/frames.ts — openVideoFrames, useVideoFrameTimes`
+
+## Video Foreground
+
+**What moves in front: each frame lined up with the background, and what matches it made clear** · `art.video.foreground`
+
+The video’s frames are read at the background’s size. Each is lined up with the background — a camera that shakes or pans moves the scene in the frame — and then every pixel whose colour is within the tolerance of the background behind it (or of a neighbour of that, for an edge that wavers by a pixel) is made clear. Specks are dropped, holes filled and the rest grown a pixel, so what is left is the characters on clear.
+
+### The steps
+
+```mermaid
+flowchart TD
+  s1(["The video, and its background"])
+  s2["Pick the frames"]
+  s1 --> s2
+  s3["Read each at the background’s size"]
+  s2 --> s3
+  subgraph s4["↻ For each frame"]
+    s5["Line it up with the background"]
+    subgraph s6["↻ For each pixel"]
+      s7{"Is there background behind it?"}
+      s8["Nothing to compare: kept or cleared, as “where the background is clear” says."]
+      s7 -- no --> s8
+      s9{"Within the tolerance of the background there, or of a neighbour of it?"}
+      s10["Something in front: kept."]
+      s9 -- no --> s10
+      s7 --> s9
+      s11["Background: clear"]
+      s9 --> s11
+    end
+    s11 -. next .-> s7
+    s5 --> s7
+    s12["Remove thin lines"]
+    s11 --> s12
+    s13["Drop specks"]
+    s12 --> s13
+    s14["Fill holes"]
+    s13 --> s14
+    s15["Grow"]
+    s14 --> s15
+  end
+  s15 -. next .-> s5
+  s3 --> s5
+  s16(["frames/frame-0001-at-0.000s.png …, foreground.json and the report"])
+  s15 --> s16
+```
+
+- *In:* The video, and its background
+- Pick the frames — So many in all or so many a second, from the frames the file holds; no more than fit at the background’s size.
+- Read each at the background’s size — Decoded from the file, or shown and drawn where this browser cannot decode it.
+- **↻ For each frame**
+  - Line it up with the background — The shift that matches best — coarse to fine, near where the frame before sat, the background’s clear pixels left out.
+  - **↻ For each pixel**
+    - **Is there background behind it?** *If not:* Nothing to compare: kept or cleared, as “where the background is clear” says.
+    - **Within the tolerance of the background there, or of a neighbour of it?** *If not:* Something in front: kept.
+    - Background: clear
+  - Remove thin lines — Shrink the mask by “Remove lines up to” pixels and grow it back: lines that thin go, shapes stay.
+  - Drop specks — Pieces smaller than the speck size.
+  - Fill holes — Clear patches inside what is kept, up to the hole size, not touching the edge.
+  - Grow — A pixel or two all round, for the soft edge.
+- *Out:* frames/frame-0001-at-0.000s.png …, foreground.json and the report
+
+### Pseudocode
+
+```
+bg = background picture                       # Video Background's, say
+frames = [read(video, t, size(bg)) for t in pick(times, sampling)]
+guess = (0, 0)
+for f in frames:
+  offset = best_shift(bg, f, near=guess, within=most_it_moves)   # see Video Background
+  guess = offset
+  for each pixel q of f:
+    p = q - offset                                # the background behind it
+    if bg has nothing at p: keep[q] = (where_clear == keep); continue
+    keep[q] = no pixel b in bg[p and its 8 neighbours] with |f[q] - b| <= tolerance
+  keep = keep and grow(shrink(keep, thin), thin)   # an opening: thin lines go
+  remove pieces of keep smaller than speck
+  fill holes in keep up to holes, not touching the edge
+  grow keep by grow pixels
+  out = f where keep, clear elsewhere
+```
+
+### Against the background, not against the other frames
+
+Something standing still for the whole shot never changes from frame to frame, so comparing frames with each other would lose it. Comparing each frame with a picture of the scene alone — the background Video Background makes, or any plate with nothing in front — keeps a character whether it moves or not, as long as it is not in the background picture itself.
+
+### Lined up first
+
+A camera that shakes or pans moves the whole scene in the frame, and an unaligned comparison would take every edge for something in front. Each frame is lined up with the background the way Video Background lines frames up with each other: the shift that matches best, each pixel’s difference capped so the character in front cannot pull it, searched coarse to fine near where the frame before sat. Where Video Background left the background clear, those pixels are left out of the match.
+
+### A pixel’s neighbours
+
+Compression noise and a camera lined up to the nearest pixel make edges waver by a pixel. A frame pixel counts as background when it matches the background pixel behind it or any of that pixel’s eight neighbours, so a wavering edge is not taken for a thin character — while a character, whose colours are nowhere near the background’s, is.
+
+### Tidying
+
+What differs from the background is rarely exactly the characters. Video compression keeps colour at half the picture’s resolution, so along a thin, sharp line in the scene the colour differs a little in every frame — **Remove lines up to** opens the mask (shrinks it and grows it back), so lines that thin go and anything thicker stays as it was. Noise leaves specks, and a character’s colour that happens to match the wall behind it leaves holes. Pieces smaller than **Drop specks under** are removed; clear patches inside what is kept, no bigger than **Fill holes up to** and not touching the frame’s edge, are filled; and what is left is grown by **Grow** pixels, so the soft anti-aliased edge where a character meets the background comes with it.
+
+### Where the background is clear
+
+Where Video Background could not put anything back — a character stood there all the shot — or where a camera move shows past the background’s edge, there is nothing to compare with. **Keep the frame** keeps those pixels (usually right: what was never seen behind is likely the character); **Clear it** clears them.
+
+### Settings
+
+| Setting | What it changes |
+| --- | --- |
+| Frames in all / a second | How many frames are taken apart. |
+| Follow the camera, Most it moves between frames | Line each frame up with the background first, and how far to look. |
+| Tolerance | How far from the background’s colour is still background. |
+| Remove lines up to | Lines in front up to twice this thick are removed. |
+| Drop specks under | Smaller pieces in front are dropped. |
+| Fill holes up to | Smaller holes in what is kept are filled. |
+| Grow | What is kept grows by this much all round. |
+| Where the background is clear | Keep or clear the pixels with nothing behind them to compare. |
+
+**Cost:** Lining up as Video Background does; then nine comparisons a pixel, and a few passes to tidy — a fraction of a second a frame, worked a slice at a time.
+
+**Try it:** Pick a frame and switch between What is kept, The frame and The mask; raise the tolerance until the noise goes and the character stays whole.
+
+### Further reading
+
+- [Background subtraction](https://en.wikipedia.org/wiki/Background_subtraction) — Taking a known background away to leave what is in front.
+- [Connected-component labeling](https://en.wikipedia.org/wiki/Connected-component_labeling) — How specks and holes are found.
+- [Mathematical morphology](https://en.wikipedia.org/wiki/Mathematical_morphology) — Growing a mask by a pixel: a dilation.
+
+*Code:* `packages/shared/src/flows/videoForeground.ts — alignToBackgroundWork, foregroundOf, foregroundWork`, `packages/shared/src/flows/videoBackground.ts — bestShift, brightnessLevels`
+
+## Character Split
+
+**Characters from what moves: colour embeddings where they are apart, and pixel likelihoods where they touch** · `art.video.characters`
+
+Each foreground frame is cut into pieces — kept pixels in touching patches — and each piece gets an embedding: the share of its pixels in each of 216 colours. Pieces are grouped by embedding, the frames where characters are apart first; a group that is a blend of two others is two characters touching, not a character. Each piece then goes to its group’s character; a piece two characters could share — a blend, or one where another character is expected from the frames either side — is split pixel by pixel, to the character likeliest there by its colours and by how near its patch is to where that character was.
+
+### The steps
+
+```mermaid
+flowchart TD
+  s1(["Frames with only the characters left (Video Foreground)"])
+  subgraph s2["↻ For each frame"]
+    s3["Find its pieces"]
+    s4["Embed each piece"]
+    s3 --> s4
+  end
+  s4 -. next .-> s3
+  s1 --> s3
+  s5["Group pieces by embedding"]
+  s4 --> s5
+  s6["Find blends"]
+  s5 --> s6
+  s7["The characters are the groups that are not blends"]
+  s6 --> s7
+  subgraph s8["↻ For each frame, each piece"]
+    s9["Who could it be?"]
+    s10{"One?"}
+    s11["Split it: each pixel to the likeliest."]
+    s10 -- no --> s11
+    s9 --> s10
+    s12["All of it is that character’s"]
+    s10 --> s12
+  end
+  s12 -. next .-> s9
+  s7 --> s9
+  s13["Split a shared piece"]
+  s12 --> s13
+  s14["Leave out characters in too few frames"]
+  s13 --> s14
+  s15(["A clip, a sheet and the frames of each character, characters.json and the report"])
+  s14 --> s15
+```
+
+- *In:* Frames with only the characters left (Video Foreground)
+- **↻ For each frame**
+  - Find its pieces — Patches “Join pieces within” across that hold kept pixels, touching patches together; pieces under the smallest left out.
+  - Embed each piece — A soft histogram over 6 × 6 × 6 colours: the share of the piece in each.
+- Group pieces by embedding — Frames with the most pieces first. A piece joins the group whose mean embedding is at least the sameness alike (Bhattacharyya), or starts one.
+- Find blends — A group whose mean is best explained as a mix of two others (by 4% or more), where those two are not apart, is two characters together.
+- The characters are the groups that are not blends
+- **↻ For each frame, each piece**
+  - Who could it be? — Its group’s character; a blend’s two; any character not apart in this frame that the frames either side expect where the piece is.
+  - **One?** *If not:* Split it: each pixel to the likeliest.
+  - All of it is that character’s
+- Split a shared piece — Likelihood = that character’s share of the pixel’s colour × nearness of the pixel to where it was (its pixels in the nearest frame, moved by its motion; Gaussian in distance). Then a stray pixel follows its neighbours.
+- Leave out characters in too few frames
+- *Out:* A clip, a sheet and the frames of each character, characters.json and the report
+
+### Pseudocode
+
+```
+for f, frame in frames:
+  pieces[f] = connected patches of kept pixels (patch = join px), area >= smallest
+  for piece: piece.embedding = soft_histogram(piece colours, 6x6x6) / area
+
+groups = []
+for piece in pieces sorted by (pieces in its frame desc, area desc):
+  g = argmax_g bhattacharyya(piece.embedding, mean(g))
+  if similarity >= sameness: g.add(piece) else: groups += Group(piece)
+
+for C in groups:                                  # two characters touching?
+  for A, B in other groups:
+    w, s = best mix(mean(A), mean(B)) for mean(C)
+    if s >= sameness and s - max(sim(C,A), sim(C,B)) >= 0.04 and A, B rarely apart where C is:
+      C.blend_of = (A, B)
+characters = groups that are not blends
+
+for f, piece:
+  who = {piece's character} | blend_of | {c expected near piece in f, not apart elsewhere in f}
+  if len(who) == 1: give all pixels to it
+  else for pixel p in piece:
+    owner[p] = argmax_c log(c.embedding[colour(p)]) + log(exp(-d_c(p)^2 / 2 sigma^2))
+    # d_c(p): distance to c's pixels in the nearest frame it was apart, moved by its motion
+drop characters in < least frames
+```
+
+### An embedding that is the colours
+
+A cartoon character is mostly its colours: its skin, its clothes, its hair, in roughly the same shares whichever way it turns. So a piece’s embedding is a histogram of its colours over a 6 × 6 × 6 grid of the colour cube, each pixel shared between the eight grid colours round it so that compression noise does not move it from one bin to another. Two embeddings are compared with the Bhattacharyya coefficient — the sum, over the colours, of the square root of the two shares multiplied — 1 for the same mix, near 0 for none in common.
+
+### Learnt where they are apart
+
+Where two characters are apart, each is a piece of its own and its embedding is clean. So the grouping starts from the frames with the most pieces in them: those set what each character looks like, and pieces from frames where characters run together join them afterwards. A piece that is two characters together has the colours of both, in the shares of how much of each shows, so its group’s mean is a blend of their two means; a group that is explained far better as such a blend than as either one — and whose two are not seen apart in the same frames — is taken for two characters together, not a third character.
+
+### Shared out by colour and by place
+
+A piece two characters could be in is split pixel by pixel. For each pixel, each character’s likelihood is its share of that pixel’s colour, times how near the pixel is to where that character was — its own pixels in the nearest frame where it was apart, moved on by how its centre was moving, with nearness falling off as a Gaussian of the distance. Colour decides where the characters differ (a red shirt against a blue one); place decides where they share colours (two heads of the same skin), which is why a character must be seen apart somewhere near in time. A pixel that went against all its neighbours follows them.
+
+### What it cannot know
+
+- Where two characters overlap in the same colours, which one is in front cannot be told from colour or place: the pixels there may go to either.
+- Two characters dressed alike are one group unless they are apart in the same frames; raise Sameness, or leave one out and join by hand.
+- A character never seen apart from another, in any frame, has no clean embedding: it is found only if its blend can be explained by the others.
+
+### What comes out
+
+For each character: its frames, the size the frames were, clear but for it (`character-1-frame-0001-at-0.000s.png`); a sheet of them side by side, cut to the box round everything it does; and a see-through WebM clip of that box from its first frame to its last, clear in frames where it is not. The clips folder (and the sheets folder) into a flow that takes one video (or one picture) is a batch: one item per character. `characters.json` lists every character, its colours and embedding, and every frame it is in, with its box and whether it was split there.
+
+### Settings
+
+| Setting | What it changes |
+| --- | --- |
+| Join pieces within | Pixels this close are one piece. |
+| Smallest piece | Smaller pieces are left out. |
+| Sameness | How alike two pieces’ colours must be to be one character. |
+| Most a character moves | How far round a piece another character is looked for. |
+| Least frames | Fewer, and a character is left out. |
+| Name, Leave out, Is … | By hand: name a character, leave it out, or join it to another. |
+
+**Cost:** Pieces: one pass over each frame. Grouping: pieces × groups × 216. Blends: groups³ × 216 × 19. Splitting: for each shared piece, a distance map per character over the piece’s box, and one score per pixel per character.
+
+**Try it:** Pick a frame where two characters touch: each pixel is tinted the colour of the character it went to. “Show only” one character to see its frames on their own.
+
+### Further reading
+
+- [Color histogram](https://en.wikipedia.org/wiki/Color_histogram) — A picture as the share of each colour in it: the embedding.
+- [Bhattacharyya distance](https://en.wikipedia.org/wiki/Bhattacharyya_distance) — How alike two embeddings are: the coefficient is the sum of the square roots of their products.
+- [Distance transform](https://en.wikipedia.org/wiki/Distance_transform) — How far each pixel is from where a character was: a two-pass chamfer.
+- [Multiple object tracking](https://en.wikipedia.org/wiki/Video_tracking) — The wider problem of following several things through a video.
+
+*Code:* `packages/shared/src/flows/characterSplit.ts — framePieces, embedPixels, embeddingSimilarity, bestBlend, characterWork, applyCharacterEdits, chamferDistance`
 
 ## Shot Split
 
@@ -966,6 +1283,10 @@ Comparing every frame with the next is exact and slow. Sampling is fast and only
 
 A flash frame, or the middle of a dissolve, can pass the threshold on both sides and make a shot a few frames long. Any shot shorter than **Shortest shot** loses the weaker of its two cuts — the one with the smaller difference — so it joins the neighbour it is least unlike. Shortest first, until none is too short.
 
+### Each shot as a clip
+
+With **Each shot as a video** on, Generate writes every shot as a file of its own, frame by frame at the video’s frame rate — the same way Video Edit writes, not by playing it: a shot of 3 seconds at 30 fps is 90 frames, evenly spaced, in a file that says it is 3 seconds long and has an index. Flows downstream get each clip as an item of a batch.
+
 ### What it misses
 
 - Two cuts between the same two samples are found as one. Sample more often for fast cutting.
@@ -995,94 +1316,125 @@ A flash frame, or the middle of a dissolve, can pass the threshold on both sides
 
 ## Video Edit
 
-**Editing a video: segments, a crop, and recording by playing it through** · `animation.video.edit`
+**Editing a video: segments, a crop, and writing it frame by frame** · `animation.video.edit`
 
-The video is a row of segments end to end. A split cuts the segment under the playhead at the nearest frame; a segment is kept or deleted; two neighbours can be joined. On Generate the kept segments are played through a canvas the size of the crop, one after another, and the canvas is recorded — as one video, or a clip per segment.
+The video is a row of segments end to end. A split cuts the segment under the playhead at the nearest frame; a segment is kept or deleted; two neighbours can be joined. On Generate the kept segments are written frame by frame: each frame of the result is the source’s frame for that moment, decoded from the file and drawn through the crop, and encoded at exactly its place — so a segment of so many frames is that many frames long, evenly spaced, and the file says how long it is.
 
 ### The steps
 
 ```mermaid
 flowchart TD
   s1(["The video"])
-  s2["Segments"]
+  s2["Read what it is"]
   s1 --> s2
-  s3["The crop"]
+  s3["Segments"]
   s2 --> s3
-  subgraph s4["↻ For each kept segment, in order"]
-    s5["Seek to its start, and play"]
-    s6["Each animation frame: draw the crop of the video onto the canvas"]
-    s5 --> s6
-    s7{"Past the segment’s end?"}
-    s8["Keep drawing."]
-    s7 -- no --> s8
-    s6 --> s7
-    s9["Pause; for a clip each, stop that recording"]
-    s7 --> s9
+  s4["The crop"]
+  s3 --> s4
+  subgraph s5["↻ For each kept segment, in order"]
+    s6["Count its frames"]
+    subgraph s7["↻ For each of its n frames"]
+      s8["Take the source’s frame for the middle of that frame’s slot"]
+      s9["Draw it through the crop"]
+      s8 --> s9
+      s10["Encode it at exactly i / fps, lasting 1 / fps"]
+      s9 --> s10
+    end
+    s10 -. next .-> s8
+    s6 --> s8
+    s11{"A clip each?"}
+    s12["The next segment carries on in the same file."]
+    s11 -- no --> s12
+    s10 --> s11
+    s13["Finish the file"]
+    s11 --> s13
   end
-  s9 -. next .-> s5
-  s3 --> s5
-  s10(["edited.webm, or clips/clip-01.webm …, and edit.json"])
-  s9 --> s10
+  s13 -. next .-> s6
+  s4 --> s6
+  s14(["edited.webm, or clips/clip-01.webm …, and edit.json"])
+  s13 --> s14
 ```
 
 - *In:* The video
+- Read what it is — Its length, frame count and frame rate, from the file’s own packets: the end of its last frame, how many frames it holds, and how many a second.
 - Segments — At first one, the whole video. Splits snap to the nearest frame start.
 - The crop — One box for every frame, its sides made even (video encoders need even sizes).
 - **↻ For each kept segment, in order**
-  - Seek to its start, and play
-  - Each animation frame: draw the crop of the video onto the canvas
-  - **Past the segment’s end?** *If not:* Keep drawing.
-  - Pause; for a clip each, stop that recording
+  - Count its frames — Its length times the frame rate, rounded: n.
+  - **↻ For each of its n frames**
+    - Take the source’s frame for the middle of that frame’s slot — Decoded from the file; where this browser cannot decode it, shown in a video element and drawn once it is shown.
+    - Draw it through the crop
+    - Encode it at exactly i / fps, lasting 1 / fps
+  - **A clip each?** *If not:* The next segment carries on in the same file.
+  - Finish the file — Its length in the header, an index (WebM Cues) and a whole picture every second.
 - *Out:* edited.webm, or clips/clip-01.webm …, and edit.json
 
 ### Pseudocode
 
 ```
-segments = [(0, duration, kept)]
+facts = read_packets(video)            # duration = end of last frame, frames, fps
+segments = [(0, facts.duration, kept)]
 split(t):  s = segment containing t; t = nearest frame start
            replace s with (s.start, t) and (t, s.end), same kept/deleted
 crop = even(clamp(box, inside video))
 
-canvas = new canvas(crop.width, crop.height)
-recorder = MediaRecorder(canvas.captureStream(fps), 'video/webm; vp9')
+out = new_file(format, crop.width, crop.height, fps, key_frame_every = 1s)
+written = 0
 for s in segments if s.kept:
-  video.currentTime = s.start; video.play()
-  every animation frame until video.currentTime >= s.end:
-    canvas.draw(video, source = crop, target = whole canvas)
-  video.pause()
-  if output == clips: recorder.stop(); save; start a new recorder
+  n = round((s.end - s.start) * fps)
+  for i in 0 .. n-1:
+    frame = source_frame_shown_at(s.start + (i + 0.5) / fps)   # decoded, not played
+    canvas.draw(frame, source = crop, target = whole canvas)
+    out.add(canvas, timestamp = written / fps, duration = 1 / fps)
+    written += 1
+  if output == clips: out.finish(); out = new_file(...); written = 0
+out.finish()                                # writes the length and the index
 save edit.json = { crop, kept segments, deleted segments, lengths }
 ```
 
-### Recording by playing
+### Written frame by frame, not recorded as it plays
 
-A browser has no video encoder to call directly on frames, but it can record a canvas as it is drawn. So the edit is played — each kept segment in turn, drawn through the crop onto a canvas — and the canvas is recorded as WebM (VP9 where the browser has it). That is why recording takes as long as the edit lasts, and why the sound is not kept.
+A clip recorded by playing the video and capturing the page (a MediaRecorder on a canvas) catches a frame whenever the page manages to draw one: the frames come unevenly — 70 frames in five seconds, some a millisecond apart and some half a second — the file has no length in its header and no index, and anything that reads it is left to guess. It plays fine, and every count of its length and frames is wrong, and reading a frame at a time from it gives the same frame again and again where the gaps are long. So the edit is not played. Each frame of the result is decoded from the source file, drawn through the crop and handed to the browser’s video encoder (WebCodecs, through Mediabunny) with its exact time; nothing is dropped however slow the page is, and it is not real time — often faster.
+
+### A properly finished file
+
+The file is written whole: its length in its header (the WebM Duration), an index of where each second starts (WebM Cues, or an MP4 index at the front), and a whole picture — a key frame — at least once a second. So every reader agrees on how long it is and how many frames it has, and can go straight to any frame without decoding everything before it.
+
+### Which frame is taken
+
+Frame i of a segment is the source frame shown at the middle of its slot, start + (i + ½) / fps. At the source’s own rate that is the source’s own frame i, whatever small offset its first frame has; from a source at another rate it is the nearest frame in time.
 
 ### Frames, exactly
 
-A “frame” is one frame at the frame rate you set, since a browser cannot read a video’s own rate. Splits and steps land on a frame’s exact start (not rounded to the millisecond, which can show the frame before), and stepping reads the current frame with a small tolerance, so each press moves exactly one frame.
+The frame rate is read from the file — how many frames it holds over how long they last, as the nearest standard rate. Splits and steps land on a frame’s exact start (not rounded to the millisecond, which can show the frame before), and stepping reads the current frame with a small tolerance, so each press moves exactly one frame.
 
 ### Playing the edit
 
 With **play the edit** on, the player skips deleted segments as it plays: whenever the time enters a deleted segment it jumps to the start of the next kept one, and stops after the last — so what you see is what will be written.
 
+### When the browser cannot
+
+Where this browser cannot decode the source from its file, each frame is shown in a video element and drawn once the browser says it is shown. Where it cannot encode the chosen format at all, the edit is recorded as it plays, the old way, and the recording is copied into a file with its length and an index; the picker marks such a format with ⚠, and its frames may not be evenly spaced.
+
 ### Settings
 
 | Setting | What it changes |
 | --- | --- |
-| Frame rate | What splits and steps snap to, and the rate the result is recorded at. |
+| Frame rate | What splits and steps snap to, and the rate the result is written at. Read from the file when the video arrives. |
 | Crop | The box every frame is cut to, with even sides. |
 | What comes out | One video of the kept segments joined, or a clip for each. |
+| Written as | The container and codec: WebM with VP9, VP8 or AV1, MP4 or Matroska with H.264. |
 
-**Cost:** Real time: recording takes as long as the kept segments last.
+**Cost:** One decode, one draw and one encode per frame written: not real time, and usually quicker than playing it.
 
 ### Further reading
 
-- [MediaRecorder](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder) — Recording a stream in the browser.
-- [HTMLCanvasElement.captureStream](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/captureStream) — Turning a canvas into a video stream to record.
+- [Mediabunny](https://mediabunny.dev/) — Reads and writes video files in the browser, frame by frame, over WebCodecs.
+- [WebCodecs API](https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API) — The browser’s own video decoders and encoders, called on single frames.
+- [Matroska elements (WebM)](https://www.matroska.org/technical/elements.html) — Duration, Cues and the rest of what a finished WebM file holds.
 - [Edit decision list](https://en.wikipedia.org/wiki/Edit_decision_list) — What edit.json is: the edit, to redo from the source.
 
-*Code:* `packages/shared/src/flows/videoEdit.ts — editSegments, splitSegmentAt, stepFrame, videoCropRect`, `packages/client/src/components/editors/renderVideo.ts — renderEdit`
+*Code:* `packages/shared/src/flows/videoEdit.ts — editSegments, splitSegmentAt, stepFrame, videoCropRect`, `packages/client/src/components/editors/renderVideo.ts — renderEdit`, `packages/client/src/components/common/media.ts — readVideoFacts, openExactVideo, startClip`
 
 ## Video Source
 
@@ -1153,7 +1505,7 @@ The server does the download, so it must not be tricked into reaching places a b
 
 ### Measuring
 
-The length and size are read by playing the file in the browser. A video recorded in a browser often does not say how long it is until read to the end, so the editor seeks far past the end once to make it find out.
+The length, frame count and frame rate are read from the file’s own packets: the length is when its last frame ends, the count is how many frames it holds. A header is not trusted for this — a video recorded in a browser often has no length in it at all. Where this browser cannot read the file that way, it is played instead: the editor seeks far past the end once to make it find its length, and watches a few frames go by for the rate.
 
 ### Further reading
 

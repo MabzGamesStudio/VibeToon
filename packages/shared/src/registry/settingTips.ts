@@ -947,28 +947,87 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     examples: ['Footage: A. Nother, CC BY 4.0.', 'Shot for this project.'],
   },
   'videoEdit.fps': {
-    what: 'The frame rate the edit is recorded at, and what a split snaps to: a split falls on the start of the frame nearest where it was asked for.',
+    what: 'The frame rate the edit is written at, and what a split snaps to: a split falls on the start of the frame nearest where it was asked for. Read from the file when the video arrives; a segment of n / rate seconds comes out n frames long.',
     examples: ['24 — film and most animation.', '30 — a good default for web and phone video.', '60 — smooth, and twice the size.'],
   },
   'videoBackground.sampling': {
     what: 'Which frames the background is worked out from: so many a second, or so many spread over the clip. Every frame is held at once, so many frames of a big video are read smaller.',
     examples: ['12 in all — quick, for a clip where things move a lot.', '24 in all — a good default.', '2 a second — a long clip, evenly.'],
   },
+  'videoBackground.maxShift': {
+    what: 'With Follow the camera on, each frame is lined up with the ones before it: the shift that makes it match best, each pixel’s difference capped so a character moving in front does not pull it. This is the furthest the picture may have moved from one frame read to the next, in frame pixels; the search follows a pan from frame to frame however far it goes in all.',
+    examples: ['4 — a tripod shot with a little shake.', '24 — a good default: a hand-held camera, or a slow pan between frames read far apart.', '100 — a fast pan, or few frames read from a long clip.'],
+    note: 'Turn Follow the camera off for a shot that is known to be still: then nothing is lined up, and nothing can be lined up wrongly.',
+  },
   'videoBackground.tolerance': {
-    what: 'How far apart two colours a pixel has in different frames may be and still count as the same colour. Each pixel’s colours are grouped by it, and the biggest group is its most common colour. Black against white is 100.',
+    what: 'How far a pixel’s colour may change between frames and still count as not changing, once the frames are lined up. A pixel that changes by no more than this in any frame is the background; one that changes more is rebuilt from patches, or left clear. The same measure decides whether two frames show the same thing in a patch. Black against white is 100.',
     examples: ['2 — only colours that do not change at all: a still, clean video.', '8 — a good default: allows for compression noise.', '25 — allows for flicker and slow light changes, but joins similar colours of things passing in front too.'],
   },
+  'videoBackground.patch': {
+    what: 'The side of the square patches what moved is rebuilt from, in frame pixels. Each patch is filled from the frames that show the same there — the biggest group of them — so a patch keeps one frame’s picture whole rather than mixing pixels from many.',
+    examples: ['8 — small patches: tight round a character, but a patch half covered can be taken for the background.', '16 — a good default.', '32 — big patches: each one whole from a few frames, for a background with large plain areas.'],
+  },
   'videoBackground.agreement': {
-    what: 'How many of the frames a pixel’s most common colour must be in for it to be kept as the background. Below this, no one colour is common enough, and the pixel is left clear.',
-    examples: ['30% — keeps the background wherever it shows in a third of the frames, even behind something that stood in front most of the time.', '50% — a good default: the colour it has more often than not.', '100% — only pixels the same in every frame: nothing ever passed in front.'],
-    note: 'Lower it for a character that lingers; raise it when a moving thing is being taken for the background.',
+    what: 'How many of the frames that see a patch must show the same thing there for it to be rebuilt from them. Below this, no one picture of that patch is common enough, and what changed in it is left clear.',
+    examples: ['20% — rebuilds the background wherever it shows in a fifth of the frames, even behind a character that stood in front most of the time.', '30% — a good default.', '60% — only where the background shows most of the time: nothing that lingered is taken for it.'],
+    note: 'Lower it when a character covers part of the background most of the time; raise it when a moving thing is being taken for the background.',
   },
   'videoBackground.brush': {
     what: 'The radius of the brush that paints a frame’s pixels into the background, or erases them out of it, in frame pixels.',
     examples: ['4 — detail round an edge.', '12 — a good default.', '60 — whole areas at once.'],
   },
+  'videoForeground.sampling': {
+    what: 'Which frames are taken apart: so many a second, or so many spread over the clip. Each is read at the background’s size, and every frame read is kept while the editor is open, so a big background allows fewer.',
+    examples: ['12 in all — a quick look.', '24 in all — a good default.', '12 a second — smooth enough to animate from.'],
+  },
+  'videoForeground.maxShift': {
+    what: 'With Follow the camera on, each frame is lined up with the background before they are compared: the shift that matches best, searched near where the frame before sat. This is the furthest the picture may move from one frame read to the next.',
+    examples: ['4 — a tripod with a little shake.', '24 — a good default.', '100 — a fast pan, or few frames from a long clip.'],
+    note: 'Turn Follow the camera off for a shot known to be still.',
+  },
+  'videoForeground.tolerance': {
+    what: 'How far a frame’s colour may be from the background’s behind it and still be the background. Each pixel is compared with the background pixel behind it and its neighbours, so an edge that wavers by a pixel is not taken for a character. Black against white is 100.',
+    examples: ['4 — a clean, still picture: the faintest change counts.', '10 — a good default: allows for compression noise.', '25 — a noisy or flickering video; a character close to the background’s colour starts to go clear.'],
+  },
+  'videoForeground.thin': {
+    what: 'Anything in front no thicker than twice this many pixels is removed: the mask is shrunk this far and grown back, so thin lines go and thick shapes stay. Video compression keeps colour at half the picture’s resolution, so along a thin, sharp line in the scene — a roof’s edge, an outline — the colour comes out a little different in each frame, enough to be taken for something in front.',
+    examples: ['0 — keep everything that differs, however thin.', '1 — a good default: lines up to 2 px go.', '3 — lines up to 6 px go; thin parts of a character (a tail, a cane) may go too.'],
+  },
+  'videoForeground.speck': {
+    what: 'Pieces in front smaller than this many pixels are dropped: compression noise, a flicker, a leaf. A character is far bigger.',
+    examples: ['0 — keep everything.', '40 — a good default.', '400 — only big things: drops small props and far-off figures too.'],
+  },
+  'videoForeground.holes': {
+    what: 'Holes in what is kept, up to this many pixels, are filled: a character’s shirt the colour of the wall behind it is still the character. A hole touching the frame’s edge is never filled.',
+    examples: ['0 — leave holes as they are.', '300 — a good default.', '5000 — fill big ones: the gap between an arm and a body may go too.'],
+  },
+  'videoForeground.grow': {
+    what: 'What is kept is grown by this many pixels all round, so the soft edge where a character meets the background comes with it.',
+    examples: ['0 — exactly what differs.', '1 — a good default.', '3 — a wide soft outline, with a little background in it.'],
+  },
+  'characterSplit.join': {
+    what: 'Kept pixels this close together are one piece: the side of the patches pieces are found in. A character in parts — an arm apart from a body by a line of background — is one piece if the gap is narrower.',
+    examples: ['2 — only touching pixels.', '6 — a good default.', '20 — characters close together are taken as one piece, and split by colour and place.'],
+  },
+  'characterSplit.minArea': {
+    what: 'Pieces smaller than this many pixels are left out: specks the background removal missed.',
+    examples: ['20 — small things count.', '60 — a good default.', '500 — only big figures.'],
+  },
+  'characterSplit.sameness': {
+    what: 'How alike two pieces’ colours must be to be one character, in percent: the Bhattacharyya coefficient of their colour embeddings — 100 for the same colours in the same shares.',
+    examples: ['65 — a character whose colours shift a lot (turning round, in changing light) stays one, but two in similar clothes may be taken as one.', '80 — a good default.', '92 — strict: one character may come out as two when it turns.'],
+    note: 'Two characters taken as one can be told apart by lowering Join pieces within; one character in two can be joined by hand below.',
+  },
+  'characterSplit.maxMove': {
+    what: 'The furthest a character may move from one frame to the next, in pixels. Where two characters touch, a pixel goes to the one that was nearer in the frames either side, and this is how far round a piece that is looked for.',
+    examples: ['40 — slow movers, or many frames a second.', '120 — a good default.', '400 — fast action, or few frames a second.'],
+  },
+  'characterSplit.minFrames': {
+    what: 'A character must be in at least this many frames to count; fewer, and it is taken for noise and left out.',
+    examples: ['1 — everything found counts.', '2 — a good default.', '6 — only characters that stay a while.'],
+  },
   'shots.frameRate': {
-    what: 'The video’s frame rate. A cut is narrowed down to the frame it falls on, so this is what "the frame" means. A browser cannot read it from the file, so set it if you know it.',
+    what: 'The video’s frame rate. A cut is narrowed down to the frame it falls on, so this is what "the frame" means, and each shot’s clip is written at it. Read from the file when the video arrives — how many frames it holds over how long they last — so change it only if you know better.',
     examples: ['24 — film and most animation.', '25 — PAL video.', '30 — most phone and web video.'],
   },
   'shots.sampling': {
