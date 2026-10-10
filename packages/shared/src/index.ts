@@ -50,6 +50,7 @@ export * from './flows/lines';
 export * from './flows/videoBackground';
 export * from './flows/videoForeground';
 export * from './flows/characterSplit';
+export * from './flows/voronoi';
 export * from './flows/clipFrames';
 export * from './flows/batchSelect';
 export * from './flows/shots';

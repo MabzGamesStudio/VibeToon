@@ -513,6 +513,7 @@ are exact about what they write, because exactness is what they are for.
 | --- | --- | --- |
 | **Keep** | The source pixel exactly as it was (color and opacity) if it is within the tolerance of a palette color — otherwise `(0, 0, 0, 0)`. | Finding where a color is used. |
 | **Snap** | Exactly one palette entry's four numbers, whichever entry looks nearest. | Making a picture use those colors and no others. |
+| **Snap, and fold** | As snap — then a small area of one color takes the color of a much bigger, close-colored area beside it. | The same, with the flecks of nearby shades folded into the shapes they sit on. |
 
 **Snap leaves as many values in the picture as the palette has, and no others.**
 Five colors and a transparent entry in play gives a result with six RGBA values in
@@ -534,6 +535,30 @@ counts like any other color, so a pinhole in a shape closes and a speck floating
 in empty space goes. Every value in the result is still a palette value. Corners
 count as touching so that a line one pixel wide on the diagonal stays one line.
 Off (any size) by default; keep ignores it.
+
+**Fold mode tidies by area, and by how close the colors are.** Snapping a
+shaded drawing leaves the shading as islands: a patch of a slightly darker skin
+on a cheek, a band of a lighter blue in a sky. *Snap, and fold* snaps every pixel
+first, then looks at the **areas** — pixels of one palette color that touch,
+corners included — smallest first. An area smaller than **Fold areas under**
+takes the color of an area beside it when both hold:
+
+- the neighbour's palette color is within **Into a color within** of the area's
+  own (the same hue, saturation, brightness and opacity distance as snapping;
+  25 by default);
+- the neighbour is at least **That is bigger by at least** times as big (×4 by
+  default).
+
+Of the neighbours that qualify it takes the closest color, then the one it
+shares most border with. It then joins that area, and any other area of that
+color it touched, so they grow together; an area that could not fold because
+its neighbours were too small is looked at again once they have grown (up to
+four passes). A small area of a far color — an eye in a face, a button on a
+coat — has no close neighbour, and stays: that is the difference from the
+smallest chunk, which gives any small chunk *some* neighbour's color.
+Transparent is 100 from any solid color, so a pinhole stays a pinhole. Every
+value in the result is still a palette value, and the server checks it like a
+snap. In the editor, **Show what was folded** tints the pixels folding changed.
 
 **Keep hands the source pixel back, not the palette value.** It does not recolor
 anything: the palette is the question, and the picture is the answer. The point of

@@ -243,12 +243,20 @@ test('a filter saved in remove mode opens as keep, without the settings that wen
     options: { mode: 'remove', tolerance: 20, softness: 6, hardAlpha: true, only: ['#ff0000'] },
   } as unknown as FlowData;
   const migrated = normaliseFlowData(old) as PaletteFilterFlowData;
-  assert.deepEqual(migrated.options, { mode: 'keep', tolerance: 20, only: ['#ff0000'], minChunk: 0 });
+  assert.deepEqual(migrated.options, { mode: 'keep', tolerance: 20, only: ['#ff0000'], minChunk: 0, foldArea: 200, foldCloseness: 25, foldRatio: 4 });
 });
 
 test('a filter already on the new modes is left as it is', () => {
-  const data = { ...emptyPaletteFilterFlowData(), options: { mode: 'snap' as const, tolerance: 3, only: [], minChunk: 4 } };
+  const data = { ...emptyPaletteFilterFlowData(), options: { mode: 'snap' as const, tolerance: 3, only: [], minChunk: 4, foldArea: 200, foldCloseness: 25, foldRatio: 4 } };
   assert.equal(normaliseFlowData(data), data, 'nothing was missing, so nothing was rebuilt');
+});
+
+test('a filter saved before folding gets the fold settings, and a fold keeps its mode', () => {
+  const before = { editor: 'paletteFilter', options: { mode: 'snap', tolerance: 3, only: [], minChunk: 4 } } as unknown as FlowData;
+  const migrated = normaliseFlowData(before) as PaletteFilterFlowData;
+  assert.deepEqual(migrated.options, { mode: 'snap', tolerance: 3, only: [], minChunk: 4, foldArea: 200, foldCloseness: 25, foldRatio: 4 });
+  const folding = { editor: 'paletteFilter', options: { ...migrated.options, mode: 'fold', foldArea: 50 } } as unknown as FlowData;
+  assert.equal(normaliseFlowData(folding), folding);
 });
 
 /* ---------------- a decomposition whose settings were renamed ---------------- */

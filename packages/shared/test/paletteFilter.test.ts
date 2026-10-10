@@ -9,6 +9,7 @@ import {
   activePalette,
   emptyPaletteFilterFlowData,
   filterImage,
+  foldSmallAreas,
   nearestEntry,
   readPalette,
   summariseFilter,
@@ -406,8 +407,8 @@ test('a filter that matched nothing says which way to turn the tolerance', () =>
 
 /* ---------------- the flow ---------------- */
 
-test('there are two modes, and removing is not one of them', () => {
-  assert.deepEqual([...FILTER_MODES], ['keep', 'snap']);
+test('there are three modes, and removing is not one of them', () => {
+  assert.deepEqual([...FILTER_MODES], ['keep', 'snap', 'fold']);
 });
 
 test('every mode is labelled and explained', () => {
@@ -537,4 +538,99 @@ test('keep ignores the minimum chunk', () => {
 test('a picture all one color has nothing to merge into', () => {
   const result = filterImage(grid(['RR', 'RR']), palette, options({ mode: 'snap', minChunk: 10 }));
   assert.equal(result.report.chunksMerged, 0);
+});
+
+/* ---------------- folding small areas into big close ones ---------------- */
+
+/** A picture drawn by a function of x and y, in hex colors. */
+function drawn(width: number, height: number, colour: (x: number, y: number) => string): Bitmap {
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const hex = colour(x, y).replace('#', '');
+      const value = [0, 2, 4, 6].map((at) => (at < hex.length ? Number.parseInt(hex.slice(at, at + 2), 16) : 255));
+      data.set(value, (y * width + x) * 4);
+    }
+  }
+  return { width, height, data };
+}
+
+const SKIN = '#e0a080';
+const SHADE = '#d09070';
+const EYE = '#202020';
+const faces = readPalette([SKIN, SHADE, EYE]);
+const colourAt = (pixels: Uint8ClampedArray, width: number, x: number, y: number) =>
+  `#${[0, 1, 2].map((c) => pixels[(y * width + x) * 4 + c]!.toString(16).padStart(2, '0')).join('')}`;
+
+test('fold: a fleck of a close shade folds into the big area round it, and a small area of a far color stays', () => {
+  // A face of skin, a fleck of shade on the cheek, and an eye.
+  const face = drawn(20, 20, (x, y) => (x >= 4 && x < 7 && y >= 12 && y < 15 ? SHADE : x >= 12 && x < 15 && y >= 5 && y < 8 ? EYE : SKIN));
+  const run = filterImage(face, faces, options({ mode: 'fold', foldArea: 50, foldCloseness: 25, foldRatio: 4 }));
+  assert.equal(colourAt(run.pixels, 20, 5, 13), SKIN, 'the fleck took the skin');
+  assert.equal(colourAt(run.pixels, 20, 13, 6), EYE, 'the eye is far in color: it stays');
+  assert.deepEqual([run.report.areasFolded, run.report.foldedPixels], [1, 9]);
+  assert.ok(run.folded);
+  assert.equal(run.folded.reduce((sum, one) => sum + one, 0), 9);
+  assert.equal(run.folded[13 * 20 + 5], 1);
+  assert.equal(run.folded[6 * 20 + 13], 0);
+  // Snap alone keeps both.
+  const snapped = filterImage(face, faces, options({ mode: 'snap' }));
+  assert.equal(colourAt(snapped.pixels, 20, 5, 13), SHADE);
+  assert.equal(snapped.folded, undefined);
+});
+
+test('fold: the neighbour must be the given times bigger, and the area smaller than the given size', () => {
+  // Forty pixels of shade beside a hundred of skin: two and a half times as big.
+  const strip = drawn(14, 10, (x) => (x < 4 ? SHADE : SKIN));
+  const strict = filterImage(strip, faces, options({ mode: 'fold', foldArea: 100, foldRatio: 4 }));
+  assert.equal(strict.report.areasFolded, 0);
+  assert.match(summariseFilter(strict.report, options({ mode: 'fold' })), /no small area had a big enough, close enough neighbour/);
+  const loose = filterImage(strip, faces, options({ mode: 'fold', foldArea: 100, foldRatio: 2 }));
+  assert.equal(loose.report.areasFolded, 1);
+  assert.equal(colourAt(loose.pixels, 14, 0, 0), SKIN);
+  const big = filterImage(strip, faces, options({ mode: 'fold', foldArea: 40, foldRatio: 2 }));
+  assert.equal(big.report.areasFolded, 0, 'forty pixels is not smaller than forty');
+});
+
+test('fold: of the close neighbours big enough, the closest color wins, then the longer border', () => {
+  const WARM = '#d8a078';
+  const COOL = '#e0b0a0';
+  const palette3 = readPalette([SKIN, WARM, COOL]);
+  // A small block of warm between two big areas: skin above, cool below — cool shares more border.
+  const picture = drawn(10, 30, (x, y) => (y >= 9 && y < 12 && x >= 3 && x < 6 ? WARM : y < 10 ? SKIN : COOL));
+  const run = filterImage(picture, palette3, options({ mode: 'fold', foldArea: 20, foldCloseness: 50, foldRatio: 2 }));
+  assert.equal(run.report.areasFolded, 1);
+  assert.equal(colourAt(run.pixels, 10, 4, 10), SKIN, 'skin is the closer color, so it wins though it shares less border');
+  // As close as each other, the longer border wins: a strip down the left, skin to its right, cool below it.
+  const assigned = new Int32Array(10 * 20);
+  for (let y = 0; y < 20; y += 1) for (let x = 0; x < 10; x += 1) assigned[y * 10 + x] = x < 2 && y >= 2 && y < 8 ? 1 : x < 2 && y >= 8 ? 2 : 0;
+  const even = (one: number, two: number) => (one === two ? 0 : 5);
+  foldSmallAreas(assigned, 10, 20, even, { area: 20, closeness: 10, ratio: 2 });
+  assert.equal(assigned[4 * 10], 0, 'skin shares the longer border');
+  for (let y = 2; y < 8; y += 1) for (let x = 0; x < 2; x += 1) assigned[y * 10 + x] = 1;
+  const nearerCool = (one: number, two: number) => (one === two ? 0 : (one === 1 && two === 2) || (one === 2 && two === 1) ? 2 : 5);
+  foldSmallAreas(assigned, 10, 20, nearerCool, { area: 20, closeness: 10, ratio: 2 });
+  assert.equal(assigned[4 * 10], 2, 'a closer color beats a longer border');
+});
+
+test('fold: an area left because its neighbour was too small folds once that neighbour has grown', () => {
+  const assigned = new Int32Array([...Array(10).fill(1), ...Array(35).fill(0), ...Array(20).fill(2), ...Array(300).fill(0)]);
+  // Entries 1 and 2 are close to 0, and to each other.
+  const distance = (one: number, two: number) => (one === two ? 0 : 3);
+  const result = foldSmallAreas(assigned, assigned.length, 1, distance, { area: 50, closeness: 25, ratio: 4 });
+  // The twenty fold first (smallest that can: the 300 beside them), joining the 35 to the 300; then the ten can.
+  assert.equal(result.areas, 2);
+  assert.equal(result.pixels, 30);
+  assert.ok(assigned.every((entry) => entry === 0));
+});
+
+test('fold: every pixel is still exactly a palette value, and clear specks stay clear', () => {
+  const CLEAR = '#00000000';
+  const palette4 = readPalette([SKIN, SHADE, CLEAR]);
+  const picture = drawn(16, 16, (x, y) => ((x + y) % 7 === 0 ? SHADE : x === 8 && y === 8 ? CLEAR : SKIN));
+  const run = filterImage(picture, palette4, options({ mode: 'fold', foldArea: 30, foldCloseness: 25, foldRatio: 3 }));
+  const allowed = new Set(['224,160,128,255', '208,144,112,255', '0,0,0,0']);
+  for (let p = 0; p < 256; p += 1) assert.ok(allowed.has(Array.from(run.pixels.slice(p * 4, p * 4 + 4)).join(',')));
+  assert.equal(run.pixels[(8 * 16 + 8) * 4 + 3], 0, 'clear is far from any color: a pinhole stays');
+  assert.match(summariseFilter(run.report, options({ mode: 'fold' })), /small area\(s\) \(\d+ px\) folded into a bigger, close-colored neighbour/);
 });

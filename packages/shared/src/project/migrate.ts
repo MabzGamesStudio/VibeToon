@@ -36,6 +36,7 @@ import { DEFAULT_LINE_OPTIONS } from '../flows/lines';
 import { emptyVideoBackgroundFlowData } from '../flows/videoBackground';
 import { emptyVideoForegroundFlowData } from '../flows/videoForeground';
 import { emptyCharacterSplitFlowData } from '../flows/characterSplit';
+import { emptyVoronoiFlowData } from '../flows/voronoi';
 import { DEFAULT_SHOT_OPTIONS, emptyShotsFlowData } from '../flows/shots';
 import { emptyVideoSourceFlowData } from '../flows/videoSource';
 import { DEFAULT_EDIT_FPS, emptyVideoEditFlowData } from '../flows/videoEdit';
@@ -253,7 +254,12 @@ export function normaliseFlowData(data: FlowData): FlowData {
         typeof data.steady === 'boolean' &&
         typeof data.maxShift === 'number' &&
         typeof data.rebuild === 'boolean' &&
-        typeof data.patch === 'number';
+        typeof data.patch === 'number' &&
+        (data.algorithm === 'patches' || data.algorithm === 'voronoi') &&
+        typeof data.nodes === 'number' &&
+        typeof data.colours === 'number' &&
+        typeof data.moving === 'number' &&
+        typeof data.showAreas === 'boolean';
       if (!sampling.filled && whole) return data;
       // Made before the background was rebuilt from patches: its agreement, if left at the old default
       // (a share of frames for each pixel's commonest colour), becomes the new one for patches.
@@ -296,6 +302,12 @@ export function normaliseFlowData(data: FlowData): FlowData {
       const missing = (Object.keys(base) as Array<keyof typeof base>).some((key) => key !== 'frames' && data[key] === undefined);
       if (!missing) return data;
       return { ...base, ...data, names: data.names ?? {}, dropped: Array.isArray(data.dropped) ? data.dropped : [], joined: Array.isArray(data.joined) ? data.joined : [] };
+    }
+    case 'voronoi': {
+      const base = emptyVoronoiFlowData();
+      const missing = (Object.keys(base) as Array<keyof typeof base>).some((key) => data[key] === undefined);
+      if (!missing) return data;
+      return { ...base, ...data };
     }
     case 'batchSelect': {
       if (Array.isArray(data.excluded) && typeof data.filter === 'string') return data;
@@ -477,16 +489,19 @@ export function normaliseFlowData(data: FlowData): FlowData {
        * round.
        */
       const options = fill(data.options, DEFAULT_PALETTE_FILTER_OPTIONS);
-      const mode = options.value.mode === 'keep' || options.value.mode === 'snap' ? options.value.mode : 'keep';
+      const mode = options.value.mode === 'keep' || options.value.mode === 'snap' || options.value.mode === 'fold' ? options.value.mode : 'keep';
       const clean: PaletteFilterOptions = {
         mode,
         tolerance: options.value.tolerance,
         only: Array.isArray(options.value.only) ? options.value.only : [],
         minChunk: Math.max(0, Number(options.value.minChunk) || 0),
+        foldArea: Math.max(0, Number(options.value.foldArea) || DEFAULT_PALETTE_FILTER_OPTIONS.foldArea),
+        foldCloseness: Math.max(0, Number(options.value.foldCloseness) || DEFAULT_PALETTE_FILTER_OPTIONS.foldCloseness),
+        foldRatio: Math.max(1, Number(options.value.foldRatio) || DEFAULT_PALETTE_FILTER_OPTIONS.foldRatio),
       };
       const same =
         !options.filled &&
-        Object.keys(data.options ?? {}).length === 4 &&
+        Object.keys(data.options ?? {}).length === 7 &&
         clean.mode === data.options?.mode;
       return same ? data : { ...data, options: clean };
     }

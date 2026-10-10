@@ -628,6 +628,7 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     examples: [
       'Keep — a pixel within the tolerance of a palette color stays exactly as it was, color and opacity, and every other pixel becomes fully transparent (0, 0, 0, 0). For finding where a color is used.',
       'Snap — every pixel becomes exactly one palette value, color and opacity, whichever looks nearest. Five colors and a transparent one in play gives a picture with six values in it and no others.',
+      'Snap, and fold — snap, then each small area of one color takes the color of a much bigger area beside it whose color is close to its own: flecks of a nearby shade fold into the shape they sit on, and a small area of a far color stays.',
       'To drop a color rather than find it, keep the others: an inverted answer is the same question asked about the rest of the palette.',
     ],
   },
@@ -639,6 +640,27 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
       '50 and up — only real areas of color survive; small details go too.',
       'Pixels touching at a corner are one patch, so a thin diagonal line is not broken into specks. Of the colors a small patch touches, it takes the one closest to what its own pixels were. Transparent counts as a color, so pinholes close and specks in empty space vanish.',
     ],
+  },
+  'paletteFilter.foldArea': {
+    what: 'In fold mode, the size under which an area of one palette color may fold into a neighbour, in pixels. An area is the pixels of one color that touch, corners included.',
+    examples: [
+      '20 — only flecks and stray dots.',
+      '200 — a good default: the small patches a shade leaves on a shape.',
+      '2000 — whole bands of shading fold into the shape they are on.',
+    ],
+  },
+  'paletteFilter.foldCloseness': {
+    what: 'In fold mode, how close the neighbour’s palette color must be to the area’s own, by hue, saturation, brightness and opacity: 100 is black against white. A far color never folds, however small.',
+    examples: [
+      '10 — only near-identical shades fold together.',
+      '25 — a good default: a shade folds into the color it shades, an eye stays in a face.',
+      '60 — almost anything folds into a big neighbour.',
+    ],
+    note: 'Transparent is 100 from any solid color, so a pinhole stays a pinhole unless this is 100.',
+  },
+  'paletteFilter.foldRatio': {
+    what: 'In fold mode, how many times bigger than the small area its neighbour must be for the area to fold into it. Two areas of about the same size are both real, and neither folds.',
+    examples: ['2 — a neighbour twice the size will do.', '4 — a good default.', '20 — only an area lost in a much bigger one folds.'],
   },
   'paletteFilter.tolerance': {
     what: 'How close a pixel has to be to a palette color to count as that color, by hue, saturation, brightness and opacity. 100 is black against white, or clear against solid; hue counts as much as the color has any, so greys are never pushed apart by it.',
@@ -989,6 +1011,22 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     what: 'How far a frame’s colour may be from the background’s behind it and still be the background. Each pixel is compared with the background pixel behind it and its neighbours, so an edge that wavers by a pixel is not taken for a character. Black against white is 100.',
     examples: ['4 — a clean, still picture: the faintest change counts.', '10 — a good default: allows for compression noise.', '25 — a noisy or flickering video; a character close to the background’s colour starts to go clear.'],
   },
+  'videoBackground.algorithm': {
+    what: 'How what moves is told from what stays. By pixels and patches: a pixel that never changes is the background, and what changed is rebuilt patch by patch from the frames that agree. By Voronoi areas: each frame is drawn as a Voronoi diagram in one shared palette, the cells of one colour that touch are an area, and an area that moves or changes size against the other frames is animated; each pixel is then the middle colour of the frames where it is not in an animated area.',
+    examples: ['Pixels and patches — a good default: exact, pixel by pixel.', 'Voronoi areas — whole shapes: a character that moves is taken out as a shape, its edges with it, and noise in flat colour does not count.'],
+  },
+  'videoBackground.nodes': {
+    what: 'How many nodes each frame’s Voronoi diagram has. More nodes follow shapes more closely, so the areas fit the characters more tightly; each frame takes longer to draw.',
+    examples: ['150 — rough areas: quick, but an area’s edge may cut across a character.', '400 — a good default.', '1500 — tight areas, several seconds a frame.'],
+  },
+  'videoBackground.colours': {
+    what: 'How many colours the diagrams share: every node of every frame takes one of them, so the same thing has the same colour in every frame. Cells of one colour that touch are one area.',
+    examples: ['4 — big areas: a character may join the wall behind it.', '12 — a good default.', '32 — many small areas: shading is split into bands that may seem to move.'],
+  },
+  'videoBackground.moving': {
+    what: 'How much an area must change to be animated, in percent: against each other frame, the share of the area that frame does not show in the area’s colour (within a pixel, so an edge that wavers is the same edge), and the middle of those. An area that moves its own width, or is not there at all, changes by 100%.',
+    examples: ['15 — sensitive: a wobble counts, and so may an area the diagram drew a little differently.', '35 — a good default.', '70 — only what moves right away from where it was.'],
+  },
   'videoForeground.thin': {
     what: 'Anything in front no thicker than twice this many pixels is removed: the mask is shrunk this far and grown back, so thin lines go and thick shapes stay. Video compression keeps colour at half the picture’s resolution, so along a thin, sharp line in the scene — a roof’s edge, an outline — the colour comes out a little different in each frame, enough to be taken for something in front.',
     examples: ['0 — keep everything that differs, however thin.', '1 — a good default: lines up to 2 px go.', '3 — lines up to 6 px go; thin parts of a character (a tail, a cane) may go too.'],
@@ -1025,6 +1063,14 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
   'characterSplit.minFrames': {
     what: 'A character must be in at least this many frames to count; fewer, and it is taken for noise and left out.',
     examples: ['1 — everything found counts.', '2 — a good default.', '6 — only characters that stay a while.'],
+  },
+  'voronoi.nodes': {
+    what: 'How many nodes the diagram has: each is one cell of one color. The nodes go where they make the diagram most like the picture, so more of them gather where the picture has detail.',
+    examples: ['60 — big flat cells: a poster of the picture.', '300 — a good default: shapes read, detail goes.', '3000 — close to the picture; fitting takes several seconds.'],
+  },
+  'voronoi.refine': {
+    what: 'How many rounds of nudging: in each, every node tries a step each way and keeps one that makes the diagram fit better, and every other round the nodes that do least are moved to where the fit is worst. The steps get smaller each round.',
+    examples: ['4 — quick, rougher.', '12 — a good default.', '30 — a little closer, three times as long.'],
   },
   'shots.frameRate': {
     what: 'The video’s frame rate. A cut is narrowed down to the frame it falls on, so this is what "the frame" means, and each shot’s clip is written at it. Read from the file when the video arrives — how many frames it holds over how long they last — so change it only if you know better.',

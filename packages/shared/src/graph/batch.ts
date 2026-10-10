@@ -348,6 +348,7 @@ export const ITEM_FIELDS: Partial<Record<string, readonly string[]>> = {
   videoBackground: ['video', 'frameSize', 'marks', 'current'],
   videoForeground: ['video', 'background', 'current'],
   characterSplit: ['frames', 'names', 'dropped', 'joined', 'current', 'frame'],
+  voronoi: ['image'],
   shots: ['video', 'cuts', 'detected', 'edits', 'selected', 'recorded', 'frameRate', 'frameRateFor'],
   videoEdit: ['video', 'segments', 'selected', 'rendered', 'shots', 'fps', 'fpsFor'],
 };

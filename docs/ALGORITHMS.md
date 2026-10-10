@@ -12,9 +12,9 @@ studio: open a flow and press **How it works**.
 - Image Crop — Cropping: a box drawn by hand, or the smallest box round the solid pixels
 - Image Resize — Resizing: resampling through a kernel, across and then down
 - Color Palette — A palette by counting: the commonest colours, kept apart
-- Palette Filter — Filtering against a palette: keep what matches, or snap everything to it
+- Palette Filter — Filtering against a palette: keep what matches, snap everything to it, or snap and fold small areas into big close ones
 - Image Extraction — Cutting out: fills, cuts and regions replayed into a mask
-- Video Background — A background from a video: lined up, what never changes, and what moved rebuilt patch by patch
+- Video Background — A background from a video: lined up, what never changes, and what moved rebuilt patch by patch — or by Voronoi areas
 - Video Foreground — What moves in front: each frame lined up with the background, and what matches it made clear
 - Character Split — Characters from what moves: colour embeddings where they are apart, and pixel likelihoods where they touch
 - Shot Split — Finding cuts: compare samples, then binary-search each cut to the frame
@@ -26,6 +26,7 @@ studio: open a flow and press **How it works**.
 - Polygon Decomposition — Turning a picture into shapes: edges, fills, outlines, then lines
 - Vector Editor — Editing shapes: anchors that are the truth, curves derived from them
 - Line Graph — Lines as a graph: fill, thin to the middle, trace between nodes
+- Voronoi Diagram — A picture as a Voronoi diagram: nodes placed and colored to make the diagram as like the picture as it can be
 - Skeletal Rig — A skeleton, and a preview of it moving under forces
 - Rig Binding — Binding a drawing to a skeleton, node by node
 - Pose — Posing: angles down the tree (FK), and dragging a hand to a target (IK)
@@ -538,9 +539,9 @@ At 0 each entry is its bucket’s commonest colour. Above 0 it moves that fracti
 
 ## Palette Filter
 
-**Filtering against a palette: keep what matches, or snap everything to it** · `art.palette.filter`
+**Filtering against a palette: keep what matches, snap everything to it, or snap and fold small areas into big close ones** · `art.palette.filter`
 
-Every pixel is compared with every palette colour by hue, saturation, brightness and opacity. Keeping leaves a pixel exactly as it was if it is within the tolerance of some palette colour, and clears it otherwise. Snapping replaces every pixel with its nearest palette colour — colour and opacity — and can then give chunks smaller than a minimum size the colour of a neighbouring chunk.
+Every pixel is compared with every palette colour by hue, saturation, brightness and opacity. Keeping leaves a pixel exactly as it was if it is within the tolerance of some palette colour, and clears it otherwise. Snapping replaces every pixel with its nearest palette colour — colour and opacity — and can then give chunks smaller than a minimum size the colour of a neighbouring chunk. Folding snaps too, then gives each small area the colour of a neighbouring area that is close to its own in the palette and much bigger — the closest such colour — so flecks of a nearby shade fold into the shape they sit on and a small area of a far colour stays.
 
 ### The steps
 
@@ -558,17 +559,28 @@ flowchart TD
   s3 --> s4
   s6["Every pixel becomes its nearest entry"]
   s4 --> s6
-  s7{"A smallest chunk set?"}
-  s8["Done."]
-  s7 -- no --> s8
-  s6 --> s7
-  subgraph s9["↻ For each chunk smaller than it, smallest first"]
-    s10["Take the colour of a chunk it touches"]
+  subgraph s7["↻ Folding: for each area under the fold size, smallest first (up to four passes)"]
+    s8["The areas beside it, by entry, and the border shared with each"]
+    s9{"Is one within the closeness in colour, and at least the ratio times bigger?"}
+    s10["It stays as it is, for now."]
+    s9 -- no --> s10
+    s8 --> s9
+    s11["Take the closest such colour (then the longest border)"]
+    s9 --> s11
   end
-  s10 -. next .-> s10
-  s7 --> s10
-  s11(["filtered.png, and a count of each entry"])
-  s10 --> s11
+  s11 -. next .-> s8
+  s6 --> s8
+  s12{"Snapping, with a smallest chunk set?"}
+  s13["Done."]
+  s12 -- no --> s13
+  s11 --> s12
+  subgraph s14["↻ For each chunk smaller than it, smallest first"]
+    s15["Take the colour of a chunk it touches"]
+  end
+  s15 -. next .-> s15
+  s12 --> s15
+  s16(["filtered.png, and a count of each entry"])
+  s15 --> s16
 ```
 
 - *In:* The picture and the palette
@@ -576,7 +588,11 @@ flowchart TD
   - Find the nearest palette entry, and how far — Distance in the HSB cone, with opacity as one more side (100 = black to white, or clear to solid).
 - **Snapping?** *If not:* Keeping: a pixel within the tolerance stays exactly as it was; any other becomes (0, 0, 0, 0).
 - Every pixel becomes its nearest entry — Exactly: the palette’s colour and opacity.
-- **A smallest chunk set?** *If not:* Done.
+- **↻ Folding: for each area under the fold size, smallest first (up to four passes)** — An area: touching pixels (corners included) of one entry.
+  - The areas beside it, by entry, and the border shared with each
+  - **Is one within the closeness in colour, and at least the ratio times bigger?** *If not:* It stays as it is, for now.
+  - Take the closest such colour (then the longest border) — It joins that area, and they grow together.
+- **Snapping, with a smallest chunk set?** *If not:* Done.
 - **↻ For each chunk smaller than it, smallest first** — A chunk: touching pixels (corners included) of one entry.
   - Take the colour of a chunk it touches — Of those, the entry nearest its own pixels’ original colours. It then joins that chunk.
 - *Out:* filtered.png, and a count of each entry
@@ -596,9 +612,16 @@ for each distinct colour c: nearest[c], d[c] = min over entries of distance
 
 if mode == keep:
   out[p] = pixel[p] if d[colour(p)] <= tolerance else (0,0,0,0)
-else:  # snap
+else:  # snap, or fold
   entry[p] = nearest[colour(p)]
-  if min_chunk > 1:
+  if mode == fold:
+    repeat up to 4 times, while anything folds:
+      for area in areas(entry) sorted by size, while size < fold_area:
+        ok = [n for n in areas beside it
+              if distance(palette[n], palette[area]) <= closeness
+              and size(n) >= ratio * size(area)]
+        if ok: area takes the entry of min(ok, by colour distance, then -border)
+  elif min_chunk > 1:
     for chunk in chunks(entry) sorted by size, while size < min_chunk:
       touching = entries of chunks bordering it
       chunk takes argmin over touching of Σ distance(original pixel, entry)
@@ -617,6 +640,10 @@ Keeping never recolours or fades anything: a pixel that matches comes out with e
 
 Snapping always takes the nearest entry, whatever the distance, and writes it exactly — so a palette of five colours and a clear one gives a picture with six values in it and no others. An anti-aliased edge pixel becomes the colour or clear depending which it is nearer, never a neighbouring colour.
 
+### Folding small areas into big close ones
+
+Snapping a shaded drawing leaves shading as islands of a nearby colour. Folding looks at areas — touching pixels of one entry — smallest first: one under **Fold areas under** takes the colour of an area beside it whose palette colour is within **Into a color within** of its own and which is at least **That is bigger by at least** times as big. Of those, the closest colour, then the longest shared border. It joins that area, so the two grow together, and areas that could not fold are looked at again once their neighbours have grown. Unlike the smallest chunk, a small area with no close neighbour — an eye, a button — stays.
+
 ### Smallest chunk
 
 Snapping a photograph leaves specks: single pixels that happened to be nearer another entry. Chunks under **Smallest chunk** pixels take the colour of a chunk they touch — the touching entry nearest to what their pixels originally were, not simply the one surrounding them most. Smallest first, so a speck inside a speck is settled before the one round it; a chunk that takes a neighbour’s colour joins it, and they grow together.
@@ -628,15 +655,20 @@ Snapping a photograph leaves specks: single pixels that happened to be nearer an
 | Mode | Keep only palette colours, or snap every pixel to the palette. |
 | Tolerance | Keep only: how far a pixel may be from a palette colour and still count as it. |
 | Smallest chunk | Snap only: chunks smaller than this take a neighbouring chunk’s colour. |
+| Fold areas under | Fold: areas smaller than this may fold into a neighbour. |
+| Into a color within | Fold: how close the neighbour’s palette colour must be. |
+| That is bigger by at least | Fold: how many times bigger the neighbour must be. |
 
 **Cost:** Distinct colours × palette entries for the matching, one pass over the pixels to write, and a flood over the pixels for the chunks.
+
+**Try it:** Choose Snap, and fold, then tick Show what was folded: the pixels folding changed are tinted. Lower Into a color within to keep more shades apart.
 
 ### Further reading
 
 - [HSL and HSV](https://en.wikipedia.org/wiki/HSL_and_HSV) — The hue–saturation–brightness model, and the cone it is drawn as.
 - [Connected-component labelling](https://en.wikipedia.org/wiki/Connected-component_labeling) — How the chunks are found.
 
-*Code:* `packages/shared/src/flows/paletteFilter.ts — hsbaOf, hsbaDistance, mergeSmallChunks`
+*Code:* `packages/shared/src/flows/paletteFilter.ts — hsbaOf, hsbaDistance, mergeSmallChunks, foldSmallAreas`
 
 ## Image Extraction
 
@@ -751,9 +783,9 @@ A cut is a smooth curve (Catmull-Rom through its points; two points make a strai
 
 ## Video Background
 
-**A background from a video: lined up, what never changes, and what moved rebuilt patch by patch** · `art.video.background`
+**A background from a video: lined up, what never changes, and what moved rebuilt patch by patch — or by Voronoi areas** · `art.video.background`
 
-The clip’s frames are read exactly as the file holds them. They are lined up with each other first, so a camera that shakes or drifts does not count as change. Every pixel whose colour stays within the tolerance in every frame is background. What changed is rebuilt a patch at a time: each frame’s version of the patch is grouped with the others it matches, and the biggest group — frames side by side in it counting more — is the background there, if it holds at least the agreement share of the frames. Anything left is clear, for marking by hand.
+The clip’s frames are read exactly as the file holds them. They are lined up with each other first, so a camera that shakes or drifts does not count as change. Every pixel whose colour stays within the tolerance in every frame is background. What changed is rebuilt a patch at a time: each frame’s version of the patch is grouped with the others it matches, and the biggest group — frames side by side in it counting more — is the background there, if it holds at least the agreement share of the frames. Or, by Voronoi areas: each frame is drawn as a Voronoi diagram in one palette shared by all of them, cells of one colour that touch are an area, an area that moves or changes size against the other frames is animated, and each pixel is the middle colour of the frames where it is not in an animated area. Anything left is clear, for marking by hand.
 
 ### The steps
 
@@ -807,13 +839,32 @@ flowchart TD
   end
   s23 -. next .-> s18
   s16 --> s18
-  subgraph s24["↻ For each mark, in the order made"]
-    s25["Paint in: take its frame’s pixels, moved by where the background sits in that frame; erase: clear them"]
+  subgraph s24["↻ Or 2–3 by Voronoi areas"]
+    s25["One palette for every frame"]
+    s26["Each frame as a Voronoi diagram in that palette"]
+    s25 --> s26
+    s27["Its areas"]
+    s26 --> s27
+    s28["How much each area changed"]
+    s27 --> s28
+    s29{"Changed by at least “Animated when it changes by”?"}
+    s30["Not animated: its pixels can be background."]
+    s29 -- no --> s30
+    s28 --> s29
+    s31["Animated: left out, grown by a pixel of the diagram"]
+    s29 --> s31
+    s32["Each background pixel"]
+    s31 --> s32
   end
-  s25 -. next .-> s25
+  s32 -. next .-> s25
   s23 --> s25
-  s26(["background.png, and the report with each frame’s offset"])
-  s25 --> s26
+  subgraph s33["↻ For each mark, in the order made"]
+    s34["Paint in: take its frame’s pixels, moved by where the background sits in that frame; erase: clear them"]
+  end
+  s34 -. next .-> s34
+  s32 --> s34
+  s35(["background.png, and the report with each frame’s offset"])
+  s34 --> s35
 ```
 
 - *In:* The video
@@ -836,6 +887,14 @@ flowchart TD
   - Score each group — One for each frame in it, and half again for each frame read just after another of its own.
   - **Is the best group at least the agreement share of the frames?** *If not:* Nothing is common enough: the patch’s changed pixels stay clear.
   - Fill the changed pixels from that group’s frames — The average of those that match the group’s first version there.
+- **↻ Or 2–3 by Voronoi areas**
+  - One palette for every frame — k-means of so many colours over pixels sampled from all the frames, started k-means++ from a seeded random number.
+  - Each frame as a Voronoi diagram in that palette — So many nodes, placed and coloured to fit the frame (see Voronoi Diagram); each frame starts from the nodes of the one before, moved by how far the camera moved.
+  - Its areas — Cells of one colour that touch, joined.
+  - How much each area changed — Against each of up to 16 other frames, lined up: the share of its pixels that frame does not show in its colour within a pixel. The middle of those.
+  - **Changed by at least “Animated when it changes by”?** *If not:* Not animated: its pixels can be background.
+  - Animated: left out, grown by a pixel of the diagram
+  - Each background pixel — From the frames where it is not in an animated area, those whose area changed least there; the middle colour of them, channel by channel. In none: clear.
 - **↻ For each mark, in the order made**
   - Paint in: take its frame’s pixels, moved by where the background sits in that frame; erase: clear them
 - *Out:* background.png, and the report with each frame’s offset
@@ -875,6 +934,20 @@ for each patch P with changed pixels:
     for p in changed pixels of P:
       background[p] = mean(v[p] for v in best if v[p] ~ best.first[p])
 
+# or 2-3, by Voronoi areas
+palette = kmeans(sample(frames), colours)
+for f in frames:                                    # each from the one before
+  diagram[f] = voronoi(f, nodes, palette, start = diagram[f-1] moved by the camera)
+  areas[f] = cells of one colour that touch, joined
+for f, area a of f:
+  change[a] = median over other frames g of
+                share of a's pixels that g (lined up) does not show in a's colour within a pixel
+  animated[a] = change[a] >= moving
+for each pixel p:
+  ok = [f for f in frames if p is not in (a pixel of) an animated area of f]
+  ok = [f for f in ok if change(f, p) <= least change(ok, p) + 0.1]
+  background[p] = channel-by-channel median(f[p + offset[f]] for f in ok)   # none: clear
+
 for mark in marks (in order):
   for q in mark's region or stroke on its frame f:
     p = q - offset[f]
@@ -897,6 +970,10 @@ Where something moved, each frame shows either the background or the thing in fr
 
 A patch is rebuilt only if its best group holds at least **Agreement** of the frames that see it. Below that no one picture of the patch is common enough to trust, and what changed in it is left clear rather than guessed. Lower it for a character that covers part of the background most of the time; raise it if a character that lingered is taken for the background.
 
+### Or: by Voronoi areas
+
+Pixels and patches compare colours where they are. The other way compares shapes: each frame is drawn as a Voronoi diagram (see the Voronoi Diagram flow) of so many nodes, all in one palette of colours found by k-means over every frame, so the same thing has the same colour throughout. Cells of one colour that touch are an **area** — the sky, a wall, a character’s coat. An area is compared with the other frames, lined up: the share of it each does not show in its colour, within a pixel so a wavering edge or a thin line drawn a little differently is the same. A wall a character walked across is still mostly there in most frames; a character that walked is not where it was. The middle of those shares is how much the area changed, and one that changed by at least **Animated when it changes by** is animated. The frames are then laid over each other and each pixel of the background is the middle colour of the frames where it is not in an animated area — of those, the frames whose area there changed least, since a character’s edge that joined the wall’s area in a frame changes it a little. Each frame’s diagram starts from the nodes of the one before, moved by the camera, so what did not move is drawn the same way; and the areas are worked out once, so moving the threshold only lays the frames over each other again.
+
 ### Putting back by hand
 
 A character that never moves off part of the background leaves it clear, or wrong. Pick a frame where that part can be seen and paint it in, or draw round it: those pixels are taken from that frame, moved by where the background sits in that frame. The eraser takes pixels out. Marks are laid on in the order made, so a later erase clears an earlier paint.
@@ -916,11 +993,15 @@ The background is drawn where the frames were in the middle, so it lines up with
 | Rebuild what moved from patches | Off leaves every pixel that changed clear. |
 | Patch | The side of the square patches what moved is rebuilt from. |
 | Agreement | The share of frames a patch’s best group must hold for the patch to be rebuilt. |
+| Pixels and patches / Voronoi areas | How what moved is found. |
+| Nodes a frame | Voronoi areas: the nodes in each frame’s diagram; more fit shapes more tightly. |
+| Colours | Voronoi areas: the colours every diagram shares; fewer make bigger areas. |
+| Animated when it changes by | Voronoi areas: how much an area must change against the other frames to be left out. |
 | Brush | The radius of the brush that paints or erases. |
 
 **Cost:** Lining up: a few shifts per frame on each level, each over the picture — about frames × pixels × 15. Still pixels: pixels × frames. Patches: for each that changed, frames × groups × up to 96 pixels. A few seconds of frames take a second or two, worked a slice at a time so the page stays responsive.
 
-**Try it:** Read the frames, then pick one below the picture: the green tint over it is what is background already, lined up with that frame. Untick Rebuild what moved to see what never changed on its own.
+**Try it:** Read the frames, then pick one below the picture: the green tint over it is what is background already, lined up with that frame. Untick Rebuild what moved to see what never changed on its own. With Voronoi areas, tick Show its areas: the frame as its areas, the animated ones striped red.
 
 ### Further reading
 
@@ -928,8 +1009,10 @@ The background is drawn where the frames were in the middle, so it lines up with
 - [Image registration](https://en.wikipedia.org/wiki/Image_registration) — Lining pictures of the same scene up with each other.
 - [Pyramid (image processing)](https://en.wikipedia.org/wiki/Pyramid_(image_processing)) — Searching coarse to fine on halved copies of a picture.
 - [Mode (statistics)](https://en.wikipedia.org/wiki/Mode_(statistics)) — The most common value: what each patch’s biggest group is.
+- [k-means clustering](https://en.wikipedia.org/wiki/K-means_clustering) — The palette every frame’s diagram shares; k-means++ picks where it starts.
+- [Voronoi diagram](https://en.wikipedia.org/wiki/Voronoi_diagram) — Each frame drawn as cells, each one colour.
 
-*Code:* `packages/shared/src/flows/videoBackground.ts — steadyWork, backgroundWork, applyMarks, backgroundInFrame, backgroundFrameSize`, `packages/shared/src/flows/clipFrames.ts — pickFrameTimes, gridFrameTimes`, `packages/client/src/components/common/frames.ts — openVideoFrames, useVideoFrameTimes`
+*Code:* `packages/shared/src/flows/videoBackground.ts — steadyWork, backgroundWork, applyMarks, backgroundInFrame, backgroundFrameSize; sharedPaletteWork, voronoiAreasWork, areasOfFit, areaChangeWork, voronoiBackgroundWork, areasPicture`, `packages/shared/src/flows/voronoi.ts — workPicture, fitWork`, `packages/shared/src/flows/clipFrames.ts — pickFrameTimes, gridFrameTimes`, `packages/client/src/components/common/frames.ts — openVideoFrames, useVideoFrameTimes`
 
 ## Video Foreground
 
@@ -2102,6 +2185,144 @@ Each line keeps the mean width of the pixels it runs over (from the line picture
 - [Ramer–Douglas–Peucker](https://en.wikipedia.org/wiki/Ramer%E2%80%93Douglas%E2%80%93Peucker_algorithm) — How lines lose points.
 
 *Code:* `packages/shared/src/flows/lineGraph.ts — buildLineGraph, fillAreas, thinMask, simplifyPath`
+
+## Voronoi Diagram
+
+**A picture as a Voronoi diagram: nodes placed and colored to make the diagram as like the picture as it can be** · `art.voronoi`
+
+A Voronoi diagram of so many nodes gives every pixel the color of the node nearest it. What is made small is the difference between the diagram and the picture: the sum, over every pixel, of the squared difference in red, green, blue and opacity. For nodes where they are, each node’s best color is the average of its cell (with a palette, the palette color nearest that average); so the work is in where the nodes go. They start where the picture has detail, then each in turn tries a step left, right, up and down and keeps one that makes the whole diagram fit better — worked out exactly, but only round the node — and every other round the nodes that do least are moved to where the fit is worst.
+
+### The steps
+
+```mermaid
+flowchart TD
+  s1(["The picture, and a palette if one is wired in"])
+  s2["Make it smaller to work on"]
+  s1 --> s2
+  s3["Scatter the nodes"]
+  s2 --> s3
+  s4["Label every pixel with its nearest node"]
+  s3 --> s4
+  subgraph s5["↻ For each round"]
+    subgraph s6["↻ For each node, in a shuffled order"]
+      s7["Try a step each way"]
+      s8{"Does a step make the diagram fit better?"}
+      s9["Put it back and go on to the next node."]
+      s8 -- no --> s9
+      s7 --> s8
+      s10["Keep the best step, and try it again"]
+      s8 --> s10
+    end
+    s10 -. next .-> s7
+    s11{"Every other round: are there nodes doing little?"}
+    s12["Go on."]
+    s11 -- no --> s12
+    s10 --> s11
+    s13["Move them to where the fit is worst"]
+    s11 --> s13
+    s14["Make the steps smaller"]
+    s13 --> s14
+  end
+  s14 -. next .-> s7
+  s4 --> s7
+  s15["At the picture’s own size"]
+  s14 --> s15
+  s16["As shapes, if asked"]
+  s15 --> s16
+  s17(["voronoi.png, vector.json and voronoi.svg, nodes.json and the report"])
+  s16 --> s17
+```
+
+- *In:* The picture, and a palette if one is wired in
+- Make it smaller to work on — About 64 pixels a node, between 40 000 and 300 000 pixels, each the average of the pixels it covers; colors premultiplied by opacity.
+- Scatter the nodes — More where the picture has edges (a Sobel filter), some everywhere; stratified, so evenly spread through the detail. Seeded, so the same every time.
+- Label every pixel with its nearest node — A grid of buckets: only the buckets round a pixel are looked in. Each cell keeps the sums of its pixels and of their squares.
+- **↻ For each round**
+  - **↻ For each node, in a shuffled order**
+    - Try a step each way — Move the node, move the pixels that change cell (only round it), and work out each changed cell’s best color and error from its sums.
+    - **Does a step make the diagram fit better?** *If not:* Put it back and go on to the next node.
+    - Keep the best step, and try it again — Up to four steps the same way.
+  - **Every other round: are there nodes doing little?** *If not:* Go on.
+  - Move them to where the fit is worst — A node whose cell is like its neighbour’s (the least Ward cost of joining them) is taken out and put down in the cell with the most error, at the middle of the part of it that fits worst — kept only if the diagram fits better for it.
+  - Make the steps smaller — × 0.72 a round.
+- At the picture’s own size — Every pixel labelled again with its nearest node, and each node’s color fitted again from the picture’s own pixels.
+- As shapes, if asked — Each cell exactly: the picture’s rectangle cut by the line halfway to every node near enough. Same-colored cells that share an edge are joined; an area inside another is a hole in it.
+- *Out:* voronoi.png, vector.json and voronoi.svg, nodes.json and the report
+
+### Pseudocode
+
+```
+work = shrink(picture, about 64 pixels a node)   # premultiplied RGBA
+nodes = scatter(n, density = edges(work) + some)  # seeded
+label every pixel with its nearest node           # bucket grid
+for each cell c: S[c] = Σ pixel, Q[c] = Σ |pixel|², N[c] = pixels
+error(c) = Q - |S|²/N                       # its best color: the average S/N
+         = Q + min over palette e of (N|e|² - 2 e·S)   # with a palette
+step = 0.35 × spacing
+repeat rounds times:
+  for node i in shuffle(nodes):
+    for d in (→, ←, ↓, ↑):
+      move i by step·d; move only the pixels that change cell
+      Δ = Σ error(changed cells) after - before; undo
+    keep the best d while Δ < 0, up to 4 times
+  every other round:
+    for the worst cells w (most error), the cheapest nodes k
+      (empty, or least Ward cost N_a N_b/(N_a+N_b)·|c_a - c_b|² to join a neighbour):
+      take k out; put it at the middle of w's worse-than-average pixels
+      keep it if the total error went down, else undo
+  step = max(0.5, step × 0.72); label again
+at full size: label again; color = average (or nearest palette color)
+shapes: cell(i) = rectangle ∩ { x : |x - p_i| ≤ |x - p_j| } for the near j
+```
+
+### What is made small
+
+The diagram is compared with the picture pixel by pixel: for each, the squared difference of red, green, blue and opacity, with the colors premultiplied by opacity so a see-through pixel’s color counts for nothing. Squared differences make the best color for a cell easy — the average of its pixels — and make the error of a cell a sum that can be kept as the pixels come and go: with S the sum of a cell’s pixels, Q the sum of their squared lengths and N how many, its error is Q − |S|²/N. With a palette, the error of giving the cell entry e is Q + N|e|² − 2 e·S, smallest for the palette color nearest the cell’s average.
+
+### Where the nodes go
+
+For colors fitted to where the nodes are, the error is a function of the nodes’ places, but not a smooth one — a node’s step moves whole pixels from cell to cell. So each move is tried and measured rather than worked out from a gradient: the node is put in its new place, only the pixels round it are looked at (those of its cell now nearer another node, and those of other cells now nearer it), and the error of each cell that changed is worked out again from its sums. A move that pays is kept; one that does not is undone from a log of what it moved. Steps start at a third of the distance between nodes and shrink each round, so the nodes settle.
+
+### Moving the nodes that do least
+
+Nudging only goes downhill: a node that started where it is not needed stays there. So every other round, the nodes whose cells cost least to lose — none, if empty, otherwise the Ward cost of joining the cell to a neighbour, which is small when the neighbour is the same color — are taken out and put where the fit is worst: in the cell with the most error, at the weighted middle of its pixels that fit worse than its average. Each is kept only if the whole diagram fits better for it.
+
+### Smaller, then full size
+
+The fitting is done on the picture made smaller — about 64 pixels a node — because every move is measured in pixels. At the end the nodes are scaled back, every pixel of the picture at its own size is labelled with its nearest node, and each node’s color is fitted again from those pixels. The same picture and settings give the same diagram every time: the scattering and the order the nodes are nudged in come from a seeded random number.
+
+### As shapes
+
+A Voronoi cell is the set of points nearer its node than any other: the picture’s rectangle cut by the line halfway between its node and each other node. Only nodes nearer than twice the cell’s furthest corner can cut it, so they are looked for ring by ring. Every edge knows the node across it, so same-colored cells that share an edge are joined into one polygon: its outline is the edges that face another color or the picture’s edge, and a loop of them that winds the other way is a hole. A node whose cell holds no pixel is left out, its neighbours closing over it as they do in the picture.
+
+### Limits
+
+- It finds a good diagram, not the best: the problem of placing nodes is hard, and the nudging stops where no single step pays.
+- Cells are convex, so a long thin or curved shape takes many nodes. Same-colored cells joined as shapes hide the joins, but the outline is still made of straight cuts.
+- More nodes fit better and take longer: the work grows with the nodes and the rounds, about a second for 300 nodes on a 720p picture, five for 6000.
+
+### Settings
+
+| Setting | What it changes |
+| --- | --- |
+| Nodes | How many cells. |
+| Rounds | How long the nodes are nudged; more fits a little better. |
+| Use the palette | With a palette wired in, the nodes take only its colors. |
+| Write | The diagram as a picture, as shapes, or both. |
+| Join same-colored cells | As shapes: one polygon for each area of same-colored cells that touch. |
+
+**Cost:** Labelling: one nearest-node look-up per pixel, a few buckets each. A round: each node tries about six moves, each looking at the pixels round its cell. Shapes: each cell cut by the 20 to 50 nodes round it.
+
+**Try it:** Press Fit with a few dozen nodes, then switch on Edges and Nodes: the nodes gather along the picture’s edges and the cells follow its shapes.
+
+### Further reading
+
+- [Voronoi diagram](https://en.wikipedia.org/wiki/Voronoi_diagram) — Every point the cell of its nearest node.
+- [Centroidal Voronoi tessellation](https://en.wikipedia.org/wiki/Centroidal_Voronoi_tessellation) — The usual way to spread nodes out: each at the middle of its cell. Here the nodes go where the colors fit instead.
+- [Ward’s method](https://en.wikipedia.org/wiki/Ward%27s_method) — What joining two clusters adds to the squared error: how much a node does.
+- [Sobel operator](https://en.wikipedia.org/wiki/Sobel_operator) — Where the picture has edges: where the nodes start thicker.
+
+*Code:* `packages/shared/src/flows/voronoi.ts — workPicture, NearestGrid, Fitter (place, takeOut, putIn, settle, undo), fitWork, relocate, finishWork, cellPolygon, voronoiVector`
 
 ## Skeletal Rig
 

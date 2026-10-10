@@ -12,13 +12,20 @@ import {
   markMask,
   nearestFrame,
   steadyOffsets,
+  areasOfFit,
+  areasPicture,
+  buildVoronoiBackground,
+  sharedPaletteWork,
+  voronoiBackgroundWork,
   BACKGROUND_PIXEL_BUDGET,
   PIXEL_CLEAR,
   PIXEL_REBUILT,
   PIXEL_STILL,
   type BackgroundOptions,
   type FrameOffset,
+  type VoronoiBackgroundOptions,
 } from '../src/flows/videoBackground';
+import { fitWork, workPicture } from '../src/flows/voronoi';
 
 const W = 20;
 const H = 10;
@@ -312,4 +319,177 @@ test('a Video Background made before patches gets the new settings, and the new 
   // And one already up to date is left alone.
   const again = migrateProject(migrated);
   assert.deepEqual(again.nodes.map((node) => node.data), migrated.nodes.map((node) => node.data));
+});
+
+/* ---------------- by Voronoi areas ---------------- */
+
+/** A scene of big flat blocks — green, blue and a yellow band — wider than the frame. */
+function blockScene(width: number, height: number): Bitmap {
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const colour = y >= 20 && y < 28 ? [230, 210, 40] : x < width / 2 ? [40, 160, 70] : [40, 80, 200];
+      data.set([...colour, 255], (y * width + x) * 4);
+    }
+  }
+  return { width, height, data };
+}
+
+/** What a camera at (sx, sy) sees of the scene, with a red box 10 across at (bx, by). */
+function boxView(scene: Bitmap, sx: number, sy: number, bx: number, by: number): Bitmap {
+  const width = 64;
+  const height = 48;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const inBox = x >= bx && x < bx + 10 && y >= by && y < by + 10;
+      const from = ((y + sy) * scene.width + (x + sx)) * 4;
+      data.set(inBox ? [230, 30, 40, 255] : scene.data.subarray(from, from + 4), (y * width + x) * 4);
+    }
+  }
+  return { width, height, data };
+}
+
+const byAreas: VoronoiBackgroundOptions = { steady: false, maxShift: 0, nodes: 120, colours: 4, moving: 35 };
+const scene = blockScene(80, 60);
+const red = (image: Bitmap, p: number) => image.data[p * 4]! > 180 && image.data[p * 4 + 1]! < 80 && image.data[p * 4 + 2]! < 80;
+
+test('one palette for every frame: k-means finds the colours they share', () => {
+  const frames = [0, 1, 2].map((index) => boxView(scene, 8, 6, 4 + index * 20, 30));
+  const work = sharedPaletteWork(frames, 4);
+  let next = work.next();
+  while (!next.done) next = work.next();
+  const found = next.value.map((colour) => `${colour.r},${colour.g},${colour.b}`).sort();
+  assert.deepEqual(found, ['230,210,40', '230,30,40', '40,160,70', '40,80,200']);
+  const fewer = sharedPaletteWork([boxView(scene, 8, 6, 0, 0)], 12);
+  let left = fewer.next();
+  while (!left.done) left = fewer.next();
+  assert.equal(left.value.length, 4, 'no more colours than there are');
+});
+
+test('a frame’s diagram as areas: cells that touch and share a colour are one', () => {
+  const frame = boxView(scene, 8, 6, 30, 30);
+  const palette = [
+    { r: 40, g: 160, b: 70, a: 255 },
+    { r: 40, g: 80, b: 200, a: 255 },
+    { r: 230, g: 210, b: 40, a: 255 },
+    { r: 230, g: 30, b: 40, a: 255 },
+  ];
+  const run = fitWork(workPicture(frame, 40_000), { nodes: 120, refine: 6 }, palette);
+  let next = run.next();
+  while (!next.done) next = run.next();
+  const areas = areasOfFit(next.value);
+  // Green, blue, the band either side of the box (one: the band runs behind it… or two, cut by it), and the red box.
+  assert.ok(areas.sizes.length >= 4 && areas.sizes.length <= 6, `${areas.sizes.length} areas`);
+  assert.equal(areas.sizes.reduce((sum, size) => sum + size, 0), 64 * 48);
+  // Next to each other, two areas are never the same colour.
+  for (let p = 0; p + 1 < areas.area.length; p += 1) {
+    if ((p + 1) % 64 === 0) continue;
+    const a = areas.area[p]!;
+    const b = areas.area[p + 1]!;
+    if (a !== b) assert.notEqual(areas.entries[a], areas.entries[b]);
+  }
+  const box = areas.area[35 * 64 + 35]!;
+  assert.equal(areas.entries[box], 3, 'the box is the red area');
+});
+
+test('by Voronoi areas: the box that moves is animated, and the background is put back from the frames where it was not', () => {
+  const frames = [0, 1, 2, 3, 4, 5].map((index) => boxView(scene, 8, 6, 2 + index * 10, 32));
+  const result = buildVoronoiBackground(frames, byAreas);
+  assert.ok(result.areas);
+  assert.ok(result.stats.areas && result.stats.areas.animated >= 6, `${JSON.stringify(result.stats.areas)}: the box in each frame at least`);
+  for (const [index, frame] of result.areas.frames.entries()) {
+    const box = frame.area[37 * 64 + 6 + index * 10]!;
+    assert.ok(frame.change[box]! > 0.9, `frame ${index}: the box changed by ${frame.change[box]}`);
+    assert.ok(frame.change[frame.area[5 * 64 + 5]!]! < 0.2, `frame ${index}: the green barely changed`);
+  }
+  let redLeft = 0;
+  for (let p = 0; p < 64 * 48; p += 1) if (red(result.image, p)) redLeft += 1;
+  assert.equal(redLeft, 0, 'no box in the background');
+  assert.ok(result.stats.rebuilt >= 6 * 100, `${result.stats.rebuilt} rebuilt: where the box went`);
+  assert.equal(result.stats.still + result.stats.rebuilt, 64 * 48, 'every pixel is shown somewhere without the box');
+  // Behind the box, the scene: the blue it stood on.
+  const behind = (36 * 64 + 50) * 4;
+  assert.deepEqual([...result.image.data.slice(behind, behind + 4)], [40, 80, 200, 255]);
+});
+
+test('the areas are worked out once: a change of how much counts as animated only lays the frames over each other again', () => {
+  const frames = [0, 1, 2, 3].map((index) => boxView(scene, 8, 6, 2 + index * 14, 32));
+  const first = buildVoronoiBackground(frames, byAreas);
+  const stages = new Set<string>();
+  const again = voronoiBackgroundWork(frames, { ...byAreas, moving: 90 }, undefined, first.areas);
+  let next = again.next();
+  while (!next.done) {
+    stages.add(next.value.stage);
+    next = again.next();
+  }
+  assert.deepEqual([...stages], ['combine']);
+  assert.equal(next.value.areas, first.areas);
+  assert.ok(next.value.stats.areas!.animated <= first.stats.areas!.animated);
+  // Other nodes are other areas: drawn again.
+  const redrawn = voronoiBackgroundWork(frames, { ...byAreas, nodes: 90 }, undefined, first.areas);
+  let step = redrawn.next();
+  const more = new Set<string>();
+  while (!step.done) {
+    more.add(step.value.stage);
+    step = redrawn.next();
+  }
+  assert.ok(more.has('diagrams') && more.has('motion'));
+  // Nothing ever counts as animated at 100% unless it is like nothing anywhere: the box still is.
+  const strict = buildVoronoiBackground(frames, { ...byAreas, moving: 100 }, undefined, first.areas);
+  assert.ok(strict.stats.areas!.animated >= 1);
+});
+
+test('by Voronoi areas, a shaking camera is followed and the box still taken out', () => {
+  const big = blockScene(96, 72);
+  const shakes = [
+    [10, 8],
+    [13, 9],
+    [11, 12],
+    [14, 10],
+    [12, 11],
+  ] as const;
+  const frames = shakes.map(([sx, sy], index) => boxView(big, sx, sy, 2 + index * 12, 34));
+  const result = buildVoronoiBackground(frames, { ...byAreas, steady: true, maxShift: 8 });
+  assert.equal(result.offsets.length, 5);
+  assert.ok(result.stats.moved > 0);
+  let redLeft = 0;
+  for (let p = 0; p < 64 * 48; p += 1) if (result.image.data[p * 4 + 3]! > 0 && red(result.image, p)) redLeft += 1;
+  assert.equal(redLeft, 0);
+  // The band is where the scene has it, as the middle of where the camera was sees it.
+  const mid = { dx: 12, dy: 10 };
+  const y = 24 - mid.dy + 1;
+  assert.deepEqual([...result.image.data.slice((y * 64 + 30) * 4, (y * 64 + 30) * 4 + 3)], [230, 210, 40]);
+});
+
+test('a frame’s areas as a picture: each its colour, edges dark, animated ones striped', () => {
+  const frames = [0, 1, 2].map((index) => boxView(scene, 8, 6, 2 + index * 20, 32));
+  const result = buildVoronoiBackground(frames, byAreas);
+  const picture = areasPicture(result.areas!, 0, 64, 48, 35);
+  assert.deepEqual([picture.width, picture.height], [64, 48]);
+  const at = (x: number, y: number) => [...picture.data.slice((y * 64 + x) * 4, (y * 64 + x) * 4 + 3)];
+  assert.deepEqual(at(5, 5), [40, 160, 70], 'the green, as the palette has it');
+  const stripes = new Set<string>();
+  for (let y = 33; y < 41; y += 1) for (let x = 3; x < 11; x += 1) stripes.add(at(x, y).join(','));
+  assert.ok(stripes.has('255,40,60'), 'the box is striped: animated');
+});
+
+test('the report says the background was found by Voronoi areas, and how many were animated', () => {
+  const frames = [0, 1, 2].map((index) => boxView(scene, 8, 6, 2 + index * 20, 32));
+  const stats = buildVoronoiBackground(frames, byAreas).stats;
+  const data = { ...emptyVideoBackgroundFlowData(), algorithm: 'voronoi' as const, nodes: 120, colours: 4, video: { duration: 1, width: 64, height: 48 }, frameSize: { width: 64, height: 48 } };
+  const report = backgroundReport(data, stats);
+  assert.match(report, /By Voronoi areas: each frame drawn as a diagram of 120 node\(s\) in the same 4 colour\(s\)/);
+  assert.match(report, new RegExp(`${stats.areas!.animated} animated, changing by 35% or more`));
+  assert.match(report, /Never in an animated area: /);
+  assert.doesNotMatch(report, /patches/);
+});
+
+test('a Video Background made before Voronoi areas is by pixels and patches, with the new settings ready', async () => {
+  const { migrateProject } = await import('../src/project/migrate');
+  const { createNode, createProject } = await import('../src/project/factory');
+  const { algorithm: _a, nodes: _n, colours: _c, moving: _m, showAreas: _s, ...before } = emptyVideoBackgroundFlowData();
+  const node = { ...createNode('art.video.background', { x: 0, y: 0 }, 'Bg'), id: 'bg', data: { ...before, tolerance: 14 } as never };
+  const migrated = migrateProject({ ...createProject('old'), nodes: [node] }).nodes[0]!.data as ReturnType<typeof emptyVideoBackgroundFlowData>;
+  assert.deepEqual([migrated.algorithm, migrated.nodes, migrated.colours, migrated.moving, migrated.showAreas, migrated.tolerance], ['patches', 400, 12, 35, false, 14]);
 });

@@ -31,6 +31,20 @@ function toImageData(pixels: Uint8ClampedArray, width: number, height: number): 
   return new ImageData(new Uint8ClampedArray(pixels), width, height);
 }
 
+/** The result with what folding changed tinted magenta, so it can be seen. */
+function withFolded(pixels: Uint8ClampedArray, folded: Uint8Array): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(pixels);
+  for (let p = 0; p < folded.length; p += 1) {
+    if (!folded[p]) continue;
+    const at = p * 4;
+    out[at] = Math.round(out[at]! * 0.35 + 255 * 0.65);
+    out[at + 1] = Math.round(out[at + 1]! * 0.35);
+    out[at + 2] = Math.round(out[at + 2]! * 0.35 + 220 * 0.65);
+    out[at + 3] = 255;
+  }
+  return out;
+}
+
 /**
  * An image filtered against a palette.
  *
@@ -142,6 +156,8 @@ export function PaletteFilterFlowEditor({
     if (!view.livePreview) return null;
     return filterImage(bitmap, palette, data.options);
   }, [bitmap, data.options, palette, view.livePreview]);
+  const [showFolded, setShowFolded] = useState(false);
+  const shownFolded = showFolded && data.options.mode === 'fold' && filtered?.folded ? filtered.folded : null;
 
   useEffect(() => {
     const surface = canvas.current;
@@ -150,12 +166,9 @@ export function PaletteFilterFlowEditor({
     surface.height = bitmap.height;
     const context = surface.getContext('2d');
     if (!context) return;
-    context.putImageData(
-      toImageData(filtered?.pixels ?? bitmap.data, bitmap.width, bitmap.height),
-      0,
-      0,
-    );
-  }, [bitmap, filtered]);
+    const pixels = filtered?.pixels ?? bitmap.data;
+    context.putImageData(toImageData(shownFolded && filtered ? withFolded(filtered.pixels, shownFolded) : pixels, bitmap.width, bitmap.height), 0, 0);
+  }, [bitmap, filtered, shownFolded]);
 
   const onGenerate = async () => {
     if (!bitmap) {
@@ -272,6 +285,49 @@ export function PaletteFilterFlowEditor({
               onChange={(minChunk) => patch({ options: { ...data.options, minChunk } })}
             />
           </div>
+        ) : data.options.mode === 'fold' ? (
+          <div className="vt-section">
+            <h3>Folding small areas</h3>
+            <p className="vt-faint" style={{ fontSize: 11, lineHeight: 1.45 }}>
+              Every pixel snaps to its nearest palette color first. Then an area of one color smaller than the fold size takes the color of an area beside it that is close to its
+              own in the palette and much bigger — the closest such color. With {active.hexes.length} color(s) in play, the result still holds at most {active.hexes.length} RGBA
+              value(s).
+            </p>
+            <Slider
+              range="paletteFilter.foldArea"
+              label="Fold areas under"
+              value={data.options.foldArea}
+              tip="paletteFilter.foldArea"
+              format={(value) => `${Math.round(value)} px`}
+              onChange={(foldArea) => patch({ options: { ...data.options, foldArea: Math.round(foldArea) } })}
+            />
+            <Slider
+              range="paletteFilter.foldCloseness"
+              label="Into a color within"
+              value={data.options.foldCloseness}
+              tip="paletteFilter.foldCloseness"
+              format={(value) => `${Math.round(value)}`}
+              hint="By hue, saturation, brightness and opacity: 100 is black against white."
+              onChange={(foldCloseness) => patch({ options: { ...data.options, foldCloseness: Math.round(foldCloseness) } })}
+            />
+            <Slider
+              range="paletteFilter.foldRatio"
+              label="That is bigger by at least"
+              value={data.options.foldRatio}
+              tip="paletteFilter.foldRatio"
+              format={(value) => `×${value}`}
+              onChange={(foldRatio) => patch({ options: { ...data.options, foldRatio } })}
+            />
+            <label className="vt-row" style={{ gap: 6 }} title="Tint the pixels folding changed">
+              <input type="checkbox" checked={showFolded} onChange={(event) => setShowFolded(event.target.checked)} />
+              Show what was folded
+            </label>
+            {report ? (
+              <p className="vt-faint" style={{ fontSize: 11 }}>
+                {report.areasFolded > 0 ? `${report.areasFolded.toLocaleString()} area(s), ${report.foldedPixels.toLocaleString()} pixel(s) folded.` : 'Nothing folded.'}
+              </p>
+            ) : null}
+          </div>
         ) : (
           <div className="vt-section">
             <h3>How close counts as the same</h3>
@@ -376,7 +432,7 @@ export function PaletteFilterFlowEditor({
               </div>
             ) : null}
 
-            {data.options.mode === 'snap' || data.options.mode === 'keep' ? (
+            {FILTER_MODES.includes(data.options.mode) ? (
               <div className="vt-section">
                 <h3>Where the pixels landed</h3>
                 <div className="vt-swatches">

@@ -49,6 +49,7 @@ const LINES = ['art.lines'];
 const BACKGROUND = ['art.video.background'];
 const FOREGROUND = ['art.video.foreground'];
 const CHARACTERS = ['art.video.characters'];
+const VORONOI = ['art.voronoi'];
 const SHOTS = ['animation.video.shots'];
 const LINE_GRAPH = ['art.lines.graph'];
 const FACE = ['animation.face'];
@@ -164,6 +165,9 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('videoBackground.tolerance', 'Tolerance', BACKGROUND, 'What counts as the background', 0, 60, 1),
   def('videoBackground.patch', 'Patch', BACKGROUND, 'What counts as the background', 4, 64, 1, 'px'),
   def('videoBackground.agreement', 'Agreement', BACKGROUND, 'What counts as the background', 5, 100, 1, '%'),
+  def('videoBackground.nodes', 'Nodes a frame', BACKGROUND, 'What counts as the background', 40, 3000, 10, 'nodes'),
+  def('videoBackground.colours', 'Colours', BACKGROUND, 'What counts as the background', 2, 48, 1, 'colours'),
+  def('videoBackground.moving', 'Animated when it changes by', BACKGROUND, 'What counts as the background', 5, 100, 1, '%'),
   def('videoBackground.brush', 'Brush', BACKGROUND, 'Put more in by hand', 1, 120, 1, 'px'),
   def('videoForeground.fps', 'Frames a second', FOREGROUND, 'Frames', 0.1, 30, 0.1, 'a second'),
   def('videoForeground.total', 'Frames in all', FOREGROUND, 'Frames', 2, 300, 1, 'frames'),
@@ -178,6 +182,10 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   def('characterSplit.sameness', 'Sameness', CHARACTERS, 'Finding the characters', 30, 99, 1, '%'),
   def('characterSplit.maxMove', 'Most a character moves', CHARACTERS, 'Finding the characters', 5, 600, 1, 'px'),
   def('characterSplit.minFrames', 'Least frames', CHARACTERS, 'Finding the characters', 1, 20, 1, 'frames'),
+
+  // Voronoi Diagram
+  def('voronoi.nodes', 'Nodes', VORONOI, 'Fitting', 16, 6000, 1, 'nodes'),
+  def('voronoi.refine', 'Rounds', VORONOI, 'Fitting', 2, 40, 1, 'rounds'),
 
   // Shot Split
   def('shots.fps', 'Compare every', SHOTS, 'Finding the cuts', 0.1, 10, 0.05, 'a second'),
@@ -212,6 +220,9 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
 
   // Palette Filter
   def('paletteFilter.minChunk', 'Smallest chunk', ['art.palette.filter'], 'Snap', 0, 200, 1, 'px'),
+  def('paletteFilter.foldArea', 'Fold areas under', ['art.palette.filter'], 'Fold', 2, 5000, 1, 'px'),
+  def('paletteFilter.foldCloseness', 'Into a color within', ['art.palette.filter'], 'Fold', 1, 100, 1),
+  def('paletteFilter.foldRatio', 'That is bigger by at least', ['art.palette.filter'], 'Fold', 1.5, 50, 0.5, '×'),
   def('paletteFilter.tolerance', 'Tolerance', ['art.palette.filter'], 'Keep', 0, 80, 0.5),
 
   // Polygon Decomposition

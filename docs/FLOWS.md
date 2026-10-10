@@ -576,6 +576,20 @@ Turns a picture back into shapes: strokes as lines, areas as polygons, same-colo
   keep: shapes, colors
   ```
 
+### Voronoi Diagram
+
+`art.voronoi` · **bespoke editor**
+
+Redraws a picture as a Voronoi diagram: so many nodes, each one color, every pixel the color of the node nearest it — the nodes placed and colored to make it as like the picture as it can be. With a palette wired in, the nodes take only its colors. Written as a picture, as shapes, or both.
+
+- **In:** Image *(required)*, Palette
+- **Out:** Diagram `voronoi.png`, Vector `vector.json`, Drawing `voronoi.svg`, Nodes `nodes.json`, Report `voronoi.md`
+- **Rules a new wire leaving `vector` starts with:**
+
+  ```
+  keep: cells, colors
+  ```
+
 ### Vector Editor
 
 `art.vector.edit` · **bespoke editor**
@@ -781,4 +795,4 @@ An arrangement of flows saved under a name and used again as one, each use with 
 
 ---
 
-64 flow kinds.
+65 flow kinds.

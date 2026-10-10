@@ -82,6 +82,45 @@ changed, was rebuilt and was marked by hand. The work is done a slice at a time,
 so the page stays responsive while it runs; changing a setting starts it again,
 without lining the frames up again unless that is what changed.
 
+## Or: by Voronoi areas
+
+Pixels and patches compare colours where they are. **Voronoi areas** compares
+shapes instead, and is chosen with the switch at the top of *What counts as the
+background*:
+
+1. **One palette for every frame.** k-means finds **Colours** colours (12 by
+   default) in pixels sampled from all the frames, started k-means++ from a
+   seeded random number, so the same thing is the same colour throughout.
+2. **Each frame as a Voronoi diagram.** Each frame is drawn the way the
+   [Voronoi Diagram](VORONOI.md) flow draws a picture — **Nodes a frame** nodes
+   (400 by default), placed and coloured to fit it — in that palette only. Each
+   frame starts from the nodes of the frame before, moved by how far the camera
+   moved, so what did not move is drawn the same way.
+3. **Areas.** Cells of one colour that touch are one area: the sky, a wall, a
+   character's coat.
+4. **How much each area changed.** Each area is compared with up to 16 other
+   frames, lined up: the share of its pixels that frame does not show in its
+   colour — within a pixel, so an edge that wavers, or a thin outline the
+   diagram draws a little differently, is the same. A wall a character walked
+   across is still mostly there in most frames; a character that walked is not
+   where it was. The middle of those shares is the area's change.
+5. **Animated.** An area that changed by at least **Animated when it changes
+   by** (35% by default) is animated in that frame, grown by a pixel of the
+   diagram for the edge a cell cuts across.
+6. **Laid over each other.** Each pixel of the background is the middle colour,
+   channel by channel, of the frames where it is not in an animated area — of
+   those, the frames whose area there changed least, since a character's edge
+   that joined a wall's area in a frame changes that area a little. A pixel in
+   an animated area in every frame is clear.
+
+The areas are worked out once for a set of frames: moving the threshold only
+lays the frames over each other again, which takes a moment, while changing the
+nodes or colours draws every frame again. In the editor, pick a frame and tick
+**Show its areas** to see the frame as its areas, each in its palette colour,
+the animated ones striped red. The report says how many areas there were in all
+the frames and how many were animated; *Never animated* and *From other frames*
+take the place of *Never changed* and *Rebuilt*.
+
 ## Putting more in by hand
 
 A character that stays in one place for most of the clip is the background as

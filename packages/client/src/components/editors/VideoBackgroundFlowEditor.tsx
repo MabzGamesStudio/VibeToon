@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   applyMarks,
+  areasPicture,
   backgroundFrameSize,
   backgroundInFrame,
   backgroundReport,
@@ -11,6 +12,7 @@ import {
   pickFrameTimes,
   steadyWork,
   videoSourceOf,
+  voronoiBackgroundWork,
   type BackgroundMark,
   type BackgroundOptions,
   type BackgroundProgress,
@@ -21,11 +23,14 @@ import {
   type Project,
   type VideoBackgroundFlowData,
   type VideoSampling,
+  type VoronoiAreas,
+  type VoronoiBackgroundOptions,
   noVideoMessage,
 } from '@vibetoon/shared';
 import { api } from '../../api/client';
 import { useBatchRun, waitUntil } from '../../state/batchRun';
 import { useStudio } from '../../state/store';
+import { InfoTip } from '../common/InfoTip';
 import { pngDataUrl } from '../common/pixels';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
@@ -59,11 +64,40 @@ const optionsOf = (data: VideoBackgroundFlowData): BackgroundOptions => ({
   patch: data.patch,
 });
 
+const voronoiOptionsOf = (data: VideoBackgroundFlowData): VoronoiBackgroundOptions => ({
+  steady: data.steady,
+  maxShift: data.maxShift,
+  nodes: data.nodes,
+  colours: data.colours,
+  moving: data.moving,
+});
+
 const STAGES: Record<BackgroundProgress['stage'], string> = {
   steady: 'Lining the frames up',
   still: 'Finding what never changes',
   patches: 'Rebuilding what moved',
+  palette: 'Finding the colours',
+  diagrams: 'Drawing each frame’s diagram',
+  motion: 'Comparing the areas',
+  combine: 'Laying the frames over each other',
 };
+
+/**
+ * The background from frames lined up, by the algorithm the settings choose.
+ * The Voronoi areas worked out before for these same frames are passed on, so
+ * a change of how much counts as animated does not draw every frame again.
+ */
+function backgroundRun(
+  frames: readonly ReadFrame[],
+  data: VideoBackgroundFlowData,
+  offsets: FrameOffset[],
+  known: { frames: readonly ReadFrame[]; areas: VoronoiAreas } | null,
+) {
+  const bitmaps = frames.map((frame) => frame.bitmap);
+  return data.algorithm === 'voronoi'
+    ? voronoiBackgroundWork(bitmaps, voronoiOptionsOf(data), offsets, known && known.frames === frames ? known.areas : null)
+    : backgroundWork(bitmaps, optionsOf(data), offsets);
+}
 
 /** Where the background sits in each frame, worked out once for each set of frames and reach. */
 async function offsetsFor(
@@ -183,22 +217,24 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
   const [base, setBase] = useState<BackgroundResult | null>(null);
   const [working, setWorking] = useState<BackgroundProgress | null>(null);
   const steadied = useRef<{ key: string; frames: readonly ReadFrame[]; offsets: FrameOffset[] } | null>(null);
-  const { tolerance, agreement, steady, maxShift, rebuild, patch: patchSize } = data;
+  const drawn = useRef<{ frames: readonly ReadFrame[]; areas: VoronoiAreas } | null>(null);
+  const { tolerance, agreement, steady, maxShift, rebuild, patch: patchSize, algorithm, nodes, colours, moving } = data;
   useEffect(() => {
     if (frames.length === 0) {
       setBase(null);
       return undefined;
     }
     let cancelled = false;
-    const settings = { ...dataRef.current, tolerance, agreement, steady, maxShift, rebuild, patch: patchSize };
+    const settings = { ...dataRef.current, tolerance, agreement, steady, maxShift, rebuild, patch: patchSize, algorithm, nodes, colours, moving };
     const timer = window.setTimeout(() => {
       void (async () => {
         setWorking({ stage: steady ? 'steady' : 'still', done: 0, total: 1 });
         const lined = await offsetsFor(frames, settings, steadied.current, setWorking, () => cancelled);
         if (!lined || cancelled) return;
         steadied.current = lined;
-        const made = await inSlices(backgroundWork(frames.map((frame) => frame.bitmap), optionsOf(settings), lined.offsets), setWorking, () => cancelled);
+        const made = await inSlices(backgroundRun(frames, settings, lined.offsets, drawn.current), setWorking, () => cancelled);
         if (!made || cancelled) return;
+        if (made.areas) drawn.current = { frames, areas: made.areas };
         setBase(made);
         setWorking(null);
       })();
@@ -207,7 +243,7 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [frames, tolerance, agreement, steady, maxShift, rebuild, patchSize]);
+  }, [frames, tolerance, agreement, steady, maxShift, rebuild, patchSize, algorithm, nodes, colours, moving]);
 
   // And the marks laid over it, each moved by where the background sits in its frame.
   const frameAt = useCallback(
@@ -228,10 +264,14 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
   const tint = useRef<HTMLCanvasElement | null>(null);
   const [showTint, setShowTint] = useState(true);
   const currentOffset = current && result ? (result.offsets[frames.indexOf(current)] ?? { dx: 0, dy: 0 }) : null;
+  const currentIndex = current ? frames.indexOf(current) : -1;
+  const areasShown = Boolean(current && data.algorithm === 'voronoi' && data.showAreas && result?.areas && result.areas.frames[currentIndex]);
   useEffect(() => {
-    paintBitmap(picture.current, current ? current.bitmap : (result?.image ?? null));
+    if (areasShown && current && result?.areas) {
+      paintBitmap(picture.current, areasPicture(result.areas, currentIndex, current.bitmap.width, current.bitmap.height, data.moving));
+    } else paintBitmap(picture.current, current ? current.bitmap : (result?.image ?? null));
     paintBitmap(tint.current, current && result && currentOffset && showTint ? tintOf(result, currentOffset) : null);
-  }, [current, result, currentOffset?.dx, currentOffset?.dy, showTint]);
+  }, [current, result, currentOffset?.dx, currentOffset?.dy, showTint, areasShown, currentIndex, data.moving]);
 
   const [svg, setSvg] = useState<SVGSVGElement | null>(null);
   const fit = useFitScale(svg, shownSize?.width ?? 0, shownSize?.height ?? 0);
@@ -333,7 +373,7 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
     if (got.length === 0) throw new Error('no frames could be read');
     const settings = dataRef.current;
     const lined = await offsetsFor(got, settings, steadied.current, setWorking, () => false);
-    const built = lined ? await inSlices(backgroundWork(got.map((frame) => frame.bitmap), optionsOf(settings), lined.offsets), setWorking, () => false) : null;
+    const built = lined ? await inSlices(backgroundRun(got, settings, lined.offsets, drawn.current), setWorking, () => false) : null;
     setWorking(null);
     if (!built) throw new Error('the background could not be worked out');
     const made = applyMarks(built, settings.marks, frameAt(built, got));
@@ -393,11 +433,34 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
 
         <div className="vt-section">
           <h3>What counts as the background</h3>
-          <p className="vt-hint">
-            The frames are lined up with each other, so a camera that shakes or drifts does not count as change. A pixel that never changes is the background. What changed is
-            rebuilt patch by patch: the biggest group of frames that show the same in a patch, frames side by side counting more, if it is in at least the agreement share of
-            them. Anything else is left clear.
-          </p>
+          <div className="vt-row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="vt-facet-values" role="radiogroup" aria-label="Find what moved">
+              {(
+                [
+                  ['patches', 'Pixels and patches'],
+                  ['voronoi', 'Voronoi areas'],
+                ] as const
+              ).map(([value, label]) => (
+                <button key={value} type="button" className={`vt-chip${data.algorithm === value ? ' is-on' : ''}`} aria-pressed={data.algorithm === value} onClick={() => patch({ algorithm: value })}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <InfoTip tip="videoBackground.algorithm" label="Find what moved" />
+          </div>
+          {data.algorithm === 'voronoi' ? (
+            <p className="vt-hint">
+              The frames are lined up with each other, and each is drawn as a Voronoi diagram in the same few colours. Cells of one colour that touch are an area; an area that
+              moves or changes size against the areas of its colour in the other frames is animated. Each pixel of the background is the middle colour of the frames where it is
+              not in an animated area.
+            </p>
+          ) : (
+            <p className="vt-hint">
+              The frames are lined up with each other, so a camera that shakes or drifts does not count as change. A pixel that never changes is the background. What changed is
+              rebuilt patch by patch: the biggest group of frames that show the same in a patch, frames side by side counting more, if it is in at least the agreement share of
+              them. Anything else is left clear.
+            </p>
+          )}
           <label className="vt-row" style={{ gap: 6 }}>
             <input type="checkbox" checked={data.steady} onChange={(event) => patch({ steady: event.target.checked })} />
             Follow the camera
@@ -412,31 +475,48 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
               onChange={(maxShift) => patch({ maxShift: Math.round(maxShift) })}
             />
           ) : null}
-          <Slider
-            range="videoBackground.tolerance"
-            label="Tolerance"
-            tip="videoBackground.tolerance"
-            value={data.tolerance}
-            format={(value) => `${Math.round(value)}`}
-            onChange={(tolerance) => patch({ tolerance: Math.round(tolerance) })}
-          />
-          <label className="vt-row" style={{ gap: 6 }}>
-            <input type="checkbox" checked={data.rebuild} onChange={(event) => patch({ rebuild: event.target.checked })} />
-            Rebuild what moved from patches
-          </label>
-          {data.rebuild ? (
+          {data.algorithm === 'voronoi' ? (
             <>
-              <Slider range="videoBackground.patch" label="Patch" tip="videoBackground.patch" value={data.patch} format={(value) => `${Math.round(value)} px`} onChange={(size) => patch({ patch: Math.round(size) })} />
+              <Slider range="videoBackground.nodes" label="Nodes a frame" tip="videoBackground.nodes" value={data.nodes} format={(value) => `${Math.round(value)}`} onChange={(value) => patch({ nodes: Math.round(value) })} />
+              <Slider range="videoBackground.colours" label="Colours" tip="videoBackground.colours" value={data.colours} format={(value) => `${Math.round(value)}`} onChange={(value) => patch({ colours: Math.round(value) })} />
               <Slider
-                range="videoBackground.agreement"
-                label="Agreement"
-                tip="videoBackground.agreement"
-                value={data.agreement}
-                format={(value) => `${Math.round(value)}% of frames`}
-                onChange={(agreement) => patch({ agreement: Math.round(agreement) })}
+                range="videoBackground.moving"
+                label="Animated when it changes by"
+                tip="videoBackground.moving"
+                value={data.moving}
+                format={(value) => `${Math.round(value)}%`}
+                onChange={(value) => patch({ moving: Math.round(value) })}
               />
             </>
-          ) : null}
+          ) : (
+            <>
+              <Slider
+                range="videoBackground.tolerance"
+                label="Tolerance"
+                tip="videoBackground.tolerance"
+                value={data.tolerance}
+                format={(value) => `${Math.round(value)}`}
+                onChange={(tolerance) => patch({ tolerance: Math.round(tolerance) })}
+              />
+              <label className="vt-row" style={{ gap: 6 }}>
+                <input type="checkbox" checked={data.rebuild} onChange={(event) => patch({ rebuild: event.target.checked })} />
+                Rebuild what moved from patches
+              </label>
+              {data.rebuild ? (
+                <>
+                  <Slider range="videoBackground.patch" label="Patch" tip="videoBackground.patch" value={data.patch} format={(value) => `${Math.round(value)} px`} onChange={(size) => patch({ patch: Math.round(size) })} />
+                  <Slider
+                    range="videoBackground.agreement"
+                    label="Agreement"
+                    tip="videoBackground.agreement"
+                    value={data.agreement}
+                    format={(value) => `${Math.round(value)}% of frames`}
+                    onChange={(agreement) => patch({ agreement: Math.round(agreement) })}
+                  />
+                </>
+              ) : null}
+            </>
+          )}
           {working ? (
             <div className="vt-row" style={{ gap: 6 }}>
               <span className="vt-faint" style={{ fontSize: 11 }}>{STAGES[working.stage]}…</span>
@@ -446,10 +526,23 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
           <dl className="vt-kv">
             <dt>Moved</dt>
             <dd>{result ? (data.steady ? (result.stats.moved > 0 ? `up to ${result.stats.moved} px` : 'not at all') : 'not followed') : '—'}</dd>
-            <dt>Never changed</dt>
-            <dd>{result ? share(result.stats.still) : '—'}</dd>
-            <dt>Rebuilt</dt>
-            <dd>{result ? share(result.stats.rebuilt) : '—'}</dd>
+            {data.algorithm === 'voronoi' ? (
+              <>
+                <dt>Areas</dt>
+                <dd>{result?.stats.areas ? `${result.stats.areas.total.toLocaleString()} in all, ${result.stats.areas.animated.toLocaleString()} animated` : '—'}</dd>
+                <dt>Never animated</dt>
+                <dd>{result ? share(result.stats.still) : '—'}</dd>
+                <dt>From other frames</dt>
+                <dd>{result ? share(result.stats.rebuilt) : '—'}</dd>
+              </>
+            ) : (
+              <>
+                <dt>Never changed</dt>
+                <dd>{result ? share(result.stats.still) : '—'}</dd>
+                <dt>Rebuilt</dt>
+                <dd>{result ? share(result.stats.rebuilt) : '—'}</dd>
+              </>
+            )}
             <dt>Marked by hand</dt>
             <dd>{result ? share(result.stats.marked) : '—'}</dd>
             <dt>Marks</dt>
@@ -485,6 +578,12 @@ export function VideoBackgroundFlowEditor({ project, node }: { project: Project;
                 <input type="checkbox" checked={showTint} onChange={(event) => setShowTint(event.target.checked)} />
                 Tint what is background already
               </label>
+              {data.algorithm === 'voronoi' ? (
+                <label className="vt-row" style={{ gap: 6 }} title="This frame's Voronoi areas, each in its colour; the animated ones striped red">
+                  <input type="checkbox" checked={data.showAreas} onChange={(event) => patch({ showAreas: event.target.checked })} />
+                  Show its areas
+                </label>
+              ) : null}
               <button
                 type="button"
                 className="vt-btn is-small"

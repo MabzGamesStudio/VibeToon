@@ -30,6 +30,7 @@ import { emptyLinesFlowData } from '../flows/lines';
 import { emptyVideoBackgroundFlowData } from '../flows/videoBackground';
 import { emptyVideoForegroundFlowData } from '../flows/videoForeground';
 import { emptyCharacterSplitFlowData } from '../flows/characterSplit';
+import { emptyVoronoiFlowData } from '../flows/voronoi';
 import { emptyShotsFlowData } from '../flows/shots';
 import { emptyVideoSourceFlowData } from '../flows/videoSource';
 import { emptyVideoEditFlowData } from '../flows/videoEdit';
@@ -121,6 +122,8 @@ export function defaultDataForKind(kind: string): FlowData {
       return emptyVideoForegroundFlowData();
     case 'characterSplit':
       return emptyCharacterSplitFlowData();
+    case 'voronoi':
+      return emptyVoronoiFlowData();
     case 'shots':
       return emptyShotsFlowData();
     case 'videoSource':

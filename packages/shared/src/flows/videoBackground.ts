@@ -1,5 +1,7 @@
 import type { Bitmap } from './cutout';
+import type { Rgba } from './palette';
 import { DEFAULT_VIDEO_SAMPLING, type VideoSampling } from './videoMatch';
+import { fitWork, seededRandom, workPicture, workPixelsFor, type WorkFit } from './voronoi';
 
 /**
  * The background of a video clip: what stays put while everything else moves.
@@ -24,6 +26,15 @@ import { DEFAULT_VIDEO_SAMPLING, type VideoSampling } from './videoMatch';
  *    frame is shown in the frames beside it too — is the background there, if
  *    it is in at least the **agreement** share of the frames. Its changed
  *    pixels are filled from those frames; otherwise they stay clear.
+ *
+ * Or, with the **Voronoi areas** algorithm, steps 2 and 3 are done by areas
+ * instead of pixels and patches: each frame is drawn as a Voronoi diagram in
+ * one palette of colours shared by every frame, the cells of one colour that
+ * touch are an area, and an area that changes — moves, or grows or shrinks —
+ * against the areas of its colour in the other frames is taken to be animated.
+ * The frames are laid over each other, lined up, and each pixel of the
+ * background is the middle colour of the frames where it is not in an
+ * animated area.
  *
  * What a moving character covered in some frames but not in others can then be
  * put back by hand. Choose a frame where that part of the background can be
@@ -71,6 +82,16 @@ export interface VideoBackgroundFlowData {
   rebuild: boolean;
   /** The side of a patch, in frame pixels. */
   patch: number;
+  /** How what moved is found: pixel by pixel and patch by patch, or by the areas of each frame's Voronoi diagram. */
+  algorithm: 'patches' | 'voronoi';
+  /** Voronoi areas: the nodes in each frame's diagram. */
+  nodes: number;
+  /** Voronoi areas: the colours of the palette every frame's diagram shares. */
+  colours: number;
+  /** Voronoi areas: how much an area must change against the other frames, in percent, to be animated. */
+  moving: number;
+  /** Voronoi areas: show the chosen frame's areas instead of the frame. */
+  showAreas: boolean;
   /** The video the frames were read from, and the size they were read at. */
   video?: { hash?: string; duration: number; width: number; height: number };
   frameSize?: { width: number; height: number };
@@ -85,6 +106,9 @@ export const DEFAULT_BACKGROUND_TOLERANCE = 8;
 export const DEFAULT_BACKGROUND_AGREEMENT = 30;
 export const DEFAULT_BACKGROUND_MAX_SHIFT = 24;
 export const DEFAULT_BACKGROUND_PATCH = 16;
+export const DEFAULT_BACKGROUND_NODES = 400;
+export const DEFAULT_BACKGROUND_COLOURS = 12;
+export const DEFAULT_BACKGROUND_MOVING = 35;
 /** Two frames' versions of a patch are the same where at least this share of its changed pixels match. */
 export const PATCH_SAME_SHARE = 0.9;
 /** A patch's versions are put in no more groups than this; any more join the nearest. */
@@ -106,6 +130,11 @@ export function emptyVideoBackgroundFlowData(): VideoBackgroundFlowData {
     maxShift: DEFAULT_BACKGROUND_MAX_SHIFT,
     rebuild: true,
     patch: DEFAULT_BACKGROUND_PATCH,
+    algorithm: 'patches',
+    nodes: DEFAULT_BACKGROUND_NODES,
+    colours: DEFAULT_BACKGROUND_COLOURS,
+    moving: DEFAULT_BACKGROUND_MOVING,
+    showAreas: false,
     marks: [],
     current: null,
     tool: 'paint',
@@ -159,12 +188,16 @@ export interface BackgroundResult {
     total: number;
     /** The furthest any frame sat from the background's place, in pixels. */
     moved: number;
+    /** Voronoi areas: how many areas there were in all the frames, and how many were animated. */
+    areas?: { total: number; animated: number };
   };
+  /** Voronoi areas: each frame's areas, and how much each changed. */
+  areas?: VoronoiAreas;
 }
 
 /** How far the work has got, for showing while it runs. */
 export interface BackgroundProgress {
-  stage: 'steady' | 'still' | 'patches';
+  stage: 'steady' | 'still' | 'patches' | 'palette' | 'diagrams' | 'motion' | 'combine';
   done: number;
   total: number;
 }
@@ -613,6 +646,462 @@ export function buildBackground(frames: readonly Bitmap[], options: BackgroundOp
   return finish(backgroundWork(frames, options, steadied));
 }
 
+/* ---------------- or: by Voronoi areas ---------------- */
+
+/** The settings the Voronoi areas algorithm is run with. */
+export type VoronoiBackgroundOptions = Pick<VideoBackgroundFlowData, 'steady' | 'maxShift' | 'nodes' | 'colours' | 'moving'>;
+
+/** One frame as areas of one colour: the cells of its Voronoi diagram that touch and share a colour, joined. */
+export interface FrameAreas {
+  /** The size the diagram was fitted at, and its pixels for each frame pixel across and down. */
+  width: number;
+  height: number;
+  sx: number;
+  sy: number;
+  /** Each of its pixels' area. */
+  area: Int32Array;
+  /** Each area's palette entry, and its size in the diagram's pixels. */
+  entries: Int32Array;
+  sizes: Int32Array;
+  /** How much each area changed against the other frames: the share of it they do not show in its colour, 0 to 1. */
+  change: Float32Array;
+}
+
+export interface VoronoiAreas {
+  /** What they were worked out with: the nodes, colours, and where the background sits in each frame. */
+  key: string;
+  palette: Rgba[];
+  frames: FrameAreas[];
+}
+
+/** Pixels sampled from all the frames to find the palette. */
+const PALETTE_SAMPLES = 60_000;
+/** Rounds of nudging for the first frame's diagram, and for each after, which starts from the one before. */
+const FIRST_FRAME_ROUNDS = 8;
+const NEXT_FRAME_ROUNDS = 4;
+/** Each frame's areas are compared with at most this many other frames, spread through the clip. */
+const COMPARED_FRAMES = 16;
+/** A background pixel is taken from the frames whose area there changed least: no more than this over the least. */
+const CHANGE_MARGIN = 0.1;
+
+/** What a set of areas was worked out with: the same key, the same areas. */
+export function voronoiAreasKey(options: Pick<VoronoiBackgroundOptions, 'nodes' | 'colours'>, offsets: readonly FrameOffset[]): string {
+  return JSON.stringify([Math.round(options.nodes), Math.round(options.colours), offsets.map((offset) => [offset.dx, offset.dy])]);
+}
+
+/**
+ * A palette of `count` colours for every frame: k-means on pixels sampled
+ * from all of them, started k-means++ from a seeded random number, so the
+ * same frames give the same palette.
+ */
+export function* sharedPaletteWork(frames: readonly Bitmap[], count: number, seed = 7): Generator<BackgroundProgress, Rgba[]> {
+  const random = seededRandom(seed);
+  const perFrame = Math.ceil(PALETTE_SAMPLES / Math.max(1, frames.length));
+  const values: number[] = [];
+  for (const frame of frames) {
+    const pixels = frame.width * frame.height;
+    const stride = Math.max(1, Math.floor(pixels / perFrame));
+    for (let p = Math.floor(random() * stride); p < pixels; p += stride) {
+      values.push(frame.data[p * 4]!, frame.data[p * 4 + 1]!, frame.data[p * 4 + 2]!, frame.data[p * 4 + 3]!);
+    }
+  }
+  const m = values.length / 4;
+  const k = Math.max(1, Math.min(Math.round(count), m));
+  if (m === 0) return [];
+  const samples = Float32Array.from(values);
+  const centres = new Float64Array(k * 4);
+  const distance = (i: number, c: number) => {
+    let d = 0;
+    for (let ch = 0; ch < 4; ch += 1) d += (samples[i * 4 + ch]! - centres[c * 4 + ch]!) ** 2;
+    return d;
+  };
+  // k-means++: each next centre a sample picked with a chance that grows with its distance from the nearest so far.
+  const first = Math.floor(random() * m);
+  for (let ch = 0; ch < 4; ch += 1) centres[ch] = samples[first * 4 + ch]!;
+  const nearest = new Float64Array(m).fill(Number.POSITIVE_INFINITY);
+  let made = 1;
+  for (; made < k; made += 1) {
+    let sum = 0;
+    for (let i = 0; i < m; i += 1) {
+      const d = distance(i, made - 1);
+      if (d < nearest[i]!) nearest[i] = d;
+      sum += nearest[i]!;
+    }
+    if (sum <= 0) break;
+    let pick = random() * sum;
+    let chosen = m - 1;
+    for (let i = 0; i < m; i += 1) {
+      pick -= nearest[i]!;
+      if (pick <= 0) {
+        chosen = i;
+        break;
+      }
+    }
+    for (let ch = 0; ch < 4; ch += 1) centres[made * 4 + ch] = samples[chosen * 4 + ch]!;
+  }
+  // Lloyd's rounds: each sample to its nearest centre, each centre to the middle of its samples.
+  const sums = new Float64Array(made * 5);
+  for (let round = 0; round < 12; round += 1) {
+    yield { stage: 'palette', done: round, total: 12 };
+    sums.fill(0);
+    for (let i = 0; i < m; i += 1) {
+      let best = 0;
+      let bestD = Number.POSITIVE_INFINITY;
+      for (let c = 0; c < made; c += 1) {
+        const d = distance(i, c);
+        if (d < bestD) {
+          bestD = d;
+          best = c;
+        }
+      }
+      for (let ch = 0; ch < 4; ch += 1) sums[best * 5 + ch] = sums[best * 5 + ch]! + samples[i * 4 + ch]!;
+      sums[best * 5 + 4] = sums[best * 5 + 4]! + 1;
+    }
+    let moved = 0;
+    for (let c = 0; c < made; c += 1) {
+      const n = sums[c * 5 + 4]!;
+      if (n === 0) continue;
+      for (let ch = 0; ch < 4; ch += 1) {
+        const next = sums[c * 5 + ch]! / n;
+        moved = Math.max(moved, Math.abs(next - centres[c * 4 + ch]!));
+        centres[c * 4 + ch] = next;
+      }
+    }
+    if (moved < 0.25) break;
+  }
+  const palette: Rgba[] = [];
+  const seen = new Set<string>();
+  for (let c = 0; c < made; c += 1) {
+    const colour = { r: Math.round(centres[c * 4]!), g: Math.round(centres[c * 4 + 1]!), b: Math.round(centres[c * 4 + 2]!), a: Math.round(centres[c * 4 + 3]!) };
+    const key = `${colour.r},${colour.g},${colour.b},${colour.a}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    palette.push(colour);
+  }
+  return palette;
+}
+
+/** A frame's diagram as areas: cells that touch and share a palette entry, joined. */
+export function areasOfFit(fit: WorkFit): Pick<FrameAreas, 'area' | 'entries' | 'sizes' | 'change'> {
+  const { width: w, height: h } = fit.picture;
+  const n = fit.xs.length;
+  const parent = Int32Array.from({ length: n }, (_, i) => i);
+  const root = (i: number): number => {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]!]!;
+      i = parent[i]!;
+    }
+    return i;
+  };
+  const join = (a: number, b: number) => {
+    if (a === b || fit.entries[a] !== fit.entries[b]) return;
+    const ra = root(a);
+    const rb = root(b);
+    if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb);
+  };
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const o = fit.owner[y * w + x]!;
+      if (x + 1 < w) join(o, fit.owner[y * w + x + 1]!);
+      if (y + 1 < h) join(o, fit.owner[(y + 1) * w + x]!);
+    }
+  }
+  const number = new Int32Array(n).fill(-1);
+  const entries: number[] = [];
+  const sizes: number[] = [];
+  const area = new Int32Array(w * h);
+  for (let p = 0; p < w * h; p += 1) {
+    const r = root(fit.owner[p]!);
+    if (number[r] === -1) {
+      number[r] = entries.length;
+      entries.push(fit.entries[r]!);
+      sizes.push(0);
+    }
+    const a = number[r]!;
+    area[p] = a;
+    sizes[a] = sizes[a]! + 1;
+  }
+  return { area, entries: Int32Array.from(entries), sizes: Int32Array.from(sizes), change: new Float32Array(entries.length) };
+}
+
+/** The frames each frame is compared with: every other, or `most` spread through the clip. */
+function comparedWith(f: number, count: number, most: number): number[] {
+  if (count - 1 <= most) return Array.from({ length: count }, (_, g) => g).filter((g) => g !== f);
+  const picked = new Set<number>();
+  for (let k = 0; k < most; k += 1) {
+    let g = Math.min(count - 1, Math.floor(((k + 0.5) * count) / most));
+    if (g === f) g = g + 1 < count ? g + 1 : g - 1;
+    picked.add(g);
+  }
+  return [...picked].sort((a, b) => a - b);
+}
+
+/** For each pixel of a frame's diagram, the palette entries within a pixel of it: bit e of `low` (e < 32) or of `high`. */
+function entriesNear(frame: FrameAreas): { low: Uint32Array; high: Uint32Array } {
+  const { width: w, height: h } = frame;
+  const low = new Uint32Array(w * h);
+  const high = new Uint32Array(w * h);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const e = frame.entries[frame.area[y * w + x]!]!;
+      const bit = (1 << (e & 31)) >>> 0;
+      const into = e < 32 ? low : high;
+      for (let v = Math.max(0, y - 1); v <= Math.min(h - 1, y + 1); v += 1) {
+        for (let u = Math.max(0, x - 1); u <= Math.min(w - 1, x + 1); u += 1) into[v * w + u] = (into[v * w + u]! | bit) >>> 0;
+      }
+    }
+  }
+  return { low, high };
+}
+
+/**
+ * How much each area of each frame changed. Against each frame it is compared
+ * with — lined up by where the background sits in each — the share of its
+ * pixels that frame does not show in its colour, within a pixel (so an edge
+ * that wavers, or a thin line the diagram draws a little differently, is the
+ * same); the middle of those is its change. An area that moved its own width,
+ * or is gone, changed by 1; one that grew changed in the frames it grew into.
+ * An area mostly out of sight in a frame is not compared with it; one
+ * compared with none has not been seen to change.
+ */
+export function* areaChangeWork(frames: FrameAreas[], offsets: readonly FrameOffset[]): Generator<BackgroundProgress, void> {
+  const count = frames.length;
+  const near = frames.map(entriesNear);
+  for (let f = 0; f < count; f += 1) {
+    yield { stage: 'motion', done: f, total: count };
+    const A = frames[f]!;
+    const { width: w, height: h } = A;
+    const nA = A.sizes.length;
+    const samples: number[][] = Array.from({ length: nA }, () => []);
+    const shown = new Int32Array(nA);
+    const kept = new Int32Array(nA);
+    for (const g of comparedWith(f, count, COMPARED_FRAMES)) {
+      const B = frames[g]!;
+      if (B.width !== w || B.height !== h) continue;
+      const { low, high } = near[g]!;
+      // Frame f's pixel shows the background frame g shows this far across and down from it.
+      const su = Math.round((offsets[g]!.dx - offsets[f]!.dx) * A.sx);
+      const sv = Math.round((offsets[g]!.dy - offsets[f]!.dy) * A.sy);
+      shown.fill(0);
+      kept.fill(0);
+      for (let v = Math.max(0, -sv); v < Math.min(h, h - sv); v += 1) {
+        for (let u = Math.max(0, -su); u < Math.min(w, w - su); u += 1) {
+          const a = A.area[v * w + u]!;
+          const e = A.entries[a]!;
+          const q = (v + sv) * w + u + su;
+          shown[a] = shown[a]! + 1;
+          if ((((e < 32 ? low[q]! : high[q]!) >>> (e & 31)) & 1) === 1) kept[a] = kept[a]! + 1;
+        }
+      }
+      for (let a = 0; a < nA; a += 1) {
+        if (shown[a]! * 2 < A.sizes[a]!) continue;
+        samples[a]!.push(1 - kept[a]! / shown[a]!);
+      }
+    }
+    for (let a = 0; a < nA; a += 1) A.change[a] = samples[a]!.length > 0 ? median(samples[a]!) : 0;
+  }
+}
+
+/**
+ * Each frame as a Voronoi diagram in one shared palette, as areas, and how
+ * much each area changed. Each frame's diagram starts from the one before's
+ * nodes, moved by how far the camera moved, so what did not move is drawn the
+ * same way.
+ */
+export function* voronoiAreasWork(frames: readonly Bitmap[], offsets: readonly FrameOffset[], options: Pick<VoronoiBackgroundOptions, 'nodes' | 'colours'>): Generator<BackgroundProgress, VoronoiAreas> {
+  const key = voronoiAreasKey(options, offsets);
+  const palette = yield* sharedPaletteWork(frames, options.colours);
+  const count = frames.length;
+  const out: FrameAreas[] = [];
+  let start: Array<{ x: number; y: number }> | undefined;
+  for (let f = 0; f < count; f += 1) {
+    const picture = workPicture(frames[f]!, workPixelsFor(options.nodes));
+    const run = fitWork(picture, { nodes: options.nodes, refine: start ? NEXT_FRAME_ROUNDS : FIRST_FRAME_ROUNDS, seed: 1, ...(start ? { start } : {}) }, palette);
+    let fit: WorkFit;
+    for (;;) {
+      const next = run.next();
+      if (next.done) {
+        fit = next.value;
+        break;
+      }
+      yield { stage: 'diagrams', done: f + next.value.done / Math.max(1, next.value.total), total: count };
+    }
+    out.push({ width: picture.width, height: picture.height, sx: picture.sx, sy: picture.sy, ...areasOfFit(fit) });
+    // The next frame's diagram starts here: each node where it shows the same background in that frame.
+    const next = offsets[f + 1];
+    if (next) {
+      const here = offsets[f]!;
+      start = Array.from(fit.xs, (x, i) => ({ x: x / picture.sx + next.dx - here.dx, y: fit.ys[i]! / picture.sy + next.dy - here.dy }));
+    }
+  }
+  yield* areaChangeWork(out, offsets);
+  return { key, palette, frames: out };
+}
+
+/** A mask grown by one pixel all round. */
+function grownByOne(mask: Uint8Array, w: number, h: number): Uint8Array {
+  const out = new Uint8Array(mask.length);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      if (!mask[y * w + x]) continue;
+      for (let v = Math.max(0, y - 1); v <= Math.min(h - 1, y + 1); v += 1) for (let u = Math.max(0, x - 1); u <= Math.min(w - 1, x + 1); u += 1) out[v * w + u] = 1;
+    }
+  }
+  return out;
+}
+
+/** Which areas of a frame are animated: those that changed by at least `moving` percent. */
+export function animatedAreas(frame: FrameAreas, moving: number): Uint8Array {
+  const threshold = Math.max(0, Math.min(100, moving)) / 100;
+  return Uint8Array.from(frame.change, (change) => (change >= threshold - 1e-9 ? 1 : 0));
+}
+
+/** The middle of the first `n` values. */
+function middleOf(values: Uint8Array, n: number): number {
+  for (let i = 1; i < n; i += 1) {
+    const v = values[i]!;
+    let j = i - 1;
+    while (j >= 0 && values[j]! > v) {
+      values[j + 1] = values[j]!;
+      j -= 1;
+    }
+    values[j + 1] = v;
+  }
+  return n % 2 === 1 ? values[(n - 1) >> 1]! : Math.round((values[n / 2 - 1]! + values[n / 2]!) / 2);
+}
+
+/**
+ * The background by Voronoi areas (see the top of this file): each frame drawn
+ * as a diagram in one shared palette, its areas of one colour found, those that
+ * change by at least `moving` percent against the other frames taken to be
+ * animated, and every background pixel the middle colour of the frames where
+ * it is not in an animated area — grown by a pixel of the diagram, for the
+ * edge a cell cuts across — and, of those, where its area changed least. `known`, when its key matches, is the areas worked
+ * out before, so a change of `moving` alone does not draw the frames again.
+ */
+export function* voronoiBackgroundWork(
+  frames: readonly Bitmap[],
+  options: VoronoiBackgroundOptions,
+  steadied?: readonly FrameOffset[],
+  known?: VoronoiAreas | null,
+): Generator<BackgroundProgress, BackgroundResult> {
+  const first = frames[0];
+  if (!first) return emptyResult();
+  const { width: w, height: h } = first;
+  const count = frames.length;
+  if (frames.some((frame) => frame.width !== w || frame.height !== h)) throw new Error('the frames are not all the same size');
+  const offsets: FrameOffset[] = steadied && steadied.length === count ? steadied.map((offset) => ({ ...offset })) : options.steady ? yield* steadyWork(frames, options.maxShift) : frames.map(() => ({ dx: 0, dy: 0 }));
+  const key = voronoiAreasKey(options, offsets);
+  const areas = known && known.key === key && known.frames.length === count ? known : yield* voronoiAreasWork(frames, offsets, options);
+
+  let totalAreas = 0;
+  let animatedCount = 0;
+  const animated = areas.frames.map((frame) => {
+    const moving = animatedAreas(frame, options.moving);
+    totalAreas += moving.length;
+    for (const one of moving) animatedCount += one;
+    const mask = new Uint8Array(frame.width * frame.height);
+    for (let p = 0; p < mask.length; p += 1) mask[p] = moving[frame.area[p]!]!;
+    return grownByOne(mask, frame.width, frame.height);
+  });
+  // Where each frame pixel is in its diagram, across and down.
+  const columns = areas.frames.map((frame) => Int32Array.from({ length: w }, (_, x) => Math.min(frame.width - 1, Math.floor((x + 0.5) * frame.sx))));
+  const rows = areas.frames.map((frame) => Int32Array.from({ length: h }, (_, y) => Math.min(frame.height - 1, Math.floor((y + 0.5) * frame.sy))));
+
+  const odx = Int32Array.from(offsets, (offset) => offset.dx);
+  const ody = Int32Array.from(offsets, (offset) => offset.dy);
+  const total = w * h;
+  const out = new Uint8ClampedArray(total * 4);
+  const source = new Uint8Array(total);
+  const channels = [new Uint8Array(count), new Uint8Array(count), new Uint8Array(count), new Uint8Array(count)] as const;
+  const changes = new Float32Array(count);
+  let still = 0;
+  let rebuilt = 0;
+  for (let y = 0; y < h; y += 1) {
+    if (y % 8 === 0) yield { stage: 'combine', done: y, total: h };
+    for (let x = 0; x < w; x += 1) {
+      let seen = 0;
+      let n = 0;
+      let least = Number.POSITIVE_INFINITY;
+      for (let f = 0; f < count; f += 1) {
+        const fx = x + odx[f]!;
+        const fy = y + ody[f]!;
+        if (fx < 0 || fy < 0 || fx >= w || fy >= h) continue;
+        seen += 1;
+        const frame = areas.frames[f]!;
+        const q = rows[f]![fy]! * frame.width + columns[f]![fx]!;
+        if (animated[f]![q]) continue;
+        const at = (fy * w + fx) * 4;
+        const d = frames[f]!.data;
+        channels[0][n] = d[at]!;
+        channels[1][n] = d[at + 1]!;
+        channels[2][n] = d[at + 2]!;
+        channels[3][n] = d[at + 3]!;
+        const change = frame.change[frame.area[q]!]!;
+        changes[n] = change;
+        if (change < least) least = change;
+        n += 1;
+      }
+      if (n === 0) continue;
+      // Of those, the frames whose area here changed least: an area a character's edge joined, in a frame, changed more.
+      let kept = 0;
+      for (let i = 0; i < n; i += 1) {
+        if (changes[i]! > least + CHANGE_MARGIN) continue;
+        for (let c = 0; c < 4; c += 1) channels[c]![kept] = channels[c]![i]!;
+        kept += 1;
+      }
+      const p = y * w + x;
+      for (let c = 0; c < 4; c += 1) out[p * 4 + c] = middleOf(channels[c]!, kept);
+      if (n === seen) {
+        source[p] = PIXEL_STILL;
+        still += 1;
+      } else {
+        source[p] = PIXEL_REBUILT;
+        rebuilt += 1;
+      }
+    }
+  }
+  const moved = offsets.reduce((most, offset) => Math.max(most, Math.hypot(offset.dx, offset.dy)), 0);
+  return {
+    image: { width: w, height: h, data: out },
+    source,
+    offsets,
+    stats: { frames: count, still, rebuilt, marked: 0, total, moved: Math.round(moved * 10) / 10, areas: { total: totalAreas, animated: animatedCount } },
+    areas,
+  };
+}
+
+/** `voronoiBackgroundWork`, all at once. */
+export function buildVoronoiBackground(frames: readonly Bitmap[], options: VoronoiBackgroundOptions, steadied?: readonly FrameOffset[], known?: VoronoiAreas | null): BackgroundResult {
+  return finish(voronoiBackgroundWork(frames, options, steadied, known));
+}
+
+/**
+ * A frame's areas as a picture at the frame's size: each in its palette
+ * colour, its edges dark, and the animated ones striped red.
+ */
+export function areasPicture(areas: VoronoiAreas, index: number, width: number, height: number, moving: number): Bitmap {
+  const frame = areas.frames[index];
+  const data = new Uint8ClampedArray(width * height * 4);
+  if (!frame) return { width, height, data };
+  const animated = animatedAreas(frame, moving);
+  const column = Int32Array.from({ length: width }, (_, x) => Math.min(frame.width - 1, Math.floor((x + 0.5) * frame.sx)));
+  const row = Int32Array.from({ length: height }, (_, y) => Math.min(frame.height - 1, Math.floor((y + 0.5) * frame.sy)));
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const a = frame.area[row[y]! * frame.width + column[x]!]!;
+      const right = x + 1 < width ? frame.area[row[y]! * frame.width + column[x + 1]!]! : a;
+      const down = y + 1 < height ? frame.area[row[y + 1]! * frame.width + column[x]!]! : a;
+      const colour = areas.palette[frame.entries[a]!] ?? { r: 0, g: 0, b: 0, a: 255 };
+      const at = (y * width + x) * 4;
+      if (right !== a || down !== a) data.set([20, 20, 24, 255], at);
+      else if (animated[a] && (x + y) % 8 < 3) data.set([255, 40, 60, 255], at);
+      else data.set([colour.r, colour.g, colour.b, 255], at);
+    }
+  }
+  return { width, height, data };
+}
+
 /** Which pixels a mark covers: 1 inside, in a frame this size. */
 export function markMask(mark: BackgroundMark, width: number, height: number): Uint8Array {
   const mask = new Uint8Array(width * height);
@@ -750,6 +1239,7 @@ export function backgroundReport(data: VideoBackgroundFlowData, stats: Backgroun
   const sampling = data.sampling.mode === 'fps' ? `${data.sampling.fps} frame(s) a second` : `${data.sampling.total} frame(s) in all`;
   const share = (count: number) => `${((count / Math.max(1, stats.total)) * 100).toFixed(1)}%`;
   const clear = Math.max(0, stats.total - stats.still - stats.rebuilt);
+  const voronoi = data.algorithm === 'voronoi';
   lines.push(
     `A ${data.video.duration.toFixed(2)}s video, ${data.video.width} × ${data.video.height}, read at ${data.frameSize?.width ?? '?'} × ${data.frameSize?.height ?? '?'} and sampled at ${sampling}: ${stats.frames} frame(s).`,
     '',
@@ -758,10 +1248,18 @@ export function backgroundReport(data: VideoBackgroundFlowData, stats: Backgroun
         ? `- Steadied: each frame lined up with the ones before it, up to ${data.maxShift} px a frame. The picture moved up to ${stats.moved} px; where the background sits in each frame is below.`
         : `- Steadied, up to ${data.maxShift} px a frame: the picture did not move.`
       : '- Not steadied: the frames are compared where they are.',
-    `- Never changed, within ${data.tolerance}: ${stats.still.toLocaleString()} pixels (${share(stats.still)}). Each takes its average colour.`,
-    data.rebuild
-      ? `- Changed, rebuilt from ${data.patch} px patches: ${stats.rebuilt.toLocaleString()} pixels (${share(stats.rebuilt)}), each from the biggest group of frames that show the same in its patch, where that is at least ${data.agreement}% of them.`
-      : '- Changed: left clear (rebuilding from patches is off).',
+    ...(voronoi
+      ? [
+          `- By Voronoi areas: each frame drawn as a diagram of ${data.nodes} node(s) in the same ${data.colours} colour(s); cells of one colour that touch are an area${stats.areas ? ` — ${stats.areas.total.toLocaleString()} in all, ${stats.areas.animated.toLocaleString()} animated` : ''}, changing by ${data.moving}% or more against the areas of their colour in the other frames.`,
+          `- Never in an animated area: ${stats.still.toLocaleString()} pixels (${share(stats.still)}). Each takes the middle colour of the frames.`,
+          `- In an animated area in some frames: ${stats.rebuilt.toLocaleString()} pixels (${share(stats.rebuilt)}), each the middle colour of the frames where it was not.`,
+        ]
+      : [
+          `- Never changed, within ${data.tolerance}: ${stats.still.toLocaleString()} pixels (${share(stats.still)}). Each takes its average colour.`,
+          data.rebuild
+            ? `- Changed, rebuilt from ${data.patch} px patches: ${stats.rebuilt.toLocaleString()} pixels (${share(stats.rebuilt)}), each from the biggest group of frames that show the same in its patch, where that is at least ${data.agreement}% of them.`
+            : '- Changed: left clear (rebuilding from patches is off).',
+        ]),
     `- Marked by hand: ${stats.marked.toLocaleString()} pixels (${share(stats.marked)}), in ${data.marks.length} region(s) and stroke(s).`,
     `- Clear before marking: ${clear.toLocaleString()} pixels (${share(clear)}).`,
     '',

@@ -31,6 +31,7 @@ import { BatchSelectFlowEditor } from './BatchSelectFlowEditor';
 import { VideoBackgroundFlowEditor } from './VideoBackgroundFlowEditor';
 import { VideoForegroundFlowEditor } from './VideoForegroundFlowEditor';
 import { CharacterSplitFlowEditor } from './CharacterSplitFlowEditor';
+import { VoronoiFlowEditor } from './VoronoiFlowEditor';
 import { ShotsFlowEditor } from './ShotsFlowEditor';
 import { VideoSourceFlowEditor } from './VideoSourceFlowEditor';
 import { VideoEditFlowEditor } from './VideoEditFlowEditor';
@@ -140,6 +141,8 @@ function editorFor(project: Project, node: FlowNode): JSX.Element {
       return <VideoForegroundFlowEditor project={project} node={node} />;
     case 'characterSplit':
       return <CharacterSplitFlowEditor project={project} node={node} />;
+    case 'voronoi':
+      return <VoronoiFlowEditor project={project} node={node} />;
     case 'batchSelect':
       return <BatchSelectFlowEditor project={project} node={node} />;
     case 'shots':

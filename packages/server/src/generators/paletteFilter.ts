@@ -104,6 +104,8 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
    * written up as exact.
    */
   const mode = data.options.mode;
+  // Folding snaps first, so it is checked the same way: every value a palette color.
+  const snapping = mode === 'snap' || mode === 'fold';
   let written: Bitmap | null = null;
   try {
     written = await decodePng(new Uint8Array(rendered.bytes), (bytes) => new Uint8Array(inflateSync(bytes)));
@@ -120,7 +122,7 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
   }
   const allowed = new Set(active.colors.map(({ r, g, b, a }) => ((r << 16) | (g << 8) | b) * 256 + a));
   const strays = [...values.keys()].filter((value) => !allowed.has(value));
-  if (written && mode === 'snap' && strays.length > 0) {
+  if (written && snapping && strays.length > 0) {
     ctx.warn(
       `The filtered picture holds ${strays.length} value(s) that are not palette colors, so it was not written exactly — open the editor and generate from there again.`,
     );
@@ -132,7 +134,11 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
     `- Image: **${image.sourceNode.name}** (\`${image.artifact.fileName}\`)`,
     `- Palette: **${paletteInput.sourceNode.name}** (\`${paletteInput.artifact.fileName}\`)`,
     `- Mode: **${FILTER_MODE_LABEL[mode]}**`,
-    ...(mode === 'snap'
+    ...(mode === 'fold'
+      ? [
+          `- Folded: an area of one color under ${data.options.foldArea}px took the color of a neighbour within ${data.options.foldCloseness} of its own and at least ×${data.options.foldRatio} as big`,
+        ]
+      : mode === 'snap'
       ? [
           (data.options.minChunk ?? 0) > 1
             ? `- Smallest chunk: ${data.options.minChunk}px — any smaller patch of one color took the closest color it touched`
@@ -147,7 +153,7 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
     ...(written
       ? [
           `- The result holds **${values.size.toLocaleString()}** distinct RGBA value(s)${
-            mode === 'snap'
+            snapping
               ? strays.length === 0
                 ? ', every one of them a palette color'
                 : `, **${strays.length} of them not palette colors**`
@@ -183,7 +189,7 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
   ];
 
   const clearInPlay = active.colors.some((color) => color.a === 0);
-  if (mode === 'snap') {
+  if (snapping) {
     lines.push(
       'Snapping has no threshold: every pixel has a nearest palette color, and becomes',
       'exactly that — its four numbers, not a blend with what the pixel was. So the',
@@ -194,6 +200,20 @@ export async function generatePaletteFilter(ctx: GenerationContext): Promise<Gen
         : 'The palette has no transparent entry in play, so a pixel that was transparent had to become one of its colors. The Color Palette flow adds a transparent entry for a picture with transparent pixels.',
       '',
     );
+    if (mode === 'fold') {
+      lines.push(
+        '## Folding',
+        '',
+        'After snapping, an area is the pixels of one palette color that touch, corners',
+        'included. Smallest first, an area smaller than the fold size takes the color of',
+        'an area beside it whose palette color is close enough to its own and which is',
+        'big enough — the closest such color, then the one it shares most border with.',
+        'It joins that area, so the two grow together, and an area that could not fold',
+        'is looked at again once its neighbours have grown. A small area of a far color',
+        'stays as it is.',
+        '',
+      );
+    }
   } else {
     lines.push(
       'Every pixel is written as one of two things: the source pixel exactly as it was,',

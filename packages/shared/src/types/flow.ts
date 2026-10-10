@@ -74,6 +74,7 @@ export type EditorId =
   | 'batchSelect'
   | 'videoForeground'
   | 'characterSplit'
+  | 'voronoi'
   | 'brief';
 
 /** How finished a flow kind is. `brief` flows are real but use the generic editor. */

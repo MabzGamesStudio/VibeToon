@@ -899,6 +899,26 @@ export const FLOW_KINDS: readonly FlowKindDef[] = [
     defaultOutgoingRules: { vector: 'keep: shapes, colors' },
   },
   {
+    kind: 'art.voronoi',
+    category: 'art',
+    label: 'Voronoi Diagram',
+    summary: 'Redraws a picture as a Voronoi diagram: so many nodes, each one color, every pixel the color of the node nearest it — the nodes placed and colored to make it as like the picture as it can be. With a palette wired in, the nodes take only its colors. Written as a picture, as shapes, or both.',
+    inputs: [
+      input('image', 'Image', ['image', 'imageSet'], 'The picture to redraw.', { required: true }),
+      input('palette', 'Palette', ['json'], 'Optional: the only colors the nodes may take.'),
+    ],
+    outputs: [
+      output('image', 'Diagram', ['image'], 'voronoi.png', 'The diagram as a picture: every pixel its cell’s color.'),
+      output('vector', 'Vector', ['json'], 'vector.json', 'The cells as polygons — same-colored cells that touch joined into one, if asked — for the Vector Editor and what comes after it.'),
+      output('svg', 'Drawing', ['image'], 'voronoi.svg', 'The same polygons as an SVG.'),
+      output('nodes', 'Nodes', ['json'], 'nodes.json', 'Every node: where it is, its color, and how many pixels its cell holds.'),
+      output('report', 'Report', ['markdown'], 'voronoi.md', 'How many nodes, how near the diagram came to the picture, and what was written.'),
+    ],
+    editor: 'voronoi',
+    maturity: 'editor',
+    defaultOutgoingRules: { vector: 'keep: cells, colors' },
+  },
+  {
     kind: 'art.vector.edit',
     category: 'art',
     label: 'Vector Editor',
