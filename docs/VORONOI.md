@@ -61,6 +61,20 @@ looked in, ring by ring, until no node further out could be nearer. The same
 picture and settings always give the same diagram: the scattering and the order
 the nodes are nudged in come from a seeded random number.
 
+## Spacing and repel
+
+No two nodes are ever nearer each other than a pixel: a step that would bring a
+node closer than that to another is not taken, and nodes are started at least a
+pixel apart (packed nodes — more than a third as many as the picture has pixels
+— start on pixel centres, so up to one a pixel always fits).
+
+**Repel** makes the nodes push each other apart as they are placed. Every move
+is weighed twice: how much better it makes the diagram fit, and how close it
+brings the node to its neighbours — `(1 − d / spacing)²` for each neighbour
+nearer than the average spacing, weighted so that at 100 a node on top of a
+neighbour costs as much as an average cell's whole error. At 0 the nodes crowd
+along the picture's edges; higher, the cells come out more alike in size.
+
 ## The palette
 
 Wire a [Color Palette](COLOR-PALETTE.md) (or any `palette.json`) into the
@@ -88,9 +102,10 @@ is made from it.
 Nothing is fitted until **Fit** is pressed (or **Generate**, which fits first
 when the settings changed): fitting a few thousand nodes takes seconds. It runs a
 slice at a time, with a progress bar and a Stop button, so the page stays
-responsive — about a second for 300 nodes on a 720p picture, five for 6,000.
+responsive — about a second for 300 nodes on a 720p picture, twelve for 20,000.
 
-The stage shows **the diagram** or **the picture**, with **Edges** (strong
+The stage shows **the diagram** or **the picture**, with **Nodes** drawn as dots
+the same size on screen however far you zoom in, and **Edges** (strong
 between colours, faint between cells of one colour) and **Nodes** over either.
 Beside it: how far off the diagram is (the mean difference per pixel and the
 peak signal to noise), how many nodes have pixels and how many were moved, and
@@ -102,8 +117,9 @@ fitting it again.
 
 | Setting | What it does |
 |---|---|
-| **Nodes** (300) | How many cells. More follow the picture more closely and take longer. |
+| **Nodes** (300) | How many cells. More follow the picture more closely and take longer. There is no fixed top: widen the slider's range in Settings for more, up to one node a pixel. |
 | **Rounds** (12) | How long the nodes are nudged; more fits a little better. |
+| **Repel** (off) | How hard nodes push each other apart: higher spreads them more evenly. |
 | **Only the palette's colours** | With a palette wired in, every node takes one of its colours. |
 | **Write** | The picture, the shapes, or both. What is not written is taken off the ports. |
 | **Join same-colored cells** | As shapes: one polygon for each area of one colour, with holes. |

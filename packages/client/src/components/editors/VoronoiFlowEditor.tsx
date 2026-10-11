@@ -28,7 +28,7 @@ import { pngDataUrl, readBitmap } from '../common/pixels';
 import { Slider } from '../common/Slider';
 import { Stage } from '../common/Stage';
 import { inSlices, textDataUrl } from '../common/slices';
-import { paintBitmap } from './CropFlowEditor';
+import { paintBitmap, useFitScale } from './CropFlowEditor';
 import { EditorShell } from './EditorShell';
 
 const STAGES: Record<VoronoiProgress['stage'], string> = {
@@ -39,7 +39,26 @@ const STAGES: Record<VoronoiProgress['stage'], string> = {
 };
 
 /** What a fit was made from: the picture, the settings that change it, and the palette it kept to. */
-const fitKey = (hash: string | null | undefined, nodes: number, refine: number, palette: readonly string[] | null) => JSON.stringify([hash ?? '', nodes, refine, palette]);
+const fitKey = (hash: string | null | undefined, nodes: number, refine: number, repel: number, palette: readonly string[] | null) => JSON.stringify([hash ?? '', nodes, refine, repel, palette]);
+
+/** Node dots this many screen pixels across, however far the picture is zoomed. */
+const DOT_RADIUS = 3;
+
+/**
+ * Every node as a dot over the picture, drawn in the picture's units but sized
+ * by `unit` (picture units per screen pixel), so zooming in moves the dots
+ * apart without making them bigger. One path, so tens of thousands draw fast.
+ */
+function NodeDots({ fit, unit }: { fit: VoronoiFit; unit: number }): JSX.Element {
+  const r = DOT_RADIUS * unit;
+  const d = useMemo(() => {
+    const parts: string[] = [];
+    const across = (r * 2).toFixed(3);
+    for (const one of fit.nodes) parts.push(`M${(one.x - r).toFixed(2)} ${one.y.toFixed(2)}a${r.toFixed(3)} ${r.toFixed(3)} 0 1 0 ${across} 0a${r.toFixed(3)} ${r.toFixed(3)} 0 1 0 -${across} 0`);
+    return parts.join('');
+  }, [fit, r]);
+  return <path d={d} fill="rgba(255, 255, 255, 0.95)" stroke="rgba(0, 0, 0, 0.85)" strokeWidth={unit} />;
+}
 
 /** The picture with the cells' edges drawn in: strong between colors, faint between cells of one color. */
 function withEdges(base: Bitmap, fit: VoronoiFit): Bitmap {
@@ -134,7 +153,7 @@ export function VoronoiFlowEditor({ project, node }: { project: Project; node: F
   }, [paletteArtifact?.path, paletteArtifact?.hash, project.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const usedPalette = data.usePalette && palette ? palette : null;
-  const wantedKey = fitKey(artifact?.hash, data.nodes, data.refine, usedPalette?.hexes ?? null);
+  const wantedKey = fitKey(artifact?.hash, data.nodes, data.refine, data.repel, usedPalette?.hexes ?? null);
 
   /* ---------------- fitting ---------------- */
 
@@ -157,10 +176,10 @@ export function VoronoiFlowEditor({ project, node }: { project: Project; node: F
     const colors = settings.usePalette && paletteRef.current ? paletteRef.current : null;
     stopping.current = false;
     setWorking({ stage: 'start', done: 0, total: 1 });
-    const made = await inSlices(voronoiWork(picture, { nodes: settings.nodes, refine: settings.refine }, colors?.colors ?? null), setWorking, () => stopping.current);
+    const made = await inSlices(voronoiWork(picture, { nodes: settings.nodes, refine: settings.refine, repel: settings.repel }, colors?.colors ?? null), setWorking, () => stopping.current);
     setWorking(null);
     if (!made) return null;
-    setFitted({ fit: made, key: fitKey(hashRef.current, settings.nodes, settings.refine, colors?.hexes ?? null), source: picture });
+    setFitted({ fit: made, key: fitKey(hashRef.current, settings.nodes, settings.refine, settings.repel, colors?.hexes ?? null), source: picture });
     const was = dataRef.current.image;
     if (!was || was.hash !== hashRef.current || was.width !== picture.width || was.height !== picture.height) {
       patch({ image: { width: picture.width, height: picture.height, ...(hashRef.current ? { hash: hashRef.current } : {}) } });
@@ -180,7 +199,7 @@ export function VoronoiFlowEditor({ project, node }: { project: Project; node: F
         const file = readVoronoiNodes(await response.json());
         if (cancelled || !file || (file.source && file.source !== artifact?.hash)) return;
         const fit = diagramFromNodes(source, file);
-        if (!cancelled) setFitted((was) => (was && was.source === source ? was : { fit, key: fitKey(file.source ?? artifact?.hash, file.settings.nodes, file.settings.refine, file.settings.palette), source }));
+        if (!cancelled) setFitted((was) => (was && was.source === source ? was : { fit, key: fitKey(file.source ?? artifact?.hash, file.settings.nodes, file.settings.refine, file.settings.repel, file.settings.palette), source }));
       } catch {
         // Nothing to show until it is fitted.
       }
@@ -252,20 +271,9 @@ export function VoronoiFlowEditor({ project, node }: { project: Project; node: F
       return;
     }
     paintBitmap(canvas.current, fit && data.showEdges ? withEdges(base, fit) : base);
-    const context = canvas.current?.getContext('2d');
-    if (!fit || !data.showNodes || !context) return;
-    const r = Math.max(1.5, Math.min(fit.width, fit.height) / 240);
-    context.beginPath();
-    for (const one of fit.nodes) {
-      context.moveTo(one.x + r, one.y);
-      context.arc(one.x, one.y, r, 0, Math.PI * 2);
-    }
-    context.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    context.fill();
-    context.lineWidth = Math.max(0.6, r / 3);
-    context.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-    context.stroke();
-  }, [source, diagram, fit, data.view, data.showEdges, data.showNodes]);
+  }, [source, diagram, fit, data.view, data.showEdges]);
+  const [overlay, setOverlay] = useState<SVGSVGElement | null>(null);
+  const fitScale = useFitScale(overlay, source?.width ?? 0, source?.height ?? 0);
 
   const generating = Boolean(working) || busyFlows.includes(node.id);
   const used = fit ? fit.nodes.filter((one) => one.pixels > 0).length : 0;
@@ -296,6 +304,15 @@ export function VoronoiFlowEditor({ project, node }: { project: Project; node: F
           </p>
           <Slider range="voronoi.nodes" label="Nodes" tip="voronoi.nodes" value={data.nodes} format={(value) => `${Math.round(value)}`} onChange={(value) => patch({ nodes: Math.round(value) })} />
           <Slider range="voronoi.refine" label="Rounds" tip="voronoi.refine" value={data.refine} format={(value) => `${Math.round(value)}`} onChange={(value) => patch({ refine: Math.round(value) })} />
+          <Slider
+            range="voronoi.repel"
+            label="Repel"
+            tip="voronoi.repel"
+            value={data.repel}
+            format={(value) => (Math.round(value) === 0 ? 'off' : `${Math.round(value)}`)}
+            hint="How hard nodes push each other apart: higher spreads them more evenly. No two are ever nearer than a pixel."
+            onChange={(value) => patch({ repel: Math.round(value) })}
+          />
           <label className="vt-row" style={{ gap: 6 }} title="With a palette wired in, the nodes take only its colors">
             <input type="checkbox" checked={data.usePalette} disabled={!palette} onChange={(event) => patch({ usePalette: event.target.checked })} />
             {palette ? `Only the palette’s ${palette.hexes.length} color(s)` : 'Only the palette’s colors'}
@@ -401,13 +418,16 @@ export function VoronoiFlowEditor({ project, node }: { project: Project; node: F
             </>
           }
         >
-          {() => (
+          {({ scale }) => (
             <div className="vt-resize-stage">
               {!source ? (
                 <div className="vt-empty">{blocked ?? 'Reading the picture…'}</div>
               ) : (
                 <div className="vt-crop-frame">
                   <canvas ref={canvas} className="vt-crop-canvas" style={{ imageRendering: 'pixelated' }} />
+                  <svg ref={setOverlay} className="vt-crop-overlay" viewBox={`0 0 ${source.width} ${source.height}`} style={{ pointerEvents: 'none' }} aria-hidden="true">
+                    {fit && data.showNodes ? <NodeDots fit={fit} unit={1 / Math.max(1e-3, fitScale * scale)} /> : null}
+                  </svg>
                   {!fit && data.view === 'diagram' ? <div className="vt-faint" style={{ fontSize: 11, marginTop: 6 }}>Not fitted yet: the picture, until Fit is pressed.</div> : null}
                 </div>
               )}

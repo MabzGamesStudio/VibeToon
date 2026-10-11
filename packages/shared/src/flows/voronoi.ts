@@ -42,6 +42,8 @@ export interface VoronoiFlowData {
   nodes: number;
   /** Rounds of nudging and moving: more fits better and takes longer. */
   refine: number;
+  /** How hard nodes push each other apart, 0..100: 0 places them for the picture alone. */
+  repel: number;
   /** With a palette wired in, the nodes take only its colors. */
   usePalette: boolean;
   /** What is written: the diagram as a picture, as shapes, or both. */
@@ -58,13 +60,17 @@ export interface VoronoiFlowData {
 
 export const DEFAULT_VORONOI_NODES = 300;
 export const DEFAULT_VORONOI_REFINE = 12;
-export const MAX_VORONOI_NODES = 6000;
+/** No two nodes closer than this, in the picture's pixels. */
+export const MIN_NODE_GAP = 1;
+/** nodes.json is read no further than this many nodes: a guard against a file that is not one. */
+const MAX_READ_NODES = 4_000_000;
 
 export function emptyVoronoiFlowData(): VoronoiFlowData {
   return {
     editor: 'voronoi',
     nodes: DEFAULT_VORONOI_NODES,
     refine: DEFAULT_VORONOI_REFINE,
+    repel: 0,
     usePalette: true,
     output: 'picture',
     merge: true,
@@ -77,6 +83,8 @@ export function emptyVoronoiFlowData(): VoronoiFlowData {
 export interface VoronoiOptions {
   nodes: number;
   refine: number;
+  /** How hard nodes push each other apart, 0..100. */
+  repel?: number;
   seed?: number;
   /**
    * Where to start the nodes, in the picture's pixels, instead of scattering
@@ -120,9 +128,14 @@ export interface WorkPicture {
   squares: Float32Array;
 }
 
-/** How many pixels the work is done at, for so many nodes. */
+/**
+ * How many pixels the work is done at, for so many nodes: about 64 a node,
+ * between 40,000 and 300,000 — and past that, never fewer than 16 a node, so a
+ * diagram of tens of thousands of nodes still has room for each (the picture's
+ * own size is the most it can be).
+ */
 export function workPixelsFor(nodes: number): number {
-  return Math.max(40_000, Math.min(300_000, Math.round(nodes * 64)));
+  return Math.max(40_000, Math.min(Math.max(300_000, Math.round(nodes * 16)), Math.round(nodes * 64)));
 }
 
 /** The picture, made no bigger than `maxPixels` by averaging, as premultiplied values. */
@@ -287,6 +300,102 @@ export class NearestGrid {
       }
     }
     return out;
+  }
+}
+
+/**
+ * Where the nodes are while they move, in buckets: for keeping them at least
+ * a gap apart, and for finding the neighbours that push on a node.
+ */
+class NodeBuckets {
+  private readonly cols: number;
+  private readonly rows: number;
+  private readonly buckets: number[][];
+
+  constructor(
+    private readonly xs: Float64Array,
+    private readonly ys: Float64Array,
+    width: number,
+    height: number,
+    readonly size: number,
+  ) {
+    this.cols = Math.max(1, Math.ceil(width / size));
+    this.rows = Math.max(1, Math.ceil(height / size));
+    this.buckets = Array.from({ length: this.cols * this.rows }, () => []);
+  }
+
+  private bucket(x: number, y: number): number {
+    const cx = Math.min(this.cols - 1, Math.max(0, Math.floor(x / this.size)));
+    const cy = Math.min(this.rows - 1, Math.max(0, Math.floor(y / this.size)));
+    return cy * this.cols + cx;
+  }
+
+  add(i: number): void {
+    this.buckets[this.bucket(this.xs[i]!, this.ys[i]!)]!.push(i);
+  }
+
+  /** Node i, which was at (ox, oy), is now where `xs` and `ys` say. */
+  moved(i: number, ox: number, oy: number): void {
+    const from = this.bucket(ox, oy);
+    const to = this.bucket(this.xs[i]!, this.ys[i]!);
+    if (from === to) return;
+    const list = this.buckets[from]!;
+    const at = list.indexOf(i);
+    if (at >= 0) list.splice(at, 1);
+    this.buckets[to]!.push(i);
+  }
+
+  /** Each node other than i in the buckets round (x, y): within one bucket's size of it, at least. */
+  each(i: number, x: number, y: number, visit: (j: number, d2: number) => void): void {
+    const cx = Math.min(this.cols - 1, Math.max(0, Math.floor(x / this.size)));
+    const cy = Math.min(this.rows - 1, Math.max(0, Math.floor(y / this.size)));
+    for (let by = Math.max(0, cy - 1); by <= Math.min(this.rows - 1, cy + 1); by += 1) {
+      for (let bx = Math.max(0, cx - 1); bx <= Math.min(this.cols - 1, cx + 1); bx += 1) {
+        for (const j of this.buckets[by * this.cols + bx]!) {
+          if (j === i) continue;
+          const dx = this.xs[j]! - x;
+          const dy = this.ys[j]! - y;
+          visit(j, dx * dx + dy * dy);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * The rules a node's place must keep beyond fitting the picture: no nearer
+ * than `gap` to another node, and — with a repel weight — the cost of being
+ * close to its neighbours, `weight × (1 − d / reach)²` for each within `reach`.
+ */
+class Spacing {
+  constructor(
+    readonly buckets: NodeBuckets,
+    readonly gap: number,
+    readonly reach: number,
+    readonly weight: number,
+  ) {}
+
+  /** Whether (x, y) is nearer than the gap to a node other than i. */
+  crowded(i: number, x: number, y: number): boolean {
+    const gap2 = this.gap * this.gap;
+    let near = false;
+    this.buckets.each(i, x, y, (_, d2) => {
+      if (d2 < gap2) near = true;
+    });
+    return near;
+  }
+
+  /** Node i's share of the repel cost, were it at (x, y). */
+  cost(i: number, x: number, y: number): number {
+    if (this.weight <= 0) return 0;
+    let total = 0;
+    const reach2 = this.reach * this.reach;
+    this.buckets.each(i, x, y, (_, d2) => {
+      if (d2 >= reach2) return;
+      const t = 1 - Math.sqrt(d2) / this.reach;
+      total += t * t;
+    });
+    return total * this.weight;
   }
 }
 
@@ -725,12 +834,76 @@ function scatter(picture: WorkPicture, count: number, random: () => number): { x
 }
 
 /**
+ * Put every node into the buckets, moving any that lands nearer than `gap` to
+ * one already placed: to a free spot near it, looked for further out each
+ * try, and failing that to the nearest free pixel centre. Nodes packed close —
+ * more than a third as many as the picture has pixels — start on pixel centres
+ * (`gap` is a pixel), so up to one a pixel always fits.
+ */
+function spaceOut(xs: Float64Array, ys: Float64Array, count: number, width: number, height: number, buckets: NodeBuckets, gap: number, random: () => number): void {
+  const gap2 = gap * gap;
+  const free = (i: number, x: number, y: number) => {
+    let ok = true;
+    buckets.each(i, x, y, (_, d2) => {
+      if (d2 < gap2 - 1e-9) ok = false;
+    });
+    return ok;
+  };
+  const columns = Math.max(1, Math.floor(width / gap + 1e-9));
+  const rows = Math.max(1, Math.floor(height / gap + 1e-9));
+  const centre = (c: number) => (c + 0.5) * gap;
+  const packed = count * 3 > columns * rows;
+  for (let i = 0; i < count; i += 1) {
+    if (packed) {
+      xs[i] = centre(Math.min(columns - 1, Math.floor(xs[i]! / gap)));
+      ys[i] = centre(Math.min(rows - 1, Math.floor(ys[i]! / gap)));
+    }
+    if (!free(i, xs[i]!, ys[i]!)) {
+      const x0 = xs[i]!;
+      const y0 = ys[i]!;
+      let placed = false;
+      for (let attempt = 0; attempt < (packed ? 0 : 24) && !placed; attempt += 1) {
+        const radius = gap * (1 + attempt * 0.5);
+        const angle = random() * Math.PI * 2;
+        const x = Math.min(width - 1e-3, Math.max(0, x0 + Math.cos(angle) * radius));
+        const y = Math.min(height - 1e-3, Math.max(0, y0 + Math.sin(angle) * radius));
+        if (free(i, x, y)) {
+          xs[i] = x;
+          ys[i] = y;
+          placed = true;
+        }
+      }
+      // The nearest free pixel centre, ring by ring.
+      const cx = Math.min(columns - 1, Math.floor(x0 / gap));
+      const cy = Math.min(rows - 1, Math.floor(y0 / gap));
+      for (let ring = 0; !placed && ring <= Math.max(columns, rows); ring += 1) {
+        for (let r = cy - ring; r <= cy + ring && !placed; r += 1) {
+          if (r < 0 || r >= rows) continue;
+          const edge = r === cy - ring || r === cy + ring;
+          for (let c = cx - ring; c <= cx + ring && !placed; c += edge ? 1 : Math.max(1, 2 * ring)) {
+            if (c < 0 || c >= columns) continue;
+            if (free(i, centre(c), centre(r))) {
+              xs[i] = centre(c);
+              ys[i] = centre(r);
+              placed = true;
+            }
+          }
+        }
+      }
+    }
+    buckets.add(i);
+  }
+}
+
+/**
  * Fit a diagram of `options.nodes` nodes to a work picture (see the top of
  * this file). A generator, yielding as it goes, so a page can run it a slice
  * at a time.
  */
 export function* fitWork(picture: WorkPicture, options: VoronoiOptions, palette: readonly Rgba[] | null): Generator<VoronoiProgress, WorkFit> {
-  const count = Math.max(1, Math.min(MAX_VORONOI_NODES, Math.round(options.nodes), picture.width * picture.height));
+  // As many nodes as asked for, but no more than the picture has pixels: each a gap apart.
+  const fullPixels = Math.round((picture.width / picture.sx) * (picture.height / picture.sy));
+  const count = Math.max(1, Math.min(Math.round(options.nodes), fullPixels));
   const random = seededRandom(options.seed ?? 1);
   const fitter = new Fitter(picture, count, palette && palette.length > 0 ? premultipliedPalette(palette) : null);
   yield { stage: 'start', done: 0, total: 1 };
@@ -745,9 +918,18 @@ export function* fitWork(picture: WorkPicture, options: VoronoiOptions, palette:
       fitter.ys[i] = Math.min(picture.height - 1e-3, Math.max(0, options.start[i]!.y * picture.sy));
     }
   }
-  fitter.labelAll();
-  const rounds = Math.max(1, Math.round(options.refine));
   const spacing = Math.sqrt((picture.width * picture.height) / count);
+  // A gap of one picture pixel, in the work picture's pixels.
+  const gap = MIN_NODE_GAP * Math.min(picture.sx, picture.sy);
+  const buckets = new NodeBuckets(fitter.xs, fitter.ys, picture.width, picture.height, Math.max(spacing, gap));
+  spaceOut(fitter.xs, fitter.ys, count, picture.width, picture.height, buckets, gap, random);
+  fitter.labelAll();
+  // Repel is weighed against the fit: at 100, a node on top of a neighbour costs what an average cell's error is.
+  const meanError = fitter.totalError() / count;
+  const cellPixels = (picture.width * picture.height) / count;
+  const repel = Math.max(0, Math.min(100, options.repel ?? 0)) / 100;
+  const rules = new Spacing(buckets, gap, spacing, repel * Math.max(meanError, cellPixels * 100));
+  const rounds = Math.max(1, Math.round(options.refine));
   let step = Math.max(0.5, spacing * (options.start ? 0.15 : 0.35));
   let relocated = 0;
   const order = Array.from({ length: count }, (_, i) => i);
@@ -777,11 +959,13 @@ export function* fitWork(picture: WorkPicture, options: VoronoiOptions, palette:
           const nx = fitter.xs[i]! + dirs[d]![0];
           const ny = fitter.ys[i]! + dirs[d]![1];
           if (nx < 0 || ny < 0 || nx >= picture.width || ny >= picture.height) continue;
+          if (rules.crowded(i, nx, ny)) continue;
           const ox = fitter.xs[i]!;
           const oy = fitter.ys[i]!;
+          const pushed = rules.cost(i, nx, ny) - rules.cost(i, ox, oy);
           fitter.begin();
           fitter.place(i, nx, ny);
-          const delta = fitter.settle();
+          const delta = fitter.settle() + pushed;
           fitter.undo();
           fitter.xs[i] = ox;
           fitter.ys[i] = oy;
@@ -791,9 +975,12 @@ export function* fitWork(picture: WorkPicture, options: VoronoiOptions, palette:
           }
         }
         if (bestDir < 0) break;
+        const ox = fitter.xs[i]!;
+        const oy = fitter.ys[i]!;
         fitter.begin();
-        fitter.place(i, fitter.xs[i]! + dirs[bestDir]![0], fitter.ys[i]! + dirs[bestDir]![1]);
+        fitter.place(i, ox + dirs[bestDir]![0], oy + dirs[bestDir]![1]);
         fitter.settle();
+        buckets.moved(i, ox, oy);
         // Keep going the way that paid, a few times.
         dir = bestDir;
         tries += 1;
@@ -804,7 +991,7 @@ export function* fitWork(picture: WorkPicture, options: VoronoiOptions, palette:
     // Every other round, move the nodes that do least to where the fit is worst.
     if (round % 2 === 1 && round < rounds - 1) {
       fitter.labelAll();
-      relocated += relocate(fitter, Math.max(1, Math.round(count * 0.04)));
+      relocated += relocate(fitter, Math.max(1, Math.round(count * 0.04)), rules);
     }
     step = Math.max(0.5, step * 0.72);
     fitter.labelAll();
@@ -828,7 +1015,7 @@ export function* fitWork(picture: WorkPicture, options: VoronoiOptions, palette:
  * those most like a neighbour — and put each where the fit is worst, keeping
  * each move only if the diagram fits better for it. Returns how many moved.
  */
-function relocate(fitter: Fitter, budget: number): number {
+function relocate(fitter: Fitter, budget: number, rules: Spacing): number {
   const { w, h, n } = fitter;
   // What losing each cell costs: nothing if empty, else the least Ward cost of joining it to a neighbour.
   const cheap = new Float64Array(n).fill(Number.POSITIVE_INFINITY);
@@ -893,13 +1080,16 @@ function relocate(fitter: Fitter, budget: number): number {
     if (wt <= 0) continue;
     const nx = wx / wt;
     const ny = wy / wt;
+    if (rules.crowded(donor, nx, ny)) continue;
     const ox = fitter.xs[donor]!;
     const oy = fitter.ys[donor]!;
+    const pushed = rules.cost(donor, nx, ny) - rules.cost(donor, ox, oy);
     fitter.begin();
     fitter.takeOut(donor);
     fitter.putIn(donor, nx, ny);
-    const delta = fitter.settle();
+    const delta = fitter.settle() + pushed;
     if (delta < -1e-6) {
+      rules.buckets.moved(donor, ox, oy);
       moved += 1;
       taken.add(donor);
       taken.add(target);
@@ -1401,7 +1591,7 @@ export function voronoiNodesFile(data: VoronoiFlowData, fit: VoronoiFit, source:
       width: fit.width,
       height: fit.height,
       source,
-      settings: { nodes: data.nodes, refine: data.refine, palette: fit.palette ? fit.palette.map(toHex) : null },
+      settings: { nodes: data.nodes, refine: data.refine, repel: data.repel, palette: fit.palette ? fit.palette.map(toHex) : null },
       error: { mean: Math.round(fit.error.mean * 100) / 100, psnr: Math.round(fit.error.psnr * 100) / 100 },
       relocated: fit.relocated,
       rounds: fit.rounds,
@@ -1418,7 +1608,7 @@ export interface VoronoiNodesFile {
   height: number;
   /** The hash of the picture it was fitted to, when known. */
   source: string | null;
-  settings: { nodes: number; refine: number; palette: string[] | null };
+  settings: { nodes: number; refine: number; repel: number; palette: string[] | null };
   relocated: number;
   rounds: number;
   nodes: Array<{ x: number; y: number; color: Rgba; entry: number }>;
@@ -1434,7 +1624,7 @@ export function readVoronoiNodes(json: unknown): VoronoiNodesFile | null {
   if (!(width > 0 && height > 0)) return null;
   const nodes: VoronoiNodesFile['nodes'] = [];
   for (const raw of record.nodes) {
-    if (nodes.length >= MAX_VORONOI_NODES) break;
+    if (nodes.length >= MAX_READ_NODES) break;
     if (!raw || typeof raw !== 'object') continue;
     const node = raw as Record<string, unknown>;
     const x = Number(node.x);
@@ -1450,7 +1640,7 @@ export function readVoronoiNodes(json: unknown): VoronoiNodesFile | null {
     width,
     height,
     source: typeof record.source === 'string' ? record.source : null,
-    settings: { nodes: Number(settings.nodes) || nodes.length, refine: Number(settings.refine) || 0, palette },
+    settings: { nodes: Number(settings.nodes) || nodes.length, refine: Number(settings.refine) || 0, repel: Number(settings.repel) || 0, palette },
     relocated: Number(record.relocated) || 0,
     rounds: Number(record.rounds) || 0,
     nodes,
@@ -1508,6 +1698,7 @@ export function voronoiReport(data: VoronoiFlowData, fit: VoronoiFit | null, vec
   lines.push(
     `A ${fit.width} × ${fit.height} picture as ${fit.nodes.length} node(s)${used < fit.nodes.length ? ` (${used} with any pixels)` : ''}, after ${fit.rounds} round(s) of nudging; ${fit.relocated} node(s) moved to where the fit was worst.`,
     '',
+    data.repel > 0 ? `- Repel: ${data.repel} — nodes pushed each other apart as they were placed, and none is nearer another than ${MIN_NODE_GAP} pixel.` : `- No two nodes nearer each other than ${MIN_NODE_GAP} pixel.`,
     fit.palette ? `- Colors: only the palette's ${fit.palette.length} (${fit.palette.map(toHex).join(', ')}).` : '- Colors: each node its cell’s average.',
     `- How far off: ${fit.error.mean.toFixed(2)} on average per pixel (red, green, blue and opacity; 0 is exact), ${fit.error.psnr.toFixed(1)} dB peak signal to noise.`,
     `- ${areas} area(s) of same-colored cells that touch.`,
@@ -1518,5 +1709,5 @@ export function voronoiReport(data: VoronoiFlowData, fit: VoronoiFit | null, vec
 }
 
 export function summariseVoronoi(data: VoronoiFlowData): string {
-  return `${data.nodes} node(s), ${data.refine} round(s)${data.output === 'picture' ? '' : data.output === 'vector' ? ', as shapes' : ', as a picture and shapes'}`;
+  return `${data.nodes} node(s), ${data.refine} round(s)${data.repel > 0 ? `, repel ${data.repel}` : ''}${data.output === 'picture' ? '' : data.output === 'vector' ? ', as shapes' : ', as a picture and shapes'}`;
 }

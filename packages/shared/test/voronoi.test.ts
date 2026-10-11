@@ -76,7 +76,10 @@ test('a new Voronoi Diagram has 300 nodes, a dozen rounds, and writes a picture'
   assert.equal(summariseVoronoi(data), '300 node(s), 12 round(s)');
   assert.equal(summariseVoronoi({ ...data, output: 'both' }), '300 node(s), 12 round(s), as a picture and shapes');
   assert.equal(workPixelsFor(10), 40_000);
-  assert.equal(workPixelsFor(100_000), 300_000);
+  assert.equal(workPixelsFor(4000), 256_000);
+  assert.equal(workPixelsFor(10_000), 300_000);
+  assert.equal(workPixelsFor(100_000), 1_600_000, 'past 300,000 pixels, still 16 a node');
+  assert.equal(data.repel, 0);
   const work = workPicture(paint(800, 600, () => [255, 0, 0, 128]), 40_000);
   assert.ok(work.width * work.height <= 40_000 && work.width > 200, `${work.width}×${work.height}`);
   assert.ok(Math.abs(work.values[0]! - 128) < 1e-3, 'premultiplied: half-opaque red is 128');
@@ -237,7 +240,7 @@ test('see-through cells make no shape, and nodes.json and the report say what wa
   const json = JSON.parse(voronoiNodesFile(data, fit));
   assert.equal(json.kind, 'voronoi');
   assert.deepEqual([json.width, json.height, json.nodes.length], [30, 20, 8]);
-  assert.deepEqual(json.settings, { nodes: 8, refine: 4, palette: null });
+  assert.deepEqual(json.settings, { nodes: 8, refine: 4, repel: 0, palette: null });
   assert.match(json.nodes[0].color, /^#[0-9a-f]{6}([0-9a-f]{2})?$/);
   const report = voronoiReport(data, fit, vector);
   assert.match(report, /A 30 × 20 picture as 8 node\(s\)/);
@@ -252,7 +255,7 @@ test('nodes.json reads back into the same diagram, on the picture or a bigger on
   const file = readVoronoiNodes(JSON.parse(voronoiNodesFile(data, fit, 'sha-of-picture')));
   assert.ok(file);
   assert.equal(file.source, 'sha-of-picture');
-  assert.deepEqual(file.settings, { nodes: 16, refine: 3, palette: null });
+  assert.deepEqual(file.settings, { nodes: 16, refine: 3, repel: 0, palette: null });
   assert.equal(file.nodes.length, 16);
   const back = diagramFromNodes(blobs, file);
   const differ = [...back.owner].filter((owner, p) => owner !== fit.owner[p]).length;
@@ -265,4 +268,49 @@ test('nodes.json reads back into the same diagram, on the picture or a bigger on
   assert.equal(readVoronoiNodes({ kind: 'vector', nodes: [] }), null);
   assert.equal(readVoronoiNodes({ kind: 'voronoi', width: 10, height: 10, nodes: [{ x: 'a', y: 1, color: '#fff' }] }), null, 'no readable node');
   assert.equal(readVoronoiNodes(null), null);
+});
+
+/** The nearest two nodes are this far apart. */
+function closestPair(nodes: ReadonlyArray<{ x: number; y: number }>): number {
+  const grid = new Map<string, number[]>();
+  const key = (x: number, y: number) => `${Math.floor(x / 2)},${Math.floor(y / 2)}`;
+  nodes.forEach((node, i) => grid.set(key(node.x, node.y), [...(grid.get(key(node.x, node.y)) ?? []), i]));
+  let best = Infinity;
+  nodes.forEach((node, i) => {
+    for (let dy = -2; dy <= 2; dy += 2) {
+      for (let dx = -2; dx <= 2; dx += 2) {
+        for (const j of grid.get(key(node.x + dx, node.y + dy)) ?? []) {
+          if (j !== i) best = Math.min(best, Math.hypot(nodes[j]!.x - node.x, nodes[j]!.y - node.y));
+        }
+      }
+    }
+  });
+  return best;
+}
+
+test('as many nodes as asked for, past 6000 — up to one a pixel — and none nearer another than a pixel', () => {
+  const big = paint(120, 90, (x, y) => [(x * 2) % 256, (y * 3) % 256, (x * y) % 256, 255]);
+  const many = fitVoronoi(big, { nodes: 8000, refine: 2 });
+  assert.equal(many.nodes.length, 8000);
+  assert.ok(closestPair(many.nodes) >= 1 - 1e-6, `closest pair ${closestPair(many.nodes)}`);
+  const small = paint(40, 30, () => [10, 10, 10, 255]);
+  assert.equal(fitVoronoi(small, { nodes: 5000, refine: 1 }).nodes.length, 1200, 'no more nodes than pixels');
+  const crowded = fitVoronoi(blobs, { nodes: 600, refine: 6, seed: 2 });
+  assert.ok(closestPair(crowded.nodes) >= 1 - 1e-6, 'a pixel apart, however the fit pulls them');
+});
+
+test('repel spreads the nodes more evenly, and is said in nodes.json and the report', () => {
+  const spread = (fit: VoronoiFit) => {
+    const sizes = fit.nodes.map((node) => node.pixels);
+    const mean = sizes.reduce((a, b) => a + b, 0) / sizes.length;
+    return Math.sqrt(sizes.reduce((a, b) => a + (b - mean) ** 2, 0) / sizes.length) / mean;
+  };
+  const free = fitVoronoi(blobs, { nodes: 60, refine: 8, seed: 4 });
+  const pushed = fitVoronoi(blobs, { nodes: 60, refine: 8, seed: 4, repel: 100 });
+  assert.ok(spread(pushed) < spread(free) * 0.85, `cell sizes vary ${spread(pushed).toFixed(2)} with repel, ${spread(free).toFixed(2)} without`);
+  assert.ok(closestPair(pushed.nodes) > closestPair(free.nodes), 'the closest two are further apart');
+  const data = { ...emptyVoronoiFlowData(), nodes: 60, refine: 8, repel: 100 };
+  assert.equal(JSON.parse(voronoiNodesFile(data, pushed)).settings.repel, 100);
+  assert.match(voronoiReport(data, pushed), /Repel: 100/);
+  assert.match(summariseVoronoi(data), /repel 100/);
 });

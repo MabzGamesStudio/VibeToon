@@ -1065,8 +1065,12 @@ export const SETTING_TIPS: Record<string, SettingTip> = {
     examples: ['1 — everything found counts.', '2 — a good default.', '6 — only characters that stay a while.'],
   },
   'voronoi.nodes': {
-    what: 'How many nodes the diagram has: each is one cell of one color. The nodes go where they make the diagram most like the picture, so more of them gather where the picture has detail.',
+    what: 'How many nodes the diagram has: each is one cell of one color. There is no fixed top: widen this slider’s range in Settings for more, up to one node a pixel. The nodes go where they make the diagram most like the picture, so more of them gather where the picture has detail.',
     examples: ['60 — big flat cells: a poster of the picture.', '300 — a good default: shapes read, detail goes.', '3000 — close to the picture; fitting takes several seconds.'],
+  },
+  'voronoi.repel': {
+    what: 'How hard the nodes push each other apart while they are placed. Every move is weighed twice: how much better it makes the diagram fit the picture, and how close it brings the node to its neighbours. At 0 only the fit counts and nodes crowd along the picture’s edges; higher, they spread more evenly. No two nodes are ever nearer than a pixel, whatever this is.',
+    examples: ['0 — a good default: nodes go where the picture needs them.', '30 — detail still draws nodes, but cells stay more alike in size.', '100 — nearly even cells: the picture matters less than the spacing.'],
   },
   'voronoi.refine': {
     what: 'How many rounds of nudging: in each, every node tries a step each way and keeps one that makes the diagram fit better, and every other round the nodes that do least are moved to where the fit is worst. The steps get smaller each round.',

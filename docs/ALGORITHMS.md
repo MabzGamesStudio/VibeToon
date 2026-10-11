@@ -2206,7 +2206,7 @@ flowchart TD
   subgraph s5["↻ For each round"]
     subgraph s6["↻ For each node, in a shuffled order"]
       s7["Try a step each way"]
-      s8{"Does a step make the diagram fit better?"}
+      s8{"Does a step keep a pixel from every other node, and make the diagram fit better (less the repel cost of crowding its neighbours)?"}
       s9["Put it back and go on to the next node."]
       s8 -- no --> s9
       s7 --> s8
@@ -2240,7 +2240,7 @@ flowchart TD
 - **↻ For each round**
   - **↻ For each node, in a shuffled order**
     - Try a step each way — Move the node, move the pixels that change cell (only round it), and work out each changed cell’s best color and error from its sums.
-    - **Does a step make the diagram fit better?** *If not:* Put it back and go on to the next node.
+    - **Does a step keep a pixel from every other node, and make the diagram fit better (less the repel cost of crowding its neighbours)?** *If not:* Put it back and go on to the next node.
     - Keep the best step, and try it again — Up to four steps the same way.
   - **Every other round: are there nodes doing little?** *If not:* Go on.
   - Move them to where the fit is worst — A node whose cell is like its neighbour’s (the least Ward cost of joining them) is taken out and put down in the cell with the most error, at the middle of the part of it that fits worst — kept only if the diagram fits better for it.
@@ -2287,6 +2287,10 @@ For colors fitted to where the nodes are, the error is a function of the nodes�
 
 Nudging only goes downhill: a node that started where it is not needed stays there. So every other round, the nodes whose cells cost least to lose — none, if empty, otherwise the Ward cost of joining the cell to a neighbour, which is small when the neighbour is the same color — are taken out and put where the fit is worst: in the cell with the most error, at the weighted middle of its pixels that fit worse than its average. Each is kept only if the whole diagram fits better for it.
 
+### Spacing and repel
+
+No two nodes are ever nearer than a pixel: a step that would bring a node closer is not taken, and nodes start at least a pixel apart (on pixel centres when they are packed close, so up to one a pixel fits). **Repel** weighs every move twice — how much better the diagram fits, and how close the move brings the node to its neighbours, (1 − d / spacing)² for each within the average spacing — weighted so that at 100 a node on top of a neighbour costs as much as an average cell’s error. At 0 nodes crowd along edges; higher, cells come out more alike in size.
+
 ### Smaller, then full size
 
 The fitting is done on the picture made smaller — about 64 pixels a node — because every move is measured in pixels. At the end the nodes are scaled back, every pixel of the picture at its own size is labelled with its nearest node, and each node’s color is fitted again from those pixels. The same picture and settings give the same diagram every time: the scattering and the order the nodes are nudged in come from a seeded random number.
@@ -2299,7 +2303,7 @@ A Voronoi cell is the set of points nearer its node than any other: the picture�
 
 - It finds a good diagram, not the best: the problem of placing nodes is hard, and the nudging stops where no single step pays.
 - Cells are convex, so a long thin or curved shape takes many nodes. Same-colored cells joined as shapes hide the joins, but the outline is still made of straight cuts.
-- More nodes fit better and take longer: the work grows with the nodes and the rounds, about a second for 300 nodes on a 720p picture, five for 6000.
+- More nodes fit better and take longer: the work grows with the nodes and the rounds, about a second for 300 nodes on a 720p picture, twelve for 20,000.
 
 ### Settings
 
@@ -2307,6 +2311,7 @@ A Voronoi cell is the set of points nearer its node than any other: the picture�
 | --- | --- |
 | Nodes | How many cells. |
 | Rounds | How long the nodes are nudged; more fits a little better. |
+| Repel | How hard nodes push each other apart; no two are ever nearer than a pixel. |
 | Use the palette | With a palette wired in, the nodes take only its colors. |
 | Write | The diagram as a picture, as shapes, or both. |
 | Join same-colored cells | As shapes: one polygon for each area of same-colored cells that touch. |

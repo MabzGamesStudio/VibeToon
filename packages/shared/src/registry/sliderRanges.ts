@@ -186,6 +186,7 @@ export const SLIDER_RANGES: SliderRangeDef[] = [
   // Voronoi Diagram
   def('voronoi.nodes', 'Nodes', VORONOI, 'Fitting', 16, 6000, 1, 'nodes'),
   def('voronoi.refine', 'Rounds', VORONOI, 'Fitting', 2, 40, 1, 'rounds'),
+  def('voronoi.repel', 'Repel', VORONOI, 'Fitting', 0, 100, 1),
 
   // Shot Split
   def('shots.fps', 'Compare every', SHOTS, 'Finding the cuts', 0.1, 10, 0.05, 'a second'),

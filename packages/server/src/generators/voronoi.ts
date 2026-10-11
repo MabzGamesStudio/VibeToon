@@ -142,7 +142,7 @@ export async function generateVoronoi(ctx: GenerationContext): Promise<Generatio
   }
 
   const source = await decodePng(bytes, (packed) => new Uint8Array(inflateSync(packed)));
-  const fit: VoronoiFit = await inTurns(voronoiWork(source, { nodes: data.nodes, refine: data.refine }, palette));
+  const fit: VoronoiFit = await inTurns(voronoiWork(source, { nodes: data.nodes, refine: data.refine, repel: data.repel }, palette));
   ctx.log(`Fitted here: ${summariseVoronoi(data)}; ${fit.error.mean.toFixed(2)} off a pixel on average.`);
   const vector = wantShapes ? voronoiVector(fit, data.merge) : null;
   const outputs = [];
