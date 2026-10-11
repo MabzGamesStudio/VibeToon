@@ -23,6 +23,9 @@ import type { FaceFlowData } from '../flows/face';
 import type { CropFlowData } from '../flows/crop';
 import type { LinesFlowData } from '../flows/lines';
 import type { VideoBackgroundFlowData } from '../flows/videoBackground';
+import type { VideoForegroundFlowData } from '../flows/videoForeground';
+import type { CharacterSplitFlowData } from '../flows/characterSplit';
+import type { VoronoiFlowData } from '../flows/voronoi';
 import type { ShotsFlowData } from '../flows/shots';
 import type { VideoSourceFlowData } from '../flows/videoSource';
 import type { VideoEditFlowData } from '../flows/videoEdit';
@@ -228,7 +231,10 @@ export type FlowData =
   | VideoSourceFlowData
   | VideoEditFlowData
   | LineGraphFlowData
-  | BatchSelectFlowData;
+  | BatchSelectFlowData
+  | VideoForegroundFlowData
+  | CharacterSplitFlowData
+  | VoronoiFlowData;
 
 /* ------------------------------------------------------------------ *
  * Graph

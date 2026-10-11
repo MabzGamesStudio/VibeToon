@@ -43,6 +43,8 @@ export interface VideoEditFlowData {
   shots?: { hash?: string; cuts: number[] };
   /** What the edit, or each clip, is recorded as (`CLIP_FORMATS`); WebM (VP9) when not set. */
   clipFormat?: ClipFormatId;
+  /** The video `fps` was measured from, so a new video is measured again. */
+  fpsFor?: string;
 }
 
 export const DEFAULT_EDIT_FPS = 30;

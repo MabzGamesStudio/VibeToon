@@ -21,6 +21,12 @@ import { fromHex, toHex, type Rgb, type Rgba } from './palette';
  * like any other, to the entry that looks most like nothing: the palette's clear
  * entry, when it has one.
  *
+ * **Folding** snaps the same way, then tidies by area: a small area of one
+ * palette color takes the color of an area beside it when that area's color is
+ * close to its own and the area is much bigger — so a fleck of a nearby shade is
+ * folded into the shape it sits on, while a small area of a far color (an eye, a
+ * button) stays as it is.
+ *
  * Nearness is measured by hue, saturation, brightness and opacity (see
  * `hsbaDistance`), and snapping always takes the absolute nearest entry by that
  * measure. An edge pixel of red is nearest red, and becomes red or clear
@@ -33,7 +39,7 @@ import { fromHex, toHex, type Rgb, type Rgba } from './palette';
  * having it as a mode meant every setting and every report had to say which way
  * round it was reading.
  */
-export type FilterMode = 'keep' | 'snap';
+export type FilterMode = 'keep' | 'snap' | 'fold';
 
 /* ------------------------------------------------------------------ *
  * Nearness: hue, saturation, brightness and opacity
@@ -103,16 +109,18 @@ type Swatch = Hsba;
 const swatchOf = hsbaOf;
 const swatchDistance = hsbaDistance;
 
-export const FILTER_MODES: readonly FilterMode[] = ['keep', 'snap'];
+export const FILTER_MODES: readonly FilterMode[] = ['keep', 'snap', 'fold'];
 
 export const FILTER_MODE_LABEL: Record<FilterMode, string> = {
   keep: 'Keep only palette colors',
   snap: 'Snap every pixel to the palette',
+  fold: 'Snap, and fold small areas into big close ones',
 };
 
 export const FILTER_MODE_HINT: Record<FilterMode, string> = {
   keep: 'A pixel within the tolerance of a palette color is kept exactly as it is, color and opacity. Every other pixel becomes fully transparent.',
   snap: 'Every pixel becomes exactly one of the palette colors, opacity included — whichever is nearest. Six colors in play means six values in the result, and no others.',
+  fold: 'Every pixel snaps to the nearest palette color, as Snap does. Then each small area of one color takes the color of an area beside it that is close to its own in the palette and much bigger than it — of those, the closest. A fleck of a nearby shade folds into the shape it sits on; a small area of a far color, an eye or a button, stays.',
 };
 
 export interface PaletteFilterOptions {
@@ -140,9 +148,15 @@ export interface PaletteFilterOptions {
    * an edge — takes the color of a chunk it touches instead: whichever of those
    * neighbouring colors is closest to what its own pixels were. The transparent
    * entry counts like any other, so a pinhole in a shape closes and a speck in
-   * empty space goes. 0 or 1 leaves every pixel as it snapped. `keep` ignores it.
+   * empty space goes. 0 or 1 leaves every pixel as it snapped. Only `snap` uses it.
    */
   minChunk: number;
+  /** Fold: an area of one color smaller than this, in pixels, may fold into a neighbour. */
+  foldArea: number;
+  /** Fold: how close the neighbour's palette color must be to the area's own (`hsbaDistance`, 100 is black to white). */
+  foldCloseness: number;
+  /** Fold: how many times bigger than the area the neighbour must be. */
+  foldRatio: number;
 }
 
 export const DEFAULT_PALETTE_FILTER_OPTIONS: PaletteFilterOptions = {
@@ -150,6 +164,9 @@ export const DEFAULT_PALETTE_FILTER_OPTIONS: PaletteFilterOptions = {
   tolerance: 8,
   only: [],
   minChunk: 0,
+  foldArea: 200,
+  foldCloseness: 25,
+  foldRatio: 4,
 };
 
 export interface PaletteFilterFlowData {
@@ -259,6 +276,10 @@ export interface FilterReport {
   chunksMerged: number;
   /** The pixels in them. */
   chunkPixels: number;
+  /** Fold: small areas that took a big, close-colored neighbour's color. */
+  areasFolded: number;
+  /** The pixels in them. */
+  foldedPixels: number;
   problems: string[];
 }
 
@@ -274,7 +295,7 @@ export function filterImage(
   image: Bitmap,
   palette: FilterPalette,
   options: PaletteFilterOptions,
-): { pixels: Uint8ClampedArray; report: FilterReport } {
+): { pixels: Uint8ClampedArray; report: FilterReport; folded?: Uint8Array } {
   const active = activePalette(palette, options);
   // Zeros to start with, which is fully transparent — what `keep` leaves behind.
   const out = new Uint8ClampedArray(image.data.length);
@@ -288,6 +309,8 @@ export function filterImage(
     perEntry: active.hexes.map((hex) => ({ hex, pixels: 0 })),
     chunksMerged: 0,
     chunkPixels: 0,
+    areasFolded: 0,
+    foldedPixels: 0,
     problems: [],
   };
 
@@ -317,8 +340,9 @@ export function filterImage(
     const a = image.data[index + 3]!;
     return a === 0 ? -1 : ((image.data[index]! << 16) | (image.data[index + 1]! << 8) | image.data[index + 2]!) * 256 + a;
   };
-  /** Which entry each pixel snapped to, for `snap`. */
-  const assigned = options.mode === 'snap' ? new Int32Array(image.width * image.height) : null;
+  /** Which entry each pixel snapped to, for `snap` and `fold`. */
+  const assigned = options.mode === 'snap' || options.mode === 'fold' ? new Int32Array(image.width * image.height) : null;
+  let folded: Uint8Array | undefined;
 
   for (let index = 0; index < image.data.length; index += 4) {
     const r = image.data[index]!;
@@ -357,7 +381,16 @@ export function filterImage(
   }
 
   if (assigned) {
-    if (options.minChunk > 1) {
+    if (options.mode === 'fold') {
+      const fold = foldSmallAreas(assigned, image.width, image.height, (one, two) => swatchDistance(swatches[one]!, swatches[two]!), {
+        area: options.foldArea,
+        closeness: options.foldCloseness,
+        ratio: options.foldRatio,
+      });
+      report.areasFolded = fold.areas;
+      report.foldedPixels = fold.pixels;
+      folded = fold.folded;
+    } else if (options.minChunk > 1) {
       const merged = mergeSmallChunks(assigned, image.width, image.height, options.minChunk, (pixel, entry) => {
         const key = keyOf(pixel * 4);
         const source = key === -1 ? clear : swatchOf({ r: image.data[pixel * 4]!, g: image.data[pixel * 4 + 1]!, b: image.data[pixel * 4 + 2]!, a: image.data[pixel * 4 + 3]! });
@@ -399,7 +432,169 @@ export function filterImage(
       `${report.filled.toLocaleString()} transparent pixel(s) were given a color, because no transparent entry is in play to snap them to. Give the palette one — the Color Palette flow adds it for a picture with transparent pixels — or switch it back on.`,
     );
   }
-  return { pixels: out, report };
+  return folded ? { pixels: out, report, folded } : { pixels: out, report };
+}
+
+/**
+ * Fold small areas into big, close-colored ones: the `fold` mode.
+ *
+ * An area is the pixels of one entry that touch, corners included. Smallest
+ * first, an area of fewer than `area` pixels takes the entry of an area it
+ * touches whose color is within `closeness` of its own — between the two palette
+ * entries, by `hsbaDistance` — and which is at least `ratio` times as big: of
+ * those, the closest color, then the one it shares most border with, then the
+ * biggest. It joins that area, and any other area of that entry it touched, so
+ * they grow together. An area left as it was because nothing beside it was big
+ * enough is looked at again once its neighbours have grown: up to four passes,
+ * while any area folds.
+ *
+ * `assigned` is changed in place; `folded` is 1 for each pixel that changed.
+ */
+export function foldSmallAreas(
+  assigned: Int32Array,
+  width: number,
+  height: number,
+  entryDistance: (one: number, two: number) => number,
+  options: { area: number; closeness: number; ratio: number },
+): { areas: number; pixels: number; folded: Uint8Array } {
+  const count = width * height;
+  const folded = new Uint8Array(count);
+  const label = new Int32Array(count).fill(-1);
+  // Each area's pixels as a linked list, so joining two is a step, not a copy.
+  const nextPixel = new Int32Array(count).fill(-1);
+  const head: number[] = [];
+  const tail: number[] = [];
+  const size: number[] = [];
+  const entryOf: number[] = [];
+  const stack: number[] = [];
+  for (let start = 0; start < count; start += 1) {
+    if (label[start] !== -1) continue;
+    const id = head.length;
+    const entry = assigned[start]!;
+    label[start] = id;
+    stack.push(start);
+    let first = -1;
+    let last = -1;
+    let pixels = 0;
+    while (stack.length > 0) {
+      const at = stack.pop()!;
+      if (last === -1) first = at;
+      else nextPixel[last] = at;
+      last = at;
+      pixels += 1;
+      const x = at % width;
+      const y = (at - x) / width;
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const next = ny * width + nx;
+          if (label[next] !== -1 || assigned[next] !== entry) continue;
+          label[next] = id;
+          stack.push(next);
+        }
+      }
+    }
+    head.push(first);
+    tail.push(last);
+    size.push(pixels);
+    entryOf.push(entry);
+  }
+
+  const parent = head.map((_, id) => id);
+  const root = (id: number): number => {
+    while (parent[id] !== id) {
+      parent[id] = parent[parent[id]!]!;
+      id = parent[id]!;
+    }
+    return id;
+  };
+  const join = (into: number, other: number) => {
+    nextPixel[tail[into]!] = head[other]!;
+    tail[into] = tail[other]!;
+    size[into] = size[into]! + size[other]!;
+    parent[other] = into;
+  };
+  /** Every pixel of an area, by its list. */
+  const each = (id: number, visit: (at: number) => void) => {
+    for (let at = head[id]!; ; at = nextPixel[at]!) {
+      visit(at);
+      if (at === tail[id]) break;
+    }
+  };
+
+  const smallest = Math.max(0, options.area);
+  const closeness = Math.max(0, options.closeness);
+  const ratio = Math.max(1, options.ratio);
+  let areas = 0;
+  for (let pass = 0; pass < 4; pass += 1) {
+    let changed = false;
+    const small = head
+      .map((_, id) => id)
+      .filter((id) => root(id) === id && size[id]! < smallest)
+      .sort((one, two) => size[one]! - size[two]! || one - two);
+    for (const id of small) {
+      if (root(id) !== id || size[id]! >= smallest) continue;
+      const entry = entryOf[id]!;
+      // The areas it touches, by entry, and how much border it shares with each.
+      const touching = new Map<number, { roots: Set<number>; border: number }>();
+      each(id, (at) => {
+        const x = at % width;
+        const y = (at - x) / width;
+        for (let dy = -1; dy <= 1; dy += 1) {
+          for (let dx = -1; dx <= 1; dx += 1) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+            const other = root(label[ny * width + nx]!);
+            if (other === id || entryOf[other] === entry) continue;
+            const side = touching.get(entryOf[other]!) ?? { roots: new Set<number>(), border: 0 };
+            side.roots.add(other);
+            side.border += 1;
+            touching.set(entryOf[other]!, side);
+          }
+        }
+      });
+      let best = -1;
+      let bestDistance = Infinity;
+      let bestBorder = -1;
+      let bestSize = -1;
+      for (const [candidate, side] of touching) {
+        const distance = entryDistance(entry, candidate);
+        if (distance > closeness + 1e-9) continue;
+        let biggest = 0;
+        for (const other of side.roots) biggest = Math.max(biggest, size[other]!);
+        if (biggest < ratio * size[id]!) continue;
+        const better =
+          distance < bestDistance - 1e-9 ||
+          (Math.abs(distance - bestDistance) <= 1e-9 && (side.border > bestBorder || (side.border === bestBorder && biggest > bestSize)));
+        if (better) {
+          best = candidate;
+          bestDistance = distance;
+          bestBorder = side.border;
+          bestSize = biggest;
+        }
+      }
+      if (best < 0) continue;
+      each(id, (at) => {
+        assigned[at] = best;
+        folded[at] = 1;
+      });
+      const roots = [...touching.get(best)!.roots];
+      const into = roots.reduce((big, other) => (size[other]! > size[big]! ? other : big));
+      join(into, id);
+      for (const other of roots) if (other !== into) join(into, other);
+      // Its pixels are that entry's now.
+      entryOf[id] = best;
+      areas += 1;
+      changed = true;
+    }
+    if (!changed) break;
+  }
+  let pixels = 0;
+  for (const one of folded) pixels += one;
+  return { areas, pixels, folded };
 }
 
 /**
@@ -534,7 +729,7 @@ export function summariseFilter(report: FilterReport, options: PaletteFilterOpti
     return 'Nothing to filter — every pixel is already transparent.';
   }
   const share = (count: number) => `${((count / Math.max(1, report.considered)) * 100).toFixed(1)}%`;
-  if (options.mode === 'snap') {
+  if (options.mode === 'snap' || options.mode === 'fold') {
     const used = report.perEntry.filter((entry) => entry.pixels > 0).length;
     const parts = [
       `Every pixel is one of ${used} palette value(s)`,
@@ -544,6 +739,13 @@ export function summariseFilter(report: FilterReport, options: PaletteFilterOpti
     if (report.filled > 0) parts.push(`${report.filled.toLocaleString()} transparent pixel(s) given a color`);
     if (report.chunksMerged > 0) {
       parts.push(`${report.chunksMerged.toLocaleString()} small chunk(s) (${report.chunkPixels.toLocaleString()} px) given a neighbour's color`);
+    }
+    if (options.mode === 'fold') {
+      parts.push(
+        report.areasFolded > 0
+          ? `${report.areasFolded.toLocaleString()} small area(s) (${report.foldedPixels.toLocaleString()} px) folded into a bigger, close-colored neighbour`
+          : 'no small area had a big enough, close enough neighbour to fold into',
+      );
     }
     return `${parts.join(', ')}.`;
   }

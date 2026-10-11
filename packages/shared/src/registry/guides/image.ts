@@ -222,9 +222,9 @@ apply the edits made by hand`,
 
 export const PALETTE_FILTER_GUIDE: AlgorithmGuide = {
   kinds: ['art.palette.filter'],
-  title: 'Filtering against a palette: keep what matches, or snap everything to it',
+  title: 'Filtering against a palette: keep what matches, snap everything to it, or snap and fold small areas into big close ones',
   summary:
-    'Every pixel is compared with every palette colour by hue, saturation, brightness and opacity. Keeping leaves a pixel exactly as it was if it is within the tolerance of some palette colour, and clears it otherwise. Snapping replaces every pixel with its nearest palette colour — colour and opacity — and can then give chunks smaller than a minimum size the colour of a neighbouring chunk.',
+    'Every pixel is compared with every palette colour by hue, saturation, brightness and opacity. Keeping leaves a pixel exactly as it was if it is within the tolerance of some palette colour, and clears it otherwise. Snapping replaces every pixel with its nearest palette colour — colour and opacity — and can then give chunks smaller than a minimum size the colour of a neighbouring chunk. Folding snaps too, then gives each small area the colour of a neighbouring area that is close to its own in the palette and much bigger — the closest such colour — so flecks of a nearby shade fold into the shape they sit on and a small area of a far colour stays.',
   steps: [
     { kind: 'input', title: 'The picture and the palette' },
     {
@@ -234,7 +234,17 @@ export const PALETTE_FILTER_GUIDE: AlgorithmGuide = {
     },
     { kind: 'decision', title: 'Snapping?', no: 'Keeping: a pixel within the tolerance stays exactly as it was; any other becomes (0, 0, 0, 0).' },
     { kind: 'step', title: 'Every pixel becomes its nearest entry', detail: 'Exactly: the palette’s colour and opacity.' },
-    { kind: 'decision', title: 'A smallest chunk set?', no: 'Done.' },
+    {
+      kind: 'loop',
+      title: 'Folding: for each area under the fold size, smallest first (up to four passes)',
+      detail: 'An area: touching pixels (corners included) of one entry.',
+      steps: [
+        { kind: 'step', title: 'The areas beside it, by entry, and the border shared with each' },
+        { kind: 'decision', title: 'Is one within the closeness in colour, and at least the ratio times bigger?', no: 'It stays as it is, for now.' },
+        { kind: 'step', title: 'Take the closest such colour (then the longest border)', detail: 'It joins that area, and they grow together.' },
+      ],
+    },
+    { kind: 'decision', title: 'Snapping, with a smallest chunk set?', no: 'Done.' },
     {
       kind: 'loop',
       title: 'For each chunk smaller than it, smallest first',
@@ -255,9 +265,16 @@ for each distinct colour c: nearest[c], d[c] = min over entries of distance
 
 if mode == keep:
   out[p] = pixel[p] if d[colour(p)] <= tolerance else (0,0,0,0)
-else:  # snap
+else:  # snap, or fold
   entry[p] = nearest[colour(p)]
-  if min_chunk > 1:
+  if mode == fold:
+    repeat up to 4 times, while anything folds:
+      for area in areas(entry) sorted by size, while size < fold_area:
+        ok = [n for n in areas beside it
+              if distance(palette[n], palette[area]) <= closeness
+              and size(n) >= ratio * size(area)]
+        if ok: area takes the entry of min(ok, by colour distance, then -border)
+  elif min_chunk > 1:
     for chunk in chunks(entry) sorted by size, while size < min_chunk:
       touching = entries of chunks bordering it
       chunk takes argmin over touching of Σ distance(original pixel, entry)
@@ -276,6 +293,10 @@ else:  # snap
       body: 'Snapping always takes the nearest entry, whatever the distance, and writes it exactly — so a palette of five colours and a clear one gives a picture with six values in it and no others. An anti-aliased edge pixel becomes the colour or clear depending which it is nearer, never a neighbouring colour.',
     },
     {
+      heading: 'Folding small areas into big close ones',
+      body: 'Snapping a shaded drawing leaves shading as islands of a nearby colour. Folding looks at areas — touching pixels of one entry — smallest first: one under **Fold areas under** takes the colour of an area beside it whose palette colour is within **Into a color within** of its own and which is at least **That is bigger by at least** times as big. Of those, the closest colour, then the longest shared border. It joins that area, so the two grow together, and areas that could not fold are looked at again once their neighbours have grown. Unlike the smallest chunk, a small area with no close neighbour — an eye, a button — stays.',
+    },
+    {
       heading: 'Smallest chunk',
       body: 'Snapping a photograph leaves specks: single pixels that happened to be nearer another entry. Chunks under **Smallest chunk** pixels take the colour of a chunk they touch — the touching entry nearest to what their pixels originally were, not simply the one surrounding them most. Smallest first, so a speck inside a speck is settled before the one round it; a chunk that takes a neighbour’s colour joins it, and they grow together.',
     },
@@ -284,13 +305,17 @@ else:  # snap
     { name: 'Mode', effect: 'Keep only palette colours, or snap every pixel to the palette.' },
     { name: 'Tolerance', effect: 'Keep only: how far a pixel may be from a palette colour and still count as it.' },
     { name: 'Smallest chunk', effect: 'Snap only: chunks smaller than this take a neighbouring chunk’s colour.' },
+    { name: 'Fold areas under', effect: 'Fold: areas smaller than this may fold into a neighbour.' },
+    { name: 'Into a color within', effect: 'Fold: how close the neighbour’s palette colour must be.' },
+    { name: 'That is bigger by at least', effect: 'Fold: how many times bigger the neighbour must be.' },
   ],
   cost: 'Distinct colours × palette entries for the matching, one pass over the pixels to write, and a flood over the pixels for the chunks.',
   resources: [
     { title: 'HSL and HSV', url: 'https://en.wikipedia.org/wiki/HSL_and_HSV', note: 'The hue–saturation–brightness model, and the cone it is drawn as.' },
     { title: 'Connected-component labelling', url: 'https://en.wikipedia.org/wiki/Connected-component_labeling', note: 'How the chunks are found.' },
   ],
-  source: ['packages/shared/src/flows/paletteFilter.ts — hsbaOf, hsbaDistance, mergeSmallChunks'],
+  source: ['packages/shared/src/flows/paletteFilter.ts — hsbaOf, hsbaDistance, mergeSmallChunks, foldSmallAreas'],
+  tryIt: 'Choose Snap, and fold, then tick Show what was folded: the pixels folding changed are tinted. Lower Into a color within to keep more shades apart.',
 };
 
 export const CUTOUT_GUIDE: AlgorithmGuide = {
@@ -374,90 +399,173 @@ cutout = picture with alpha`,
 
 export const VIDEO_BACKGROUND_GUIDE: AlgorithmGuide = {
   kinds: ['art.video.background'],
-  title: 'A background from a video: each pixel’s most common colour',
+  title: 'A background from a video: lined up, what never changes, and what moved rebuilt patch by patch — or by Voronoi areas',
   summary:
-    'The clip is sampled into frames. For every pixel, its colours across the frames are grouped — a colour joins the first group whose average it is within the tolerance of — and the biggest group is the pixel’s most common colour. If that group holds at least the agreement share of the frames, the pixel takes the group’s average colour; otherwise no colour is common enough and it is clear. Regions and strokes marked on single frames are then laid on in order.',
+    'The clip’s frames are read exactly as the file holds them. They are lined up with each other first, so a camera that shakes or drifts does not count as change. Every pixel whose colour stays within the tolerance in every frame is background. What changed is rebuilt a patch at a time: each frame’s version of the patch is grouped with the others it matches, and the biggest group — frames side by side in it counting more — is the background there, if it holds at least the agreement share of the frames. Or, by Voronoi areas: each frame is drawn as a Voronoi diagram in one palette shared by all of them, cells of one colour that touch are an area, an area that moves or changes size against the other frames is animated, and each pixel is the middle colour of the frames where it is not in an animated area. Anything left is clear, for marking by hand.',
   steps: [
     { kind: 'input', title: 'The video' },
-    { kind: 'step', title: 'Probe the clip', detail: 'When its first and last frames are shown, and how long a frame lasts — as the browser shows them, not as a header says.' },
-    { kind: 'step', title: 'Plan the times', detail: 'So many in all from the first frame to the last, or so many a second from the first; each on one of the clip’s frames, none twice.' },
+    { kind: 'step', title: 'List its frames', detail: 'When each frame is shown, from the file’s own packets — not a grid worked out from a frame rate, which a clip recorded unevenly does not keep to.' },
+    { kind: 'step', title: 'Pick the frames to read', detail: 'So many in all, spread through them by count; or so many a second, each the frame nearest that time. None twice.' },
+    { kind: 'step', title: 'Read each one', detail: 'Decoded from the file at its own time, no bigger than all the frames together fit in 40 million pixels.' },
     {
       kind: 'loop',
-      title: 'For each time',
+      title: '1. Follow the camera — for each frame after the first',
       steps: [
-        { kind: 'step', title: 'Seek to a quarter of a frame past it', detail: 'And wait for the seek to finish, however long a recorded clip takes to decode to it.' },
-        { kind: 'step', title: 'Wait for the frame to be shown', detail: 'It is the last frame at or before the time: the right one. Each read has its frame before the next seek.' },
-        { kind: 'step', title: 'Draw it', detail: 'No bigger than all the frames together fit in 40 million pixels.' },
+        { kind: 'step', title: 'Search near where the frame before it sat', detail: 'On a picture halved four times first, then finer and finer: up to “Most it moves” pixels away.' },
+        { kind: 'step', title: 'Score a shift by the mean brightness difference, each pixel’s capped', detail: 'Every pixel counts, so the edges of flat colours do; the cap keeps a character moving in front from pulling it.' },
+        { kind: 'decision', title: 'Moved a quarter of the picture from the frame it is followed from?', no: 'Keep following from that frame.' },
+        { kind: 'step', title: 'Follow the next frames from this one' },
+      ],
+    },
+    { kind: 'step', title: 'Put the background where the frames were in the middle', detail: 'Each frame’s offset is from there.' },
+    {
+      kind: 'loop',
+      title: '2. For each pixel',
+      steps: [
+        { kind: 'step', title: 'Its colour in every frame that sees it, lined up' },
+        { kind: 'decision', title: 'Within the tolerance in all of them?', no: 'It changed: clear for now.' },
+        { kind: 'step', title: 'Background: the average of them' },
       ],
     },
     {
       kind: 'loop',
-      title: 'For each pixel',
+      title: '3. For each patch with pixels that changed',
       steps: [
-        {
-          kind: 'loop',
-          title: 'For each frame',
-          steps: [{ kind: 'step', title: 'Join the first group within the tolerance of its average, or start a group' }],
-        },
-        { kind: 'step', title: 'Take the biggest group', detail: 'Counted again against its final average.' },
-        { kind: 'decision', title: 'In at least the agreement share of the frames?', no: 'No colour is common enough: the pixel is clear.' },
-        { kind: 'step', title: 'The pixel is the group’s average colour' },
+        { kind: 'step', title: 'The frames that see all of it' },
+        { kind: 'step', title: 'Group their versions of it', detail: 'A version joins the first group whose first version it matches on 90% of the changed pixels, within the tolerance; or starts a group.' },
+        { kind: 'step', title: 'Score each group', detail: 'One for each frame in it, and half again for each frame read just after another of its own.' },
+        { kind: 'decision', title: 'Is the best group at least the agreement share of the frames?', no: 'Nothing is common enough: the patch’s changed pixels stay clear.' },
+        { kind: 'step', title: 'Fill the changed pixels from that group’s frames', detail: 'The average of those that match the group’s first version there.' },
+      ],
+    },
+    {
+      kind: 'loop',
+      title: 'Or 2–3 by Voronoi areas',
+      steps: [
+        { kind: 'step', title: 'One palette for every frame', detail: 'k-means of so many colours over pixels sampled from all the frames, started k-means++ from a seeded random number.' },
+        { kind: 'step', title: 'Each frame as a Voronoi diagram in that palette', detail: 'So many nodes, placed and coloured to fit the frame (see Voronoi Diagram); each frame starts from the nodes of the one before, moved by how far the camera moved.' },
+        { kind: 'step', title: 'Its areas', detail: 'Cells of one colour that touch, joined.' },
+        { kind: 'step', title: 'How much each area changed', detail: 'Against each of up to 16 other frames, lined up: the share of its pixels that frame does not show in its colour within a pixel. The middle of those.' },
+        { kind: 'decision', title: 'Changed by at least “Animated when it changes by”?', no: 'Not animated: its pixels can be background.' },
+        { kind: 'step', title: 'Animated: left out, grown by a pixel of the diagram' },
+        { kind: 'step', title: 'Each background pixel', detail: 'From the frames where it is not in an animated area, those whose area changed least there; the middle colour of them, channel by channel. In none: clear.' },
       ],
     },
     {
       kind: 'loop',
       title: 'For each mark, in the order made',
-      steps: [{ kind: 'step', title: 'Paint in: take its frame’s pixels; erase: clear them' }],
+      steps: [{ kind: 'step', title: 'Paint in: take its frame’s pixels, moved by where the background sits in that frame; erase: clear them' }],
     },
-    { kind: 'output', title: 'background.png, and the report' },
+    { kind: 'output', title: 'background.png, and the report with each frame’s offset' },
   ],
-  pseudocode: `span   = probe(clip)            # first shown, last shown, frame length
-times  = clip_frame_times(span, fps or total)   # on the clip's own frames
-frames = [frame_shown_at(clip, t) for t in times]   # seek, wait for it, then copy
-# each at the budgeted size
+  pseudocode: `times  = pick(frame_times(clip), so_many_in_all or so_many_a_second)
+frames = [decode(clip, t) for t in times]          # at the budgeted size
+
+# 1. follow the camera
+ref, ref_at = frames[0], (0, 0); offset[0] = (0, 0)
+for f in frames[1:]:
+  guess = offset[f-1] - ref_at
+  s = argmin over shifts within most_it_moves of guess, coarse to fine:
+        mean(min(|bright(f, x + shift) - bright(ref, x)|, 48))
+  offset[f] = ref_at + s
+  if |s| > a quarter of the picture: ref, ref_at = f, offset[f]
+offset -= median(offset)                            # the frames' middle
+
+# 2. what never changes
 for each pixel p:
-  groups = []                                # (sum of colours, count)
-  for f in frames:
-    c = f[p]
-    g = first group with |mean(g) - c| <= tolerance      # RGBA distance
-    if g: g.add(c) else: groups += Group(c)
-  best = biggest group
-  members = [f[p] for f in frames if |f[p] - mean(best)| <= tolerance]
-  if len(members) / len(frames) >= agreement:
-    background[p] = mean(members)
-  else:
-    background[p] = clear
+  seen = [f[p + offset[f]] for f in frames if inside]
+  if range(seen) <= tolerance: background[p] = mean(seen)
+  else: changed[p] = true
+
+# 3. what moved, patch by patch
+for each patch P with changed pixels:
+  versions = [f[P + offset[f]] for f seeing all of P]
+  groups = []
+  for v in versions:
+    g = first group whose first version matches v on 90% of P's changed pixels
+    if g: g.add(v) else: groups += Group(v)
+  score(g) = len(g) + 0.5 * (frames in g just after another frame in g)
+  best = max score
+  if len(best) / len(versions) >= agreement:
+    for p in changed pixels of P:
+      background[p] = mean(v[p] for v in best if v[p] ~ best.first[p])
+
+# or 2-3, by Voronoi areas
+palette = kmeans(sample(frames), colours)
+for f in frames:                                    # each from the one before
+  diagram[f] = voronoi(f, nodes, palette, start = diagram[f-1] moved by the camera)
+  areas[f] = cells of one colour that touch, joined
+for f, area a of f:
+  change[a] = median over other frames g of
+                share of a's pixels that g (lined up) does not show in a's colour within a pixel
+  animated[a] = change[a] >= moving
+for each pixel p:
+  ok = [f for f in frames if p is not in (a pixel of) an animated area of f]
+  ok = [f for f in ok if change(f, p) <= least change(ok, p) + 0.1]
+  background[p] = channel-by-channel median(f[p + offset[f]] for f in ok)   # none: clear
+
 for mark in marks (in order):
-  for p in mark's region or stroke:
-    background[p] = frame_nearest(mark.time)[p] if include else clear`,
+  for q in mark's region or stroke on its frame f:
+    p = q - offset[f]
+    background[p] = f[q] if include else clear`,
   sections: [
     {
-      heading: 'The most common colour, not the average',
-      body: 'Averaging a pixel over the frames mixes the background with whatever walked past. The median does better, but still drifts when something lingers. Taking the **most common** colour — the biggest group of colours that are the same within the tolerance — gives the background wherever it is visible more often than anything else is, and ignores the rest entirely: the colour is the average of that group only.',
+      heading: 'Following the camera',
+      body: 'A hand-held shot, or one that pans, moves the whole picture between frames, and a background compared pixel by pixel would then change everywhere. So each frame is lined up first: the shift that makes it match the frame it is followed from best. Every pixel counts in the match — a cartoon background of flat colours matches at many shifts except along its edges, and leaving out the pixels that match worst, as a trimmed mean would, leaves out exactly those edges — but each pixel’s difference is capped, so a character moving in front costs about the same at any shift and cannot pull the frames out of line. The search starts on a small copy of the picture and is made exact on bigger and bigger ones, and it starts from where the frame before sat, so it follows a pan however far it goes. Frames are matched against one frame rather than each against the one before, so a drift of a fraction of a pixel a frame adds up instead of rounding away; once the picture has moved a quarter of its width from that frame, the frames after are followed from the newest one.',
+    },
+    {
+      heading: 'What never changes',
+      body: 'With the frames lined up, a pixel whose colour stays within the **Tolerance** in every frame that sees it is background, as the average of its colours. That is most of a shot with a still background. A pixel that changes at all is left clear, for the next step to rebuild.',
+    },
+    {
+      heading: 'Rebuilding what moved, patch by patch',
+      body: 'Where something moved, each frame shows either the background or the thing in front of it. Taking each pixel’s commonest colour on its own mixes pixels from different frames into a background no frame ever showed, and lets the edges of a character through. Instead the picture is cut into square **patches**, and each frame’s version of a patch is compared with the others: versions that match on nearly all of the changed pixels are one group. The background is the biggest group — it is what that patch shows most often — and frames read one after another in it count half again, because a background seen in one frame is seen in the frames beside it, while a character passing over it is somewhere else a moment later. The patch’s changed pixels are filled from that group’s frames, so each patch is one coherent picture.',
     },
     {
       heading: 'Agreement',
-      body: 'A pixel is kept only if its most common colour is in at least **Agreement** of the frames. At 50% it is the colour more often than not; at 100% only pixels that never change are kept; lower it for a character who stands still for most of the clip. Below the agreement no colour is common enough to trust, and the pixel is left clear rather than guessed.',
+      body: 'A patch is rebuilt only if its best group holds at least **Agreement** of the frames that see it. Below that no one picture of the patch is common enough to trust, and what changed in it is left clear rather than guessed. Lower it for a character that covers part of the background most of the time; raise it if a character that lingered is taken for the background.',
     },
     {
-      heading: 'Grouping',
-      body: 'Colours are grouped as they come, frame by frame: each joins the first group whose running average it is within the **Tolerance** of (over red, green, blue and opacity, with black to white at 100), or starts a new group. The biggest group is then counted again against its final average, so the order of the frames matters little.',
+      heading: 'Or: by Voronoi areas',
+      body: 'Pixels and patches compare colours where they are. The other way compares shapes: each frame is drawn as a Voronoi diagram (see the Voronoi Diagram flow) of so many nodes, all in one palette of colours found by k-means over every frame, so the same thing has the same colour throughout. Cells of one colour that touch are an **area** — the sky, a wall, a character’s coat. An area is compared with the other frames, lined up: the share of it each does not show in its colour, within a pixel so a wavering edge or a thin line drawn a little differently is the same. A wall a character walked across is still mostly there in most frames; a character that walked is not where it was. The middle of those shares is how much the area changed, and one that changed by at least **Animated when it changes by** is animated. The frames are then laid over each other and each pixel of the background is the middle colour of the frames where it is not in an animated area — of those, the frames whose area there changed least, since a character’s edge that joined the wall’s area in a frame changes it a little. Each frame’s diagram starts from the nodes of the one before, moved by the camera, so what did not move is drawn the same way; and the areas are worked out once, so moving the threshold only lays the frames over each other again.',
     },
     {
       heading: 'Putting back by hand',
-      body: 'A character that never moves off part of the background leaves it clear, or wrong. Pick a frame where that part can be seen and paint it in, or draw round it: those pixels are taken from that frame. The eraser takes pixels out. Marks are laid on in the order made, so a later erase clears an earlier paint.',
+      body: 'A character that never moves off part of the background leaves it clear, or wrong. Pick a frame where that part can be seen and paint it in, or draw round it: those pixels are taken from that frame, moved by where the background sits in that frame. The eraser takes pixels out. Marks are laid on in the order made, so a later erase clears an earlier paint.',
+    },
+    {
+      heading: 'Where the background sits',
+      body: 'The background is drawn where the frames were in the middle, so it lines up with a typical frame. The report lists, for every frame read, how far right and down that frame’s picture is from it: a frame’s pixel at (x + right, y + down) shows the background’s (x, y). That is what puts a character cut from a frame back in its place over the background.',
     },
   ],
   settings: [
-    { name: 'Frames in all / a second', effect: 'How many frames are compared. More frames make the most common colour surer, and each is read smaller.' },
-    { name: 'Tolerance', effect: 'How far apart two colours may be and still count as the same.' },
-    { name: 'Agreement', effect: 'The share of frames the most common colour must be in for the pixel to be kept.' },
+    { name: 'Frames in all / a second', effect: 'How many frames are compared. More frames make the groups surer, and each is read smaller.' },
+    { name: 'Follow the camera', effect: 'Line the frames up before comparing them. Off for a shot known to be still.' },
+    { name: 'Most it moves between frames', effect: 'How far the search looks from where the frame before sat.' },
+    { name: 'Tolerance', effect: 'How far a colour may change and still count as not changing.' },
+    { name: 'Rebuild what moved from patches', effect: 'Off leaves every pixel that changed clear.' },
+    { name: 'Patch', effect: 'The side of the square patches what moved is rebuilt from.' },
+    { name: 'Agreement', effect: 'The share of frames a patch’s best group must hold for the patch to be rebuilt.' },
+    { name: 'Pixels and patches / Voronoi areas', effect: 'How what moved is found.' },
+    { name: 'Nodes a frame', effect: 'Voronoi areas: the nodes in each frame’s diagram; more fit shapes more tightly.' },
+    { name: 'Colours', effect: 'Voronoi areas: the colours every diagram shares; fewer make bigger areas.' },
+    { name: 'Animated when it changes by', effect: 'Voronoi areas: how much an area must change against the other frames to be left out.' },
     { name: 'Brush', effect: 'The radius of the brush that paints or erases.' },
   ],
-  cost: 'Pixels × frames × groups — groups are few (usually one to three), so about pixels × frames.',
+  cost: 'Lining up: a few shifts per frame on each level, each over the picture — about frames × pixels × 15. Still pixels: pixels × frames. Patches: for each that changed, frames × groups × up to 96 pixels. A few seconds of frames take a second or two, worked a slice at a time so the page stays responsive.',
   resources: [
     { title: 'Background subtraction', url: 'https://en.wikipedia.org/wiki/Background_subtraction', note: 'The wider problem of separating a still background from what moves over it.' },
-    { title: 'Mode (statistics)', url: 'https://en.wikipedia.org/wiki/Mode_(statistics)', note: 'The most common value, which is what each pixel takes.' },
+    { title: 'Image registration', url: 'https://en.wikipedia.org/wiki/Image_registration', note: 'Lining pictures of the same scene up with each other.' },
+    { title: 'Pyramid (image processing)', url: 'https://en.wikipedia.org/wiki/Pyramid_(image_processing)', note: 'Searching coarse to fine on halved copies of a picture.' },
+    { title: 'Mode (statistics)', url: 'https://en.wikipedia.org/wiki/Mode_(statistics)', note: 'The most common value: what each patch’s biggest group is.' },
+    { title: 'k-means clustering', url: 'https://en.wikipedia.org/wiki/K-means_clustering', note: 'The palette every frame’s diagram shares; k-means++ picks where it starts.' },
+    { title: 'Voronoi diagram', url: 'https://en.wikipedia.org/wiki/Voronoi_diagram', note: 'Each frame drawn as cells, each one colour.' },
   ],
-  source: ['packages/shared/src/flows/videoBackground.ts — commonestBackground, applyMarks, backgroundFrameSize', 'packages/shared/src/flows/clipFrames.ts — clipFrameTimes, snapToClipFrame, frameLengthOf', 'packages/client/src/components/common/clip.ts — openClip, useClipProbe'],
+  source: [
+    'packages/shared/src/flows/videoBackground.ts — steadyWork, backgroundWork, applyMarks, backgroundInFrame, backgroundFrameSize; sharedPaletteWork, voronoiAreasWork, areasOfFit, areaChangeWork, voronoiBackgroundWork, areasPicture',
+    'packages/shared/src/flows/voronoi.ts — workPicture, fitWork',
+    'packages/shared/src/flows/clipFrames.ts — pickFrameTimes, gridFrameTimes',
+    'packages/client/src/components/common/frames.ts — openVideoFrames, useVideoFrameTimes',
+  ],
+  tryIt: 'Read the frames, then pick one below the picture: the green tint over it is what is background already, lined up with that frame. Untick Rebuild what moved to see what never changed on its own. With Voronoi areas, tick Show its areas: the frame as its areas, the animated ones striped red.',
 };

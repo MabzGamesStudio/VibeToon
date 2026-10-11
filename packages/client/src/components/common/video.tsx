@@ -13,21 +13,44 @@ export async function loadVideo(url: string): Promise<HTMLVideoElement> {
     element.onerror = () => reject(new Error('the video could not be read in this browser'));
     element.src = url;
   });
-  // A video recorded in a browser often does not say how long it is until it
-  // has been read to the end; seeking past the end makes it find out.
-  if (!Number.isFinite(video.duration)) {
-    await new Promise<void>((resolve) => {
-      const known = () => {
-        if (!Number.isFinite(video.duration)) return;
-        video.removeEventListener('durationchange', known);
-        resolve();
-      };
-      video.addEventListener('durationchange', known);
-      video.currentTime = 1e101;
-    });
-    await seek(video, 0);
-  }
+  await findTheEnd(video);
   return video;
+}
+
+/**
+ * Make a video say how long it really is.
+ *
+ * A header is not to be trusted for this. One recorded in a browser often has
+ * no length at all, and some — a recording in pieces, an MP4 written as it
+ * went — give the length of only the first part, so a clip that plays for
+ * three seconds says half a second, and everything worked out from it (its
+ * frames, its segments) is cut short. Seeking past the end makes the browser
+ * read to the real end, whatever the header said; the length is then the
+ * furthest of what it says and what it can seek to.
+ */
+export async function findTheEnd(video: HTMLVideoElement): Promise<number> {
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener('seeked', onSeeked);
+      window.clearTimeout(timer);
+      resolve();
+    };
+    const onSeeked = () => {
+      // Still no length: give it a moment more to find one.
+      if (Number.isFinite(video.duration)) done();
+    };
+    const timer = window.setTimeout(done, 8000);
+    video.addEventListener('seeked', onSeeked);
+    video.addEventListener('durationchange', onSeeked);
+    video.currentTime = 1e101;
+  });
+  const seekable = video.seekable.length > 0 ? video.seekable.end(video.seekable.length - 1) : 0;
+  const end = Math.max(Number.isFinite(video.duration) ? video.duration : 0, Number.isFinite(seekable) ? seekable : 0);
+  await seek(video, 0);
+  return end;
 }
 
 export function seek(video: HTMLVideoElement, time: number): Promise<void> {
@@ -84,36 +107,6 @@ export class FrameReader {
     this.context.drawImage(this.video, 0, 0, this.width, this.height);
     return this.canvas.toDataURL('image/jpeg', quality);
   }
-}
-
-export interface VideoMeta {
-  duration: number;
-  width: number;
-  height: number;
-}
-
-/** A video's length and size, read once for each URL. */
-export function useVideoMeta(url: string | null): { meta: VideoMeta | null; error: string | null } {
-  const [meta, setMeta] = useState<VideoMeta | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    setMeta(null);
-    setError(null);
-    if (!url) return undefined;
-    let cancelled = false;
-    loadVideo(url)
-      .then((video) => {
-        if (!cancelled) setMeta({ duration: video.duration, width: video.videoWidth, height: video.videoHeight });
-        releaseVideo(video);
-      })
-      .catch((reason: Error) => {
-        if (!cancelled) setError(reason.message);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-  return { meta, error };
 }
 
 /**

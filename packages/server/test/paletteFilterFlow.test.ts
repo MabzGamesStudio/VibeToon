@@ -212,6 +212,21 @@ test('a snap result is checked against the palette, value by value', async () =>
   assert.match(await report(), /1 of them not palette colors/);
 });
 
+test('a fold is checked value by value like a snap, and its report says what folded and why', async () => {
+  const data = emptyPaletteFilterFlowData();
+  await setFilter({ ...data, options: { ...data.options, mode: 'fold', foldArea: 120, foldCloseness: 20, foldRatio: 3 }, imageHash, paletteHash });
+  const exact = encodePng([[[0xdc, 0x28, 0x28], [0xdc, 0x28, 0x28], [0x28, 0x3c, 0xdc]]]);
+  let run = (await generate([{ name: 'filtered.png', data: `data:image/png;base64,${exact.toString('base64')}` }])).runs[0]!;
+  assert.ok(!run.warnings.some((warning) => /not palette colors/.test(warning)), run.warnings.join('; '));
+  const body = await report();
+  assert.match(body, /Snap, and fold small areas into big close ones/);
+  assert.match(body, /Folded: an area of one color under 120px took the color of a neighbour within 20 of its own and at least ×3 as big/);
+  assert.match(body, /## Folding/);
+  assert.match(body, /every one of them a palette color/);
+  run = (await generate(png())).runs[0]!;
+  assert.ok(run.warnings.some((warning) => /not palette colors/.test(warning)), 'a value off the palette is caught in a fold too');
+});
+
 test('the tolerance is reported where it applies, and spelled out at zero', async () => {
   const data = emptyPaletteFilterFlowData();
   await setFilter({

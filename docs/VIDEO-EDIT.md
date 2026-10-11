@@ -30,9 +30,11 @@ A video from this machine or from a link.
   - Addresses on this machine and on the private network are refused before
     anything is asked, as for pictures.
 
-The editor plays the video and measures its **length** and **size** (a video
-recorded in a browser often does not say how long it is until read to the end,
-so the editor reads to the end once to find out). **What it is** and **Credit
+The editor reads the video's **length**, **frame count**, **frame rate** and
+**size** from the file's own packets — the length is when its last frame ends —
+not from its header, which a video recorded in a browser often leaves without a
+length. Where this browser cannot decode the file, it plays it instead and reads
+to the end once to find its length. **What it is** and **Credit
 and terms** are written into `source.md` with where the video came from. A video
 fetched from a link with no credit is flagged there: it belongs to someone.
 
@@ -111,8 +113,8 @@ filmstrip. At first there is one, the whole video.
 **Play** plays the video. With **play the edit** ticked (the default) it skips
 what is deleted, so what you see is what will be written. Space plays and
 pauses. A split, scrubbing and stepping all snap to the **frame rate**, which is
-what "a frame" means here: a browser cannot read a video's own frame rate, so
-set it to the video's.
+what "a frame" means here; it is read from the file when the video arrives. The
+line under the video says which frame is showing and how many there are.
 
 ## Crop
 
@@ -122,13 +124,20 @@ one; or type its left, top, width and height. Everything outside it is dimmed.
 The crop is the same for every frame, and its sides are kept even, which video
 encoders need.
 
-## Recorded as
+## Length and frame rate
 
-**Recorded as** (under *What comes out*) picks the format the edit, or each
-clip, is written in: WebM (VP9, VP8 or AV1), MP4 (H.264) or Matroska (H.264).
-One this browser cannot record is greyed out. The run that writes the files
-records which edit they came from, so the flow is up to date after its own
-Generate.
+The video's length, frame count and frame rate are read from the file's own
+packets — when its last frame ends, how many frames it holds, and how many a
+second — not from its header; the *Frame rate* starts at what was read, for each
+video of a batch on its own. Stepping, splitting and writing all go by it.
+
+## Written as
+
+**Written as** (under *What comes out*) picks the format the edit, or each clip,
+is written in: WebM (VP9, VP8 or AV1), MP4 (H.264) or Matroska (H.264). One this
+browser cannot write is greyed out; one it has no encoder for, so can only
+record as the video plays, is marked ⚠. The run that writes the files records
+which edit they came from, so the flow is up to date after its own Generate.
 
 ## What comes out
 
@@ -141,16 +150,41 @@ Generate.
   were kept (and the clip each became) and which were deleted, and the edited
   length. It is the edit itself, to redo from the source elsewhere.
 
-**Generate** records the edit in the editor: the video is played through the
-crop, segment by segment, and recorded as WebM (VP9 where the browser has it).
-So it takes about as long as the edit lasts. A progress bar shows how far it
-has got, and **Stop** stops it without writing anything.
+**Generate** writes the edit in the editor, **frame by frame**: frame *i* of a
+segment is the video's own frame for the middle of its slot, *start + (i + ½) /
+fps*, decoded from the file, drawn through the crop and encoded at exactly
+*i / fps* (with Mediabunny, over the browser's WebCodecs). So a segment of *n /
+fps* seconds is exactly *n* frames, evenly spaced, nothing is dropped however
+slow the page is, and it does not take as long as the edit lasts. The file is
+finished properly: its length in its header, an index (WebM Cues, or an MP4
+index at the front) and a whole picture at least every second, so every reader
+agrees on how long it is and how many frames it has, and can go straight to any
+of them. A progress bar shows how far it has got, and **Stop** stops it without
+writing anything.
 
-- **The sound is not kept.** Only the picture is recorded.
-- When the edit changes after it was recorded, the editor says so until it is
-  recorded again.
+- Where this browser cannot decode the source from its file, each frame is shown
+  in a video element and drawn once the browser says it is shown, then encoded
+  the same way.
+- Where it has no encoder for the chosen format, the edit is recorded as it
+  plays (the old way: real time, frames caught whenever the page draws one) and
+  the recording is copied into a file with its length and an index. Its frames
+  may not be evenly spaced; the editor says so.
+- **The sound is not kept.** Only the picture is written.
+- When the edit changes after it was written, the editor says so until it is
+  written again.
 - A run without the editor (**Generate stale** on the graph) writes `edit.json`
-  and says the video is recorded in the editor.
+  and says the video is written in the editor.
+
+### Why not record it as it plays
+
+The edit used to be written by playing it and recording the page. A recording
+like that catches a frame whenever the page manages to draw one: a 5-second
+clip came out as 73 frames, some a millisecond apart and some half a second, in
+a file with no length in its header and no index. It played fine, but its length
+and frame count read differently in every place that looked, and reading frames
+out of it one by one gave the same frame again and again across the long gaps.
+Writing frame by frame from the decoded source is what makes the length, the
+frames and the file agree.
 - Choosing a different video clears the segments and crop, since they were for
   another video.
 

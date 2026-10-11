@@ -3166,6 +3166,78 @@ input.is-invalid {
   }
 }
 
+/* ---------------- character split ---------------- */
+
+.vt-char-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vt-char {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid $line;
+  border-radius: 4px;
+  background: $bg-1;
+
+  &.is-on {
+    border-color: $accent;
+  }
+
+  &.is-out {
+    opacity: 0.55;
+  }
+
+  select {
+    font: inherit;
+    font-size: 11px;
+  }
+}
+
+.vt-char-swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid $line;
+}
+
+.vt-char-palette {
+  display: flex;
+  gap: 1px;
+
+  i {
+    width: 8px;
+    height: 14px;
+  }
+}
+
+.vt-char-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.vt-char-dots {
+  display: flex;
+  gap: 2px;
+  min-height: 48px;
+  min-width: 48px;
+  align-items: center;
+  justify-content: center;
+
+  i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+}
+
 /* ---------------- shot split ---------------- */
 
 .vt-shot-list {
