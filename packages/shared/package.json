@@ -9,7 +9,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc -b"
   },
   "devDependencies": {

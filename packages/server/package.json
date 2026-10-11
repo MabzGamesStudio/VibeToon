@@ -5,9 +5,9 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "dev": "node --import tsx --watch src/index.ts",
-    "start": "node --import tsx src/index.ts",
-    "test": "node --import tsx --test test/*.test.ts",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc -b"
   },
   "dependencies": {

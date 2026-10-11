@@ -12,7 +12,7 @@
  * the same every time.
  *
  *   npm pack @openstreetmap/id-tagging-schema && tar xzf openstreetmap-id-tagging-schema-*.tgz
- *   node --import tsx scripts/map-catalogue.ts ./package
+ *   npx tsx scripts/map-catalogue.ts ./package
  *
  * The largest scales — continents, oceans, mountain ranges, deserts — are not
  * in it (OpenStreetMap maps what can be surveyed), and are added by hand in
@@ -23,7 +23,7 @@ import path from 'node:path';
 
 const root = process.argv[2];
 if (!root) {
-  console.error('usage: node --import tsx scripts/map-catalogue.ts <unpacked id-tagging-schema package>');
+  console.error('usage: npx tsx scripts/map-catalogue.ts <unpacked id-tagging-schema package>');
   process.exit(1);
 }
 

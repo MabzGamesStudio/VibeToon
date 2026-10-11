@@ -35,6 +35,22 @@ function missingPackages() {
   return missing;
 }
 
+/*
+ * Too old a Node fails deep inside a child process with a message that does not
+ * say so ("bad option: --import", a syntax error in a dependency). Say it here.
+ */
+const [major, minor] = process.versions.node.split('.').map(Number);
+if (major < 18) {
+  process.stderr.write(
+    `VibeToon needs Node.js 20.11 or newer; this is Node ${process.versions.node}.\n` +
+      'Install the current LTS from https://nodejs.org (or `nvm install --lts`), then run npm install and npm run dev again.\n',
+  );
+  process.exit(1);
+}
+if (major < 20 || (major === 20 && minor < 11)) {
+  process.stdout.write(`Node ${process.versions.node} is older than the 20.11 VibeToon is built for; it may work, but if anything fails, update Node first.\n`);
+}
+
 const missing = missingPackages();
 if (missing.length > 0) {
   process.stdout.write(`Not installed yet: ${missing.join(', ')}. Running npm install first…\n`);
